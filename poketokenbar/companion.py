@@ -268,6 +268,18 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}-{mon.current_id}")
+    # A pin that had been following this companion has nothing left to follow,
+    # so it is released rather than left standing on the panel. Without this it
+    # stayed: the species is in the dex now, so reconcile keeps it, and the
+    # panel showed the graduated Pokemon through the whole next egg and past
+    # the hatch after it — the egg never appeared, the new companion never
+    # appeared, and its evolutions looked like they had not happened.
+    #
+    # Only the form that is graduating. A pin on any other form names a species
+    # someone chose over the companion, which is the same rule the evolution
+    # handoff follows.
+    if state.representative_species_id == mon.current_id:
+        state.representative_species_id = None
     state.active = None
     state.egg_usage = 0
     return entry
