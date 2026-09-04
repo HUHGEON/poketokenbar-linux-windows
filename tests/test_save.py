@@ -102,13 +102,28 @@ def test_out_of_range_stage_index_is_clamped(tmp_path):
 
 
 def test_wrong_typed_field_falls_back_without_losing_the_rest(tmp_path):
+    """The neighbouring field is `egg_usage` rather than `spent_tokens`: the
+    ledger is reconciled after decoding, so a spend against a total that fell
+    back to zero is pulled to zero with it — correctly, and not what this test
+    is about."""
+    p = tmp_path / "companion.json"
+    p.write_text(
+        json.dumps({"used_since_install": "lots", "egg_usage": 7}), encoding="utf-8"
+    )
+    loaded = save.load(p)
+    assert loaded.used_since_install == 0
+    assert loaded.egg_usage == 7
+
+
+def test_a_spend_against_a_total_that_fell_back_is_pulled_back_too(tmp_path):
+    """Left alone it is a ledger claiming more spent than was ever earned, and
+    every figure derived from it afterwards is wrong by the difference."""
     p = tmp_path / "companion.json"
     p.write_text(
         json.dumps({"used_since_install": "lots", "spent_tokens": 7}), encoding="utf-8"
     )
     loaded = save.load(p)
-    assert loaded.used_since_install == 0
-    assert loaded.spent_tokens == 7
+    assert (loaded.used_since_install, loaded.spent_tokens) == (0, 0)
 
 
 def test_legacy_save_without_per_provider_map_signals_reseed(tmp_path):

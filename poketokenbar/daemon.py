@@ -297,6 +297,13 @@ class Daemon:
             if self.limits_source.last_error:
                 errors.append(f"limits: {self.limits_source.last_error}")
 
+        # Said once, on the poll after the save was read: a repaired save that
+        # says nothing is the same silence the repair exists to end.
+        if self.companion_store is not None and self.companion_store.save_repairs:
+            for note in self.companion_store.save_repairs:
+                errors.append(f"save: {note}")
+            self.companion_store.save_repairs = []
+
         companion_payload = None
         if self.companion_store is not None:
             try:

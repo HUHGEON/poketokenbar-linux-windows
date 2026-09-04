@@ -151,7 +151,93 @@ def decode(raw: dict) -> CompanionState:
     if isinstance(tiers, dict):
         state.candy_grant_tier = {k: v for k, v in tiers.items() if isinstance(v, int)}
     state.candy_feature_seeded = _lenient(raw, "candy_feature_seeded", bool, False)
+    global last_repairs
+    last_repairs = reconcile(state)
     return state
+
+
+# The highest species id that can exist. A save naming one above it has been
+# edited or damaged; there is nothing to draw and nothing to look up.
+MAX_SPECIES_ID = 1025
+
+
+def reconcile(state: CompanionState) -> list[str]:
+    """Pull a save back inside the rules, and say what had to move.
+
+    Not an anti-cheat measure — the file belongs to whoever is running this and
+    a value that merely *is* generous stays. This is for the values that cannot
+    be true at all, and it exists because they arrive by more routes than
+    editing: a write cut short, a disk error, a save carried between machines,
+    a field an older version wrote, and the `import` command, which takes
+    somebody else's file wholesale.
+
+    They used to be accepted in silence and then quietly misbehave — a species
+    id nothing can draw showed a blank square, a stage past the end of the
+    evolution line drew the wrong form, a ledger claiming more spent than
+    earned made every later balance wrong.
+    """
+    notes: list[str] = []
+
+    if state.used_since_install < 0:
+        notes.append("used_since_install was negative")
+        state.used_since_install = 0
+    if state.spent_tokens < 0:
+        notes.append("spent_tokens was negative")
+        state.spent_tokens = 0
+    if state.spent_tokens > state.used_since_install:
+        # Spendable already floors at zero, so this is invisible until the
+        # ledger is read for anything else — and then every figure from it is
+        # wrong by the difference.
+        notes.append("spent_tokens exceeded used_since_install")
+        state.spent_tokens = state.used_since_install
+    if state.egg_usage < 0:
+        notes.append("egg_usage was negative")
+        state.egg_usage = 0
+
+    state.inventory = {
+        key: value for key, value in state.inventory.items()
+        if isinstance(key, str) and isinstance(value, int) and value > 0
+    }
+    state.candy_grant_tier = {
+        key: value for key, value in state.candy_grant_tier.items()
+        if isinstance(key, str) and isinstance(value, int) and value >= 0
+    }
+
+    mon = state.active
+    if mon is not None:
+        mon.path_ids = [i for i in mon.path_ids if _is_species(i)]
+        mon.planned_path_ids = [i for i in mon.planned_path_ids if _is_species(i)]
+        if not mon.path_ids or not _is_species(mon.base_id):
+            # Nothing left to show. An egg is the honest state, and the dex is
+            # untouched — losing one companion beats rendering a ghost.
+            notes.append("the companion named a species that cannot exist")
+            state.active = None
+        else:
+            if not 0 <= mon.stage_index < len(mon.path_ids):
+                notes.append("stage_index was outside the evolution line")
+                mon.stage_index = max(0, min(mon.stage_index, len(mon.path_ids) - 1))
+            if mon.total_forms < len(mon.path_ids):
+                # Fewer forms than stages makes the threshold for the last one
+                # smaller than the one before it.
+                notes.append("total_forms was below the number of stages")
+                mon.total_forms = len(mon.path_ids)
+            if mon.used_at_stage < 0:
+                notes.append("used_at_stage was negative")
+                mon.used_at_stage = 0
+
+    kept = [entry for entry in state.dex if _is_species(entry.final_id)
+            and _is_species(entry.base_id)]
+    if len(kept) != len(state.dex):
+        notes.append(f"{len(state.dex) - len(kept)} dex entries named a species "
+                     "that cannot exist")
+        state.dex = kept
+
+    state.reconcile_representative()
+    return notes
+
+
+def _is_species(value) -> bool:
+    return isinstance(value, int) and 1 <= value <= MAX_SPECIES_ID
 
 
 def encode(state: CompanionState) -> dict:
@@ -207,6 +293,12 @@ def encode(state: CompanionState) -> dict:
     }
 
 
+# What the last `load` had to put back inside the rules. Read once by the
+# daemon and cleared, so a repair is reported when it happens rather than on
+# every poll for the life of the process.
+last_repairs: list[str] = []
+
+
 def load(path: Path | None = None) -> CompanionState:
     path = path or default_path()
     try:
@@ -219,7 +311,9 @@ def load(path: Path | None = None) -> CompanionState:
     if not isinstance(raw, dict):
         _quarantine(path)
         return CompanionState()
-    return decode(raw)
+    state = CompanionState()
+    state = decode(raw)
+    return state
 
 
 def _quarantine(path: Path) -> None:

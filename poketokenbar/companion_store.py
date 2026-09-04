@@ -41,6 +41,10 @@ class CompanionStore:
     ) -> None:
         self.save_path = save_path
         self.state: CompanionState = save.load(save_path)
+        # What loading had to put back inside the rules, for the daemon to
+        # report once. A save is repaired in silence otherwise, and the first
+        # sign is a Pokemon that looks wrong.
+        self.save_repairs: list[str] = list(save.last_repairs)
         self.api = api
         self.sprites = sprite_store
         self.rng = rng or random.Random()
