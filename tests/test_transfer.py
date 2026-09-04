@@ -89,10 +89,148 @@ def test_import_backs_up_the_previous_save(tmp_path):
     transfer.export_to(incoming, _state(dex=1, tokens=1))
     transfer.import_from(incoming, target=target)
 
-    backup = tmp_path / "companion.json.before-import"
-    assert backup.is_file()
-    assert save.load(backup).used_since_install == 999
+    kept = transfer.backups(target)
+    assert len(kept) == 1
+    assert save.load(kept[0]).used_since_install == 999
     assert save.load(target).used_since_install == 1
+
+
+def test_a_second_import_does_not_destroy_the_first_backup(tmp_path):
+    """The fixed backup name meant importing twice lost the original save.
+
+    Which is precisely the case someone hits: import the wrong file, then
+    import again trying to fix it, and the only copy of what they started with
+    is gone.
+    """
+    target = tmp_path / "companion.json"
+    save.save(_state(dex=5, tokens=999), target)
+
+    for tokens in (1, 2):
+        incoming = tmp_path / f"export-{tokens}.json"
+        transfer.export_to(incoming, _state(dex=1, tokens=tokens))
+        transfer.import_from(incoming, target=target)
+
+    kept = transfer.backups(target)
+    assert len(kept) == 2
+    assert {save.load(b).used_since_install for b in kept} == {999, 1}
+
+
+def test_backups_are_capped(tmp_path):
+    target = tmp_path / "companion.json"
+    save.save(_state(tokens=1), target)
+    incoming = tmp_path / "export.json"
+    transfer.export_to(incoming, _state(dex=1, tokens=1))
+
+    for _ in range(transfer.KEEP_BACKUPS + 3):
+        transfer.import_from(incoming, target=target)
+
+    assert len(transfer.backups(target)) == transfer.KEEP_BACKUPS
+
+
+def test_an_import_that_cannot_be_backed_up_is_refused(tmp_path, monkeypatch):
+    """The backup is the only way back, so proceeding without one is worse
+    than not importing at all."""
+    from pathlib import Path as _Path
+
+    target = tmp_path / "companion.json"
+    save.save(_state(dex=5, tokens=999), target)
+    incoming = tmp_path / "export.json"
+    transfer.export_to(incoming, _state(dex=1, tokens=1))
+
+    def refuse(self, data):
+        raise OSError("read-only file system")
+
+    monkeypatch.setattr(_Path, "write_bytes", refuse)
+    with pytest.raises(transfer.TransferError):
+        transfer.import_from(incoming, target=target)
+
+    assert save.load(target).used_since_install == 999
+
+
+def test_import_does_not_carry_the_other_machine_baseline(tmp_path):
+    """`claimed_today_tokens_by_provider` says how far *this* machine's logs
+    have been counted, so importing it either re-credits a whole day or
+    swallows real usage, depending on which machine had read further."""
+    exported = _state()
+    exported.claimed_today_tokens_by_provider = {"claude_code": 5_000_000}
+    exported.last_date = "2020-01-01"
+    path = tmp_path / "export.json"
+    transfer.export_to(path, exported)
+
+    restored = transfer.import_from(path, target=tmp_path / "companion.json")
+
+    # None is the "seed from the next snapshot, grant nothing" sentinel.
+    assert restored.claimed_today_tokens_by_provider is None
+    assert restored.last_date == ""
+    # Progress itself still travels.
+    assert restored.used_since_install == 1234
+
+
+def test_restore_puts_the_previous_save_back(tmp_path):
+    target = tmp_path / "companion.json"
+    save.save(_state(dex=5, tokens=999), target)
+
+    incoming = tmp_path / "export.json"
+    transfer.export_to(incoming, _state(dex=1, tokens=1))
+    transfer.import_from(incoming, target=target)
+    assert save.load(target).used_since_install == 1
+
+    restored = transfer.restore_backup(target)
+    assert restored.used_since_install == 999
+    assert save.load(target).used_since_install == 999
+
+
+def test_restore_can_itself_be_undone(tmp_path):
+    target = tmp_path / "companion.json"
+    save.save(_state(dex=5, tokens=999), target)
+    incoming = tmp_path / "export.json"
+    transfer.export_to(incoming, _state(dex=1, tokens=1))
+    transfer.import_from(incoming, target=target)
+
+    transfer.restore_backup(target)
+    assert save.load(target).used_since_install == 999
+    transfer.restore_backup(target)
+    assert save.load(target).used_since_install == 1
+
+
+def test_restore_without_a_backup_says_so(tmp_path):
+    with pytest.raises(transfer.TransferError):
+        transfer.restore_backup(tmp_path / "companion.json")
+
+
+def test_describe_reports_what_is_in_an_export(tmp_path):
+    path = tmp_path / "export.json"
+    transfer.export_to(path, _state(dex=4, tokens=50))
+
+    described = transfer.describe(path)
+    assert described["exists"] is True
+    assert described["error"] is None
+    assert described["dex_count"] == 4
+    assert described["used_since_install"] == 50
+    assert described["items"] == 3
+    assert described["exported_at"] > 0
+    assert described["device"]
+
+
+def test_describe_reports_a_missing_file_rather_than_raising(tmp_path):
+    described = transfer.describe(tmp_path / "nothing.json")
+    assert described["exists"] is False
+    assert described["error"] is None
+    assert described["dex_count"] is None
+
+
+def test_describe_reports_a_foreign_file_rather_than_raising(tmp_path):
+    path = tmp_path / "other.json"
+    path.write_text(json.dumps({"hello": "world"}), encoding="utf-8")
+    described = transfer.describe(path)
+    assert described["exists"] is True
+    assert described["error"]
+
+
+def test_the_export_path_is_the_same_one_the_ui_offers():
+    """Both sides read it from here; a second copy in the extension is how the
+    popup ends up describing a different file from the one it imports."""
+    assert transfer.default_export_path().name == "poketokenbar-save.json"
 
 
 def test_summary_describes_progress_for_the_overwrite_prompt():

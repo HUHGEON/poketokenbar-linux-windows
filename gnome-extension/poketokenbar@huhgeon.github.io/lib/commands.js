@@ -73,3 +73,6 @@ export const represent = speciesId =>
     enqueue('represent', {species_id: speciesId === null ? 'none' : String(speciesId)});
 export const exportSave = path => enqueue('export', {path});
 export const importSave = path => enqueue('import', {path});
+// The way back from an import that replaced the wrong save. No path: the
+// daemon restores from the backup it took when it overwrote the file.
+export const undoImport = () => enqueue('restore', {});

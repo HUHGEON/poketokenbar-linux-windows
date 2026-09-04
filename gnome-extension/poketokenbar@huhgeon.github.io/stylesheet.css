@@ -132,6 +132,35 @@
   padding-top: 4px;
 }
 
+/* The overwrite prompt. Boxed and set apart from the actions row above it,
+   because it is the one place in the popup where a click destroys something. */
+.poketokenbar-confirm {
+  spacing: 4px;
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.poketokenbar-confirm-title {
+  font-weight: bold;
+}
+
+.poketokenbar-confirm-detail {
+  font-size: 0.9em;
+  opacity: 200;
+}
+
+.poketokenbar-confirm-warning {
+  font-size: 0.9em;
+  color: #d29922;
+}
+
+/* The destructive half of the prompt, so "Replace" never looks like "Cancel". */
+.poketokenbar-danger {
+  color: #f85149;
+}
+
 .poketokenbar-button {
   padding: 3px 10px;
   border-radius: 6px;

@@ -162,6 +162,15 @@ class Notifier:
         # kind -> highest tier already announced (1 = warn, 2 = crit).
         self._limit_tier: dict[str, int] = {}
 
+    def transfer(self, key: str, language: str = "en", subject: str = "") -> None:
+        """Announce the result of an export, an import, or an undone import.
+
+        Through the catalogue like everything else: these were English literals
+        built in the daemon, which is the one place a toast can still come out
+        in the wrong language.
+        """
+        self._send("PokeTokenBar", l10n.t(key, language).replace("%1", subject))
+
     def companion(
         self,
         events,

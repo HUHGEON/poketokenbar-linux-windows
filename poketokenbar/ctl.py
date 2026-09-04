@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         print("usage: poketokenctl {set <key> <value>|scan-roots <provider> <paths>|"
               "represent <species-id|none>|refresh|buy <key>|use <key>|"
-              "export <path>|import <path>}",
+              "export <path>|import <path>|restore}",
               file=sys.stderr)
         return 2
 
@@ -60,6 +60,15 @@ def main(argv: list[str] | None = None) -> int:
         from pathlib import Path
 
         commands.enqueue(action, {"path": str(Path(rest[0]).expanduser().resolve())})
+        return 0
+
+    if action == "restore":
+        # The way back from an import that replaced the wrong save. The daemon
+        # owns the backups, so this only asks; it does not touch the file.
+        if rest:
+            print("usage: poketokenctl restore", file=sys.stderr)
+            return 2
+        commands.enqueue("restore", {})
         return 0
 
     if action in ("buy", "use"):
