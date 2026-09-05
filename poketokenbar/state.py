@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import datetime
 from pathlib import Path
 
 from . import format as fmt
@@ -125,6 +126,56 @@ def _model_rows(models: dict[str, int]) -> list[dict]:
     ]
 
 
+def _transfer_payload(described: dict | None) -> dict:
+    """The export file the popup would import, described before it is used.
+
+    Importing replaces a Pokédex, so the popup has to be able to say *which*
+    save it is about to replace it with — when it was taken, on what machine,
+    and how much progress is in it. Formatted here with everything else the UI
+    renders rather than in JavaScript.
+    """
+    if not described:
+        return {}
+    exported_at = described.get("exported_at")
+    used = described.get("used_since_install")
+    current_used = described.get("current_used_since_install")
+    taken_at = described.get("undo_taken_at")
+    undo_used = described.get("undo_used_since_install")
+    return {
+        "path": described.get("path", ""),
+        "exists": bool(described.get("exists")),
+        "error": described.get("error") or "",
+        "exported_at": exported_at,
+        "exported_text": datetime.fromtimestamp(exported_at).strftime("%Y-%m-%d %H:%M")
+        if exported_at
+        else "",
+        "device": described.get("device") or "",
+        "dex_count": described.get("dex_count"),
+        "used_since_install": used,
+        "used_text": fmt.compact(used) if used is not None else "",
+        "items": described.get("items"),
+        # The save that would be replaced, so the prompt shows both sides
+        # rather than asking someone to remember where they were.
+        "current_dex_count": described.get("current_dex_count"),
+        "current_used_since_install": current_used,
+        "current_used_text": fmt.compact(current_used) if current_used is not None else "",
+        # The case worth a warning: importing a stale export as if it were a
+        # newer one is how a day of raising disappears.
+        "goes_backwards": used is not None and current_used is not None and used < current_used,
+        # The undo, described the same way: it is the same overwrite, and the
+        # backup it restores is not always the one someone has in mind.
+        "can_undo": bool(described.get("can_undo")),
+        "undo_taken_text": datetime.fromtimestamp(taken_at).strftime("%Y-%m-%d %H:%M")
+        if taken_at
+        else "",
+        "undo_dex_count": described.get("undo_dex_count"),
+        "undo_used_text": fmt.compact(undo_used) if undo_used is not None else "",
+        "undo_goes_backwards": undo_used is not None
+        and current_used is not None
+        and undo_used < current_used,
+    }
+
+
 def build(
     daily_by_provider: dict[str, DailyUsage],
     config_values: dict,
@@ -145,6 +196,7 @@ def build(
     celebration: dict | None = None,
     settings: dict | None = None,
     update: dict | None = None,
+    transfer: dict | None = None,
 ) -> dict:
     total_tokens = sum(d.total_tokens for d in daily_by_provider.values())
     total_cost = sum(d.total_cost for d in daily_by_provider.values())
@@ -234,6 +286,9 @@ def build(
         # an installed copy answers; a git checkout reports unsupported, since
         # overwriting one would throw away whatever is being worked on.
         "update": update or {"supported": False},
+        # The export file the Import button would read, described so the popup
+        # can ask before overwriting instead of after.
+        "transfer": _transfer_payload(transfer),
         # The live config, so a preferences UI renders current values without
         # parsing config.json itself and without the two drifting apart.
         "config": dict(config_values),

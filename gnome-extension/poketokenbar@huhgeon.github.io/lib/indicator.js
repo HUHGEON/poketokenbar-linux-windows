@@ -18,7 +18,7 @@ import {Sprite} from './sprite.js';
 import {
     BagSection, CollectionSection, HomeSection, SettingsSection, ShopSection,
 } from './sections.js';
-import {ago, button, label, levelClass, row, verticalBox} from './widgets.js';
+import {ago, button, label, levelClass, paragraph, row, verticalBox} from './widgets.js';
 
 // The popup is a fixed width so the Pokedex grid never reflows mid-browse.
 const POPUP_WIDTH = 380;
@@ -80,17 +80,21 @@ class Indicator extends PanelMenu.Button {
 
         this._footer = label('', 'poketokenbar-footer');
         content.add_child(this._footer);
-        content.add_child(row([
-            button('↻', () => Commands.refresh()),
-            new St.Widget({x_expand: true}),
-            // The daemon has handled these all along; without a control they
-            // were reachable only from poketokenctl, which is not where anyone
-            // would look for "move my Pokedex to another machine".
-            button(this._reader.text('export_save'),
-                () => Commands.exportSave(this._savePath())),
-            button(this._reader.text('import_save'),
-                () => Commands.importSave(this._savePath())),
-        ], 'poketokenbar-actions'));
+        // Both rebuilt on every render: the labels come from the daemon's
+        // catalogue, which is empty until the first snapshot arrives, and the
+        // buttons offered depend on what that snapshot says is on disk.
+        this._actions = row([], 'poketokenbar-actions');
+        content.add_child(this._actions);
+        this._transferPrompt = verticalBox({
+            style_class: 'poketokenbar-confirm', x_expand: true,
+        });
+        this._transferPrompt.visible = false;
+        content.add_child(this._transferPrompt);
+        // Which destructive action is waiting on an answer: '', 'import' or
+        // 'undo'. Cleared whenever the popup closes, so a prompt left open
+        // never fires against a snapshot from an hour ago.
+        this._pending = '';
+        this._transferNotice = '';
 
         item.add_child(content);
         this.menu.addMenuItem(item);
@@ -103,6 +107,8 @@ class Indicator extends PanelMenu.Button {
                 if (!open)
                     section.release();
             }
+            if (!open)
+                this._dismissTransferPrompt();
             if (open)
                 this._render();
         });
@@ -151,12 +157,129 @@ class Indicator extends PanelMenu.Button {
      *
      * A fixed, predictable path rather than a file chooser: an extension has no
      * portal-backed dialog available to it, and inventing one would be more
-     * surface than the feature is worth.
+     * surface than the feature is worth. The daemon reports which path that is,
+     * because it is the daemon that has to describe the file before the popup
+     * offers to overwrite a save with it — two copies of the constant is how
+     * the popup ends up describing one file and importing another. The literal
+     * survives only as the fallback for the first render, before any snapshot
+     * has arrived.
      */
-    _savePath() {
-        return GLib.build_filenamev([
+    _savePath(state) {
+        return state?.transfer?.path || GLib.build_filenamev([
             GLib.get_home_dir(), 'poketokenbar-save.json',
         ]);
+    }
+
+    /** The refresh / export / import row, plus the undo once one is possible. */
+    _renderActions(state) {
+        const t = key => this._reader.text(key);
+        const transfer = state?.transfer ?? {};
+        this._actions.destroy_all_children();
+        this._actions.add_child(button('↻', () => Commands.refresh()));
+        this._actions.add_child(new St.Widget({x_expand: true}));
+        // The daemon has handled these all along; without a control they were
+        // reachable only from poketokenctl, which is not where anyone would
+        // look for "move my Pokedex to another machine".
+        this._actions.add_child(button(t('export_save'), () => {
+            Commands.exportSave(this._savePath(state));
+            this._dismissTransferPrompt();
+        }));
+        // Undoing overwrites the save as thoroughly as importing does, so it
+        // goes through the same prompt rather than acting on the first click.
+        if (transfer.can_undo)
+            this._actions.add_child(button(t('undo_import'), () => this._ask('undo')));
+        this._actions.add_child(button(t('import_save'), () => this._askImport(state)));
+        this._renderTransferPrompt(state);
+    }
+
+    /** Import asks before it overwrites, instead of reporting afterwards.
+     *
+     * It used to fire on the single click, replacing the save with whatever
+     * file happened to be sitting at the export path — usually an older export,
+     * so the button read as "throw away everything since my last backup". The
+     * click now only opens this.
+     */
+    _askImport(state) {
+        const transfer = state?.transfer ?? {};
+        if (!transfer.exists) {
+            this._notice(this._reader.text('import_no_file')
+                .replace('%1', this._savePath(state)));
+        } else if (transfer.error) {
+            this._notice(this._reader.text('import_unreadable'));
+        } else {
+            this._ask('import');
+        }
+    }
+
+    _ask(what) {
+        this._pending = what;
+        this._transferNotice = '';
+        this._renderTransferPrompt(this._reader.state);
+    }
+
+    _notice(message) {
+        this._pending = '';
+        this._transferNotice = message;
+        this._renderTransferPrompt(this._reader.state);
+    }
+
+    _dismissTransferPrompt() {
+        this._pending = '';
+        this._transferNotice = '';
+        if (this._transferPrompt)
+            this._renderTransferPrompt(this._reader.state);
+    }
+
+    _renderTransferPrompt(state) {
+        const t = key => this._reader.text(key);
+        const transfer = state?.transfer ?? {};
+        this._transferPrompt.destroy_all_children();
+        this._transferPrompt.visible = this._pending !== '' || this._transferNotice !== '';
+        if (!this._transferPrompt.visible)
+            return;
+
+        if (this._transferNotice !== '') {
+            this._transferPrompt.add_child(
+                paragraph(this._transferNotice, 'poketokenbar-confirm-detail'));
+            this._transferPrompt.add_child(row([
+                new St.Widget({x_expand: true}),
+                button(t('cancel'), () => this._dismissTransferPrompt()),
+            ]));
+            return;
+        }
+
+        const undoing = this._pending === 'undo';
+        this._transferPrompt.add_child(label(
+            t(undoing ? 'undo_confirm' : 'import_confirm'), 'poketokenbar-confirm-title'));
+        // What is in the incoming save, and what it would replace — the two
+        // halves of the decision, both already formatted by the daemon.
+        this._transferPrompt.add_child(paragraph(
+            t(undoing ? 'undo_file_detail' : 'import_file_detail')
+                .replace('%1', undoing ? transfer.undo_taken_text : transfer.exported_text)
+                .replace('%2', String(
+                    (undoing ? transfer.undo_dex_count : transfer.dex_count) ?? 0))
+                .replace('%3', undoing ? transfer.undo_used_text : transfer.used_text),
+            'poketokenbar-confirm-detail'));
+        this._transferPrompt.add_child(paragraph(
+            t('import_current_detail')
+                .replace('%1', String(transfer.current_dex_count ?? 0))
+                .replace('%2', transfer.current_used_text),
+            'poketokenbar-confirm-detail'));
+        if (undoing ? transfer.undo_goes_backwards : transfer.goes_backwards) {
+            this._transferPrompt.add_child(paragraph(
+                t('import_goes_backwards'), 'poketokenbar-confirm-warning'));
+        }
+        this._transferPrompt.add_child(row([
+            new St.Widget({x_expand: true}),
+            button(t(undoing ? 'restore' : 'replace'), () => {
+                if (undoing)
+                    Commands.undoImport();
+                else
+                    Commands.importSave(this._savePath(state));
+                this._dismissTransferPrompt();
+            }, 'poketokenbar-button poketokenbar-danger'),
+            button(t('cancel'), () => this._dismissTransferPrompt()),
+        ]));
     }
 
     /** Paint everything from the latest snapshot. */
@@ -168,8 +291,13 @@ class Indicator extends PanelMenu.Button {
         // it again — the Pokedex grid is two dozen GIFs — and doing that every
         // two seconds behind a closed menu is compositor load nobody can see.
         // Opening the menu renders, so nothing is missed by skipping this.
-        if (this.menu.isOpen)
+        if (this.menu.isOpen) {
             this._sections[this._currentTab]?.update(state);
+            // Same reason as the sections: nothing below the panel is visible
+            // with the menu closed, and these labels come from a catalogue
+            // that changes only when the language does.
+            this._renderActions(state);
+        }
         this._renderFooter(state);
     }
 

@@ -104,6 +104,24 @@ def full_payload() -> dict:
         celebration={"kind": "hatch", "title": "t", "detail": "d"},
         settings={"providers": [{"id": "pi", "display_name": "Pi Agent",
                                  "custom_scan_roots": "", "matched_folders": 0}]},
+        # The real shape from Daemon.transfer_payload(): a describe() of the
+        # export file plus what it would replace.
+        transfer={
+            "path": "/home/somebody/poketokenbar-save.json",
+            "exists": True,
+            "error": None,
+            "exported_at": 1767312000.0,
+            "device": "desktop",
+            "dex_count": 3,
+            "used_since_install": 10**6,
+            "items": 2,
+            "current_dex_count": 5,
+            "current_used_since_install": 10**7,
+            "can_undo": True,
+            "undo_taken_at": 1767312000.0,
+            "undo_dex_count": 5,
+            "undo_used_since_install": 10**7,
+        },
     )
 
 
@@ -207,6 +225,7 @@ BLOCK_ACCESSORS = {
     "today": r"today(?:\?)?\.(\w+)",
     "panel": r"panel(?:\?)?\.(\w+)",
     "limits": r"limits(?:\?)?\.(\w+)",
+    "transfer": r"transfer(?:\?)?\.(\w+)",
 }
 
 

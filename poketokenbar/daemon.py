@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from . import commands, config, platform_paths, state
+from . import commands, config, platform_paths, save, state, transfer
 from .companion_store import CompanionStore
 from . import autostart
 from . import updater as updater_module
@@ -152,6 +152,70 @@ class Daemon:
             "multiplier": companion.balance_multiplier if companion else 1,
         }}
 
+    def _language(self) -> str:
+        return str(self.config_values.get("language", "en"))
+
+    def _save_path(self) -> Path:
+        """The save the store actually persists to.
+
+        Import used to write to `save.default_path()` regardless, so a store
+        pointed anywhere else had its file left alone and the import undone by
+        the next persist.
+        """
+        return self.companion_store.save_path or save.default_path()
+
+    def _transfer_command(self, name: str, command: dict) -> None:
+        """Run one export / import / undo, and say what happened."""
+        store = self.companion_store
+        args = command.get("args") or {}
+        path = Path(args.get("path") or transfer.default_export_path())
+
+        if name == "export":
+            written = transfer.export_to(path, store.state)
+            self._notify_transfer("save_exported", str(written))
+            return
+
+        if name == "import":
+            store.state = transfer.import_from(path, target=self._save_path())
+            message = "save_imported"
+        else:
+            store.state = transfer.restore_backup(self._save_path())
+            message = "save_restored"
+
+        # The replaced save's pending announcements belong to progress that is
+        # no longer there; firing them after the swap would narrate a hatch the
+        # incoming save never had.
+        store.last_events = None
+        store.celebration = None
+        self._notify_transfer(message)
+
+    def _notify_transfer(self, key: str, subject: str = "") -> None:
+        if self.notifier is not None:
+            self.notifier.transfer(key, self._language(), subject)
+
+    def transfer_payload(self) -> dict:
+        """The export file the popup's Import button would read, described.
+
+        Read every poll rather than on demand: the popup has no channel to ask
+        a question and wait for an answer, so what it needs to show the
+        confirmation must already be in the snapshot it polls.
+        """
+        described = transfer.describe(transfer.default_export_path())
+        if self.companion_store is None:
+            return described
+        current = transfer.summary(self.companion_store.state)
+        described["current_dex_count"] = current["dex_count"]
+        described["current_used_since_install"] = current["used_since_install"]
+        # The undo overwrites the save too, so it is described as fully as the
+        # import is; a button that quietly restores a week-old backup is the
+        # same trap in the other direction.
+        undo = transfer.describe_backup(self._save_path())
+        described["can_undo"] = undo["exists"]
+        described["undo_taken_at"] = undo["taken_at"]
+        described["undo_dex_count"] = undo["dex_count"]
+        described["undo_used_since_install"] = undo["used_since_install"]
+        return described
+
     def poll_once(self) -> dict:
         errors: list[str] = []
         detected_plan = None
@@ -198,26 +262,14 @@ class Daemon:
                     autostart.apply(bool(self.config_values.get("launch_at_login")))
                 except OSError as exc:
                     errors.append(f"autostart: {exc}")
-            elif name in ("export", "import") and self.companion_store is not None:
-                target = (command.get("args") or {}).get("path", "")
+            elif name in ("export", "import", "restore") and self.companion_store is not None:
                 try:
-                    from . import transfer
-
-                    if name == "export":
-                        written = transfer.export_to(
-                            Path(target), self.companion_store.state
-                        )
-                        message = f"exported to {written}"
-                    else:
-                        self.companion_store.state = transfer.import_from(
-                            Path(target), target=self.companion_store.save_path
-                        )
-                        # An imported save carries its own units. Convert before
-                        # a later buy/use command in the same batch can run.
+                    self._transfer_command(name, command)
+                    if name != "export":
+                        # Imported and restored saves carry their own balance
+                        # units. Convert immediately so a buy/use command later
+                        # in this same spool batch sees the current Codex plan.
                         self.companion_store.apply_plan(detected_plan)
-                        message = "save imported"
-                    if self.notifier is not None:
-                        self.notifier._send("PokeTokenBar", message)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
             elif name == "represent" and self.companion_store is not None:
@@ -386,6 +438,7 @@ class Daemon:
             celebration=self.companion_store.celebration if self.companion_store else None,
             settings=self.settings_payload(),
             update=self._update_payload(errors),
+            transfer=self.transfer_payload(),
         )
         state.write(self.state_path, payload)
         if getattr(self, "_pending_restart", False):
