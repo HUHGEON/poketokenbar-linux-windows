@@ -33,6 +33,9 @@ import {
 const DEX_COLUMNS = 4;
 const DEX_ROWS = 6;
 const DEX_SPRITE_SIZE = 44;
+// Catch log cards per page. Every card carries a sprite per stage, so a page
+// bounds how many are decoded at once; the log itself is never cut short.
+const LOG_PER_PAGE = 20;
 const DETAIL_SPRITE_SIZE = 82;
 const COMPANION_SPRITE_SIZE = 72;
 // The trend's tallest bar and an empty day's baseline, in pixels. A day with
@@ -647,6 +650,7 @@ class CollectionSection extends Section {
         this._reader = reader;
         this._showingCatchLog = false;
         this._page = 0;
+        this._logPage = 0;
         this._perPage = DEX_COLUMNS * DEX_ROWS;
         this._state = null;
         // Rarity chips filter the grid and the log, as upstream's do.
@@ -781,24 +785,29 @@ class CollectionSection extends Section {
         });
 
         const footer = row([info, spacer()], 'poketokenbar-pager');
-        if (pages > 1) {
-            const previous = button('‹', () => {
-                this._page = Math.max(0, this._page - 1);
-                this.update(this._state);
-            });
-            const next = button('›', () => {
-                this._page = Math.min(pages - 1, this._page + 1);
-                this.update(this._state);
-            });
-            previous.reactive = this._page > 0;
-            previous.opacity = this._page > 0 ? 255 : 110;
-            next.reactive = this._page < pages - 1;
-            next.opacity = this._page < pages - 1 ? 255 : 110;
-            footer.add_child(previous);
-            footer.add_child(label(`${this._page + 1} / ${pages}`, 'poketokenbar-callout-bold'));
-            footer.add_child(next);
-        }
+        this._addPager(footer, this._page, pages, page => {
+            this._page = page;
+        });
         this.add_child(footer);
+    }
+
+    /** "‹ 1 / 2 ›" at the end of `footer`, when there is more than one page. */
+    _addPager(footer, current, pages, setPage) {
+        if (pages <= 1)
+            return;
+        const go = page => {
+            setPage(page);
+            this.update(this._state);
+        };
+        const previous = button('‹', () => go(Math.max(0, current - 1)));
+        const next = button('›', () => go(Math.min(pages - 1, current + 1)));
+        previous.reactive = current > 0;
+        previous.opacity = current > 0 ? 255 : 110;
+        next.reactive = current < pages - 1;
+        next.opacity = current < pages - 1 ? 255 : 110;
+        footer.add_child(previous);
+        footer.add_child(label(`${current + 1} / ${pages}`, 'poketokenbar-callout-bold'));
+        footer.add_child(next);
     }
 
     _dexCell(dexEntry, t) {
@@ -841,12 +850,18 @@ class CollectionSection extends Section {
         this._header(t('catch_log'), t('catch_total').replace('%1', String(log.length)),
             state?.catch_counts ?? {}, this._logFilter, key => {
                 this._logFilter = key;
+                this._logPage = 0;
                 this.update(this._state);
             }, t);
 
         const shown = this._logFilter
             ? log.filter(catchRecord => catchRecord.rarity === this._logFilter) : log;
-        for (const catchRecord of shown.slice(0, 40)) {
+        // Paged rather than cut off: the log used to stop at the 40 newest,
+        // and everything older could not be reached at all.
+        const pages = Math.max(1, Math.ceil(shown.length / LOG_PER_PAGE));
+        this._logPage = Math.min(this._logPage, pages - 1);
+        const page = shown.slice(this._logPage * LOG_PER_PAGE, (this._logPage + 1) * LOG_PER_PAGE);
+        for (const catchRecord of page) {
             const head = row([pill(t(catchRecord.rarity ?? 'common').toUpperCase(),
                 RARITY_TINT[catchRecord.rarity] ?? 'gray')]);
             if (catchRecord.raising)
@@ -875,6 +890,14 @@ class CollectionSection extends Section {
                 parts.push(caption(catchRecord.raised_text, 'tertiary'));
             this.add_child(card(parts));
         }
+        const footer = row([spacer()], 'poketokenbar-pager');
+        this._addPager(footer, this._logPage, pages, logPage => {
+            this._logPage = logPage;
+        });
+        if (pages > 1)
+            this.add_child(footer);
+        else
+            footer.destroy();
     }
 
     // MARK: the detail page (upstream PokemonDetailView)
