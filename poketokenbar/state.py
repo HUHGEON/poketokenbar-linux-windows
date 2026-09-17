@@ -238,6 +238,7 @@ def build(
     settings: dict | None = None,
     transfer: dict | None = None,
     detail: dict | None = None,
+    provider_names: dict | None = None,
 ) -> dict:
     total_tokens = sum(d.total_tokens for d in daily_by_provider.values())
     total_cost = sum(d.total_cost for d in daily_by_provider.values())
@@ -263,7 +264,12 @@ def build(
         },
         "providers": {
             pid: {
+                "display_name": (provider_names or {}).get(pid, pid),
                 "total_tokens": d.total_tokens,
+                "input_compact": fmt.compact(d.input_tokens),
+                "output_compact": fmt.compact(d.output_tokens),
+                "cache_write_compact": fmt.compact(d.cache_creation_tokens),
+                "cache_read_compact": fmt.compact(d.cache_read_tokens),
                 # Preformatted: QML's Number.toLocaleString() renders large
                 # values as 8.55336e+07. Formatting belongs in one place.
                 "total_tokens_text": fmt.grouped(d.total_tokens),
@@ -322,7 +328,8 @@ def build(
             "limit_windows": [
                 {
                     "value": w.utilization,
-                    "text": limits.format_percent(w.utilization),
+                    "text": limits.format_percent(limits.display_percent(
+                        w.utilization, config_values.get("limit_value_mode"))),
                     "level": limits.level(
                         w.utilization,
                         config_values.get("warn_threshold", 80),

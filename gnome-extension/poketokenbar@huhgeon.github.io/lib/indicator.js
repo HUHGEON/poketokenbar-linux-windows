@@ -5,7 +5,7 @@
  * in tabs that mirror the macOS app's.
  */
 
-import GLib from 'gi://GLib';
+import Clutter from 'gi://Clutter';
 import GObject from 'gi://GObject';
 import St from 'gi://St';
 
@@ -19,10 +19,14 @@ import {Sprite} from './sprite.js';
 import {
     BagSection, CollectionSection, HomeSection, SettingsSection, ShopSection,
 } from './sections.js';
-import {ago, button, label, levelClass, paragraph, row, verticalBox} from './widgets.js';
+import {
+    ago, button, iconButton, label, levelClass, row, segmented, spacer, verticalBox,
+} from './widgets.js';
 
-// The popup is a fixed width so the Pokedex grid never reflows mid-browse.
+// The popup is a fixed width so the Pokédex grid never reflows mid-browse.
 const POPUP_WIDTH = 380;
+// The tabs, as upstream's: settings is a page behind the gear, not a tab.
+const TABS = ['home', 'shop', 'bag', 'collection'];
 
 export const Indicator = GObject.registerClass(
 class Indicator extends PanelMenu.Button {
@@ -55,6 +59,8 @@ class Indicator extends PanelMenu.Button {
             settings: new SettingsSection(reader),
         };
         this._currentTab = 'home';
+        // Settings is a page behind the gear, not a fifth tab, as upstream's.
+        this._settingsOpen = false;
 
         const item = new PopupMenu.PopupBaseMenuItem({
             reactive: false, can_focus: false, style_class: 'poketokenbar-popup',
@@ -64,38 +70,30 @@ class Indicator extends PanelMenu.Button {
         });
         content.set_width(POPUP_WIDTH);
 
-        this._tabBar = row([], 'poketokenbar-tabs');
-        content.add_child(this._tabBar);
+        // Rebuilt on every render: the labels come from the daemon's
+        // catalogue, which is empty until the first snapshot and changes with
+        // the language. Built once, the tabs showed their raw keys for good.
+        this._header = verticalBox({x_expand: true});
+        content.add_child(this._header);
 
         this._body = new St.ScrollView({
             style_class: 'poketokenbar-scroll',
-            // Never horizontal: the popup is a fixed width, so a sideways
-            // scrollbar would only ever mean something is laid out wrong.
+            // Never horizontal: the popup is a fixed width.
             hscrollbar_policy: St.PolicyType.NEVER,
             vscrollbar_policy: St.PolicyType.AUTOMATIC,
             y_expand: true,
         });
         this._bodyBox = verticalBox({x_expand: true});
         this._body.set_child(this._bodyBox);
+        for (const section of Object.values(this._sections)) {
+            this._bodyBox.add_child(section);
+            section.visible = false;
+        }
+        this._sections.home.visible = true;
         content.add_child(this._body);
 
-        this._footer = label('', 'poketokenbar-footer');
+        this._footer = row([], 'poketokenbar-footer');
         content.add_child(this._footer);
-        // Both rebuilt on every render: the labels come from the daemon's
-        // catalogue, which is empty until the first snapshot arrives, and the
-        // buttons offered depend on what that snapshot says is on disk.
-        this._actions = row([], 'poketokenbar-actions');
-        content.add_child(this._actions);
-        this._transferPrompt = verticalBox({
-            style_class: 'poketokenbar-confirm', x_expand: true,
-        });
-        this._transferPrompt.visible = false;
-        content.add_child(this._transferPrompt);
-        // Which destructive action is waiting on an answer: '', 'import' or
-        // 'undo'. Cleared whenever the popup closes, so a prompt left open
-        // never fires against a snapshot from an hour ago.
-        this._pending = '';
-        this._transferNotice = '';
 
         item.add_child(content);
         this.menu.addMenuItem(item);
@@ -103,18 +101,16 @@ class Indicator extends PanelMenu.Button {
         // Animation is the compositor's cost, and nobody is watching a closed
         // popup — but the panel sprite keeps running, since that one is visible.
         this.menu.connect('open-state-changed', (_menu, open) => {
-            for (const [name, section] of Object.entries(this._sections)) {
-                section.visible = open && name === this._currentTab;
-                if (!open)
+            if (!open) {
+                this._settingsOpen = false;
+                for (const section of Object.values(this._sections))
                     section.release();
             }
-            if (!open)
-                this._dismissTransferPrompt();
+            this._showCurrent();
             if (open)
                 this._render();
         });
 
-        this._buildTabs();
         this._readerHandler = reader.connect('changed', () => this._render());
         this._render();
     }
@@ -127,179 +123,105 @@ class Indicator extends PanelMenu.Button {
         super.destroy();
     }
 
-    _buildTabs() {
-        this._tabBar.destroy_all_children();
-        this._bodyBox.destroy_all_children();
-        for (const [name, key] of [
-            ['home', 'home'], ['shop', 'shop'], ['bag', 'bag'],
-            ['collection', 'collection'], ['settings', 'refresh'],
-        ]) {
-            const tab = button(this._reader.text(key), () => this._selectTab(name),
-                'poketokenbar-tab');
-            this._tabBar.add_child(tab);
-            this._bodyBox.add_child(this._sections[name]);
-            this._sections[name].visible = name === this._currentTab;
+    /** The page on screen: the settings page while it is open, else the tab. */
+    _pageName() {
+        return this._settingsOpen ? 'settings' : this._currentTab;
+    }
+
+    _showCurrent() {
+        const current = this._pageName();
+        for (const [name, section] of Object.entries(this._sections)) {
+            const visible = this.menu.isOpen && name === current;
+            // A page that just went away keeps animating otherwise: its sprites
+            // are still in the tree, still on their own timers.
+            if (section.visible && !visible)
+                section.release();
+            section.visible = visible;
         }
     }
 
     _selectTab(name) {
         this._currentTab = name;
-        for (const [key, section] of Object.entries(this._sections)) {
-            section.visible = key === name;
-            // The tab that just went away keeps animating otherwise: its
-            // sprites are still in the tree, still on their own timers.
-            if (key !== name)
-                section.release();
-        }
+        this._settingsOpen = false;
+        this._showCurrent();
+        this._body.vadjustment.value = 0;
         this._render();
     }
 
-    /** Where a save is written to and read from.
-     *
-     * A fixed, predictable path rather than a file chooser: an extension has no
-     * portal-backed dialog available to it, and inventing one would be more
-     * surface than the feature is worth. The daemon reports which path that is,
-     * because it is the daemon that has to describe the file before the popup
-     * offers to overwrite a save with it — two copies of the constant is how
-     * the popup ends up describing one file and importing another. The literal
-     * survives only as the fallback for the first render, before any snapshot
-     * has arrived.
-     */
-    _savePath(state) {
-        return state?.transfer?.path || GLib.build_filenamev([
-            GLib.get_home_dir(), 'poketokenbar-save.json',
-        ]);
+    _setSettingsOpen(open) {
+        this._settingsOpen = open;
+        this._showCurrent();
+        this._body.vadjustment.value = 0;
+        this._render();
     }
 
-    /** The refresh / export / import row, plus the undo once one is possible. */
-    _renderActions(state) {
+    /** The segmented tab bar, or the settings page's back header. */
+    _renderHeader() {
         const t = key => this._reader.text(key);
-        const transfer = state?.transfer ?? {};
-        this._actions.destroy_all_children();
-        this._actions.add_child(button('↻', () => Commands.refresh()));
-        this._actions.add_child(new St.Widget({x_expand: true}));
-        // The daemon has handled these all along; without a control they were
-        // reachable only from poketokenctl, which is not where anyone would
-        // look for "move my Pokedex to another machine".
-        this._actions.add_child(button(t('export_save'), () => {
-            Commands.exportSave(this._savePath(state));
-            this._dismissTransferPrompt();
-        }));
-        // Undoing overwrites the save as thoroughly as importing does, so it
-        // goes through the same prompt rather than acting on the first click.
-        if (transfer.can_undo)
-            this._actions.add_child(button(t('undo_import'), () => this._ask('undo')));
-        this._actions.add_child(button(t('import_save'), () => this._askImport(state)));
-        this._renderTransferPrompt(state);
-    }
-
-    /** Import asks before it overwrites, instead of reporting afterwards.
-     *
-     * It used to fire on the single click, replacing the save with whatever
-     * file happened to be sitting at the export path — usually an older export,
-     * so the button read as "throw away everything since my last backup". The
-     * click now only opens this.
-     */
-    _askImport(state) {
-        const transfer = state?.transfer ?? {};
-        if (!transfer.exists) {
-            this._notice(this._reader.text('import_no_file')
-                .replace('%1', this._savePath(state)));
-        } else if (transfer.error) {
-            this._notice(this._reader.text('import_unreadable'));
-        } else {
-            this._ask('import');
-        }
-    }
-
-    _ask(what) {
-        this._pending = what;
-        this._transferNotice = '';
-        this._renderTransferPrompt(this._reader.state);
-    }
-
-    _notice(message) {
-        this._pending = '';
-        this._transferNotice = message;
-        this._renderTransferPrompt(this._reader.state);
-    }
-
-    _dismissTransferPrompt() {
-        this._pending = '';
-        this._transferNotice = '';
-        if (this._transferPrompt)
-            this._renderTransferPrompt(this._reader.state);
-    }
-
-    _renderTransferPrompt(state) {
-        const t = key => this._reader.text(key);
-        const transfer = state?.transfer ?? {};
-        this._transferPrompt.destroy_all_children();
-        this._transferPrompt.visible = this._pending !== '' || this._transferNotice !== '';
-        if (!this._transferPrompt.visible)
-            return;
-
-        if (this._transferNotice !== '') {
-            this._transferPrompt.add_child(
-                paragraph(this._transferNotice, 'poketokenbar-confirm-detail'));
-            this._transferPrompt.add_child(row([
-                new St.Widget({x_expand: true}),
-                button(t('cancel'), () => this._dismissTransferPrompt()),
-            ]));
+        this._header.destroy_all_children();
+        if (this._settingsOpen) {
+            const back = button(`‹ ${t('detail_back')}`, () => this._setSettingsOpen(false),
+                'poketokenbar-link');
+            const title = label(t('settings'), 'poketokenbar-pagetitle');
+            title.x_expand = true;
+            title.x_align = Clutter.ActorAlign.CENTER;
+            // An invisible twin of the back button keeps the title centred.
+            const balance = button(`‹ ${t('detail_back')}`, () => {}, 'poketokenbar-link');
+            balance.opacity = 0;
+            balance.reactive = false;
+            const bar = row([back, title, balance], 'poketokenbar-pageheader');
+            bar.x_expand = true;
+            this._header.add_child(bar);
             return;
         }
+        this._header.add_child(segmented(
+            TABS.map(name => ({label: t(name), value: name})),
+            this._currentTab, name => this._selectTab(name)));
+    }
 
-        const undoing = this._pending === 'undo';
-        this._transferPrompt.add_child(label(
-            t(undoing ? 'undo_confirm' : 'import_confirm'), 'poketokenbar-confirm-title'));
-        // What is in the incoming save, and what it would replace — the two
-        // halves of the decision, both already formatted by the daemon.
-        this._transferPrompt.add_child(paragraph(
-            t(undoing ? 'undo_file_detail' : 'import_file_detail')
-                .replace('%1', undoing ? transfer.undo_taken_text : transfer.exported_text)
-                .replace('%2', String(
-                    (undoing ? transfer.undo_dex_count : transfer.dex_count) ?? 0))
-                .replace('%3', undoing ? transfer.undo_used_text : transfer.used_text),
-            'poketokenbar-confirm-detail'));
-        this._transferPrompt.add_child(paragraph(
-            t('import_current_detail')
-                .replace('%1', String(transfer.current_dex_count ?? 0))
-                .replace('%2', transfer.current_used_text),
-            'poketokenbar-confirm-detail'));
-        if (undoing ? transfer.undo_goes_backwards : transfer.goes_backwards) {
-            this._transferPrompt.add_child(paragraph(
-                t('import_goes_backwards'), 'poketokenbar-confirm-warning'));
+    /** Upstream's footer: refresh and freshness on Home, settings on the right. */
+    _renderFooter(state) {
+        const t = key => this._reader.text(key);
+        this._footer.destroy_all_children();
+        this._footer.visible = !this._settingsOpen;
+        if (this._settingsOpen)
+            return;
+        if (this._currentTab === 'home') {
+            this._footer.add_child(iconButton('view-refresh-symbolic', () => Commands.refresh()));
+            this._footer.add_child(label(this._freshness(state), 'poketokenbar-footer-text'));
         }
-        this._transferPrompt.add_child(row([
-            new St.Widget({x_expand: true}),
-            button(t(undoing ? 'restore' : 'replace'), () => {
-                if (undoing)
-                    Commands.undoImport();
-                else
-                    Commands.importSave(this._savePath(state));
-                this._dismissTransferPrompt();
-            }, 'poketokenbar-button poketokenbar-danger'),
-            button(t('cancel'), () => this._dismissTransferPrompt()),
-        ]));
+        this._footer.add_child(spacer());
+        this._footer.add_child(iconButton('emblem-system-symbolic', () => this._setSettingsOpen(true)));
+    }
+
+    /** "Updated 3 min ago", or what is wrong instead. */
+    _freshness(state) {
+        const t = key => this._reader.text(key);
+        if (this._reader.error)
+            return this._reader.error;
+        if (this._reader.isStale())
+            return t('stale_warning');
+        const errors = state?.errors ?? [];
+        if (errors.length > 0)
+            return `⚠ ${errors.join(', ')}`;
+        if (state?.scanning)
+            return t('scanning');
+        const age = this._reader.ageSeconds();
+        return age === null ? '' : `${t('updated')} ${ago(age, t)}`;
     }
 
     /** Paint everything from the latest snapshot. */
     _render() {
         const state = this._reader.state;
         this._renderPanel(state);
-        // Only the visible tab, and only while the popup is actually open. A
-        // rebuild destroys the section's children and decodes every sprite in
-        // it again — the Pokedex grid is two dozen GIFs — and doing that every
-        // two seconds behind a closed menu is compositor load nobody can see.
-        // Opening the menu renders, so nothing is missed by skipping this.
+        // Only the visible page, and only while the popup is actually open. A
+        // rebuild destroys the page's children and decodes every sprite in it
+        // again, and doing that behind a closed menu is load nobody can see.
         if (this.menu.isOpen) {
-            this._sections[this._currentTab]?.update(state);
-            // Same reason as the sections: nothing below the panel is visible
-            // with the menu closed, and these labels come from a catalogue
-            // that changes only when the language does.
-            this._renderActions(state);
+            this._renderHeader();
+            this._sections[this._pageName()]?.update(state);
+            this._renderFooter(state);
         }
-        this._renderFooter(state);
     }
 
     _renderPanel(state) {
@@ -356,32 +278,6 @@ class Indicator extends PanelMenu.Button {
         this._eggLabel.visible = this._eggLabel.visible || empty;
         if (empty)
             this._eggLabel.text = '…';
-    }
-
-    _renderFooter(state) {
-        if (this._reader.error) {
-            this._footer.text = this._reader.error;
-            return;
-        }
-        if (this._reader.isStale()) {
-            this._footer.text = this._reader.text('stale_warning');
-            return;
-        }
-        const errors = state?.errors ?? [];
-        if (errors.length > 0) {
-            this._footer.text = errors.join(', ');
-            return;
-        }
-        // Freshness, so a working daemon looks different from a stopped one
-        // before the ten-minute staleness threshold is anywhere near.
-        if (state?.scanning) {
-            this._footer.text = this._reader.text('scanning');
-            return;
-        }
-        const age = this._reader.ageSeconds();
-        this._footer.text = age === null
-            ? ''
-            : `${this._reader.text('updated')} ${ago(age, key => this._reader.text(key))}`;
     }
 
     /** Pause every sprite in the extension — used while the session is locked. */

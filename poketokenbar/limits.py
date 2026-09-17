@@ -239,6 +239,17 @@ def windows(status: LimitStatus | None, mode: str) -> list[LimitWindow]:
     return out
 
 
+def display_percent(utilization: float, mode: str | None) -> float:
+    """The percentage to show: used as is, or what is left, never below 0.
+
+    Warning colours and notifications keep using the real utilization; only
+    the number and the bar's fill follow the setting.
+    """
+    if mode == "remaining":
+        return max(0.0, 100.0 - utilization)
+    return utilization
+
+
 def format_percent(value: float) -> str:
     return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
 

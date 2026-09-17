@@ -434,6 +434,7 @@ class Daemon:
             settings=self.settings_payload(),
             transfer=self.transfer_payload(),
             detail=self.companion_store.detail_payload(dex_rows) if self.companion_store else None,
+            provider_names={p.id: p.display_name for p in self.providers or []},
         )
         state.write(self.state_path, payload)
         # Cleared after publishing so the banner shows once rather than

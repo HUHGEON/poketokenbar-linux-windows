@@ -1,10 +1,14 @@
 /* PokeTokenBar styling.
  *
- * Colours come from the running theme wherever one exists, so the popup follows
- * light and dark without a second palette to keep in step. The three state
- * colours are the exception — "close to your limit" has to read as a warning in
- * any theme, so those are stated outright.
+ * Laid out after the macOS popover this ports: a segmented tab bar, rounded
+ * cards, capsule badges, thin bars and a large token total. Surfaces and
+ * secondary text are translucent white and opacity, so the popup still sits on
+ * whatever the Shell theme draws behind it; the accent and state colours are
+ * upstream's system colours, stated outright because their meaning is the
+ * point.
  */
+
+/* --- panel ---------------------------------------------------------------- */
 
 .poketokenbar-panel {
   spacing: 4px;
@@ -22,54 +26,41 @@
   opacity: 120;
 }
 
-/* Utilisation bands. Green/amber/red rather than theme colours: the meaning is
-   the point, and a theme that recoloured them would lose it. */
+/* Utilisation bands. */
 .poketokenbar-ok {
-  color: #3fb950;
+  color: #30d158;
 }
 
 .poketokenbar-warn {
-  color: #d29922;
+  color: #ff9f0a;
 }
 
 .poketokenbar-crit {
-  color: #f85149;
+  color: #ff453a;
   font-weight: bold;
 }
 
-/* --- popup ------------------------------------------------------------- */
+/* --- popup frame ----------------------------------------------------------- */
 
 .poketokenbar-popup {
   padding: 0;
 }
 
 .poketokenbar-content {
-  padding: 8px;
-  spacing: 6px;
+  padding: 10px 12px 8px 12px;
+  spacing: 10px;
+  /* The menu item holding the popup is not reactive, and the Shell theme
+     greys the text of an insensitive item; the popup is not insensitive. */
+  color: #ffffff;
 }
 
 .poketokenbar-scroll {
-  /* Bounded so a full Pokedex cannot grow the popup past the screen. */
-  max-height: 460px;
-}
-
-.poketokenbar-tabs {
-  spacing: 4px;
-  padding-bottom: 4px;
-}
-
-.poketokenbar-tab {
-  padding: 4px 10px;
-  border-radius: 6px;
-}
-
-.poketokenbar-tab:hover,
-.poketokenbar-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  /* Bounded so a full Pokédex cannot grow the popup past the screen. */
+  max-height: 600px;
 }
 
 .poketokenbar-section {
-  spacing: 6px;
+  spacing: 8px;
 }
 
 .poketokenbar-row {
@@ -80,26 +71,128 @@
   spacing: 2px;
 }
 
-.poketokenbar-heading {
-  font-weight: bold;
-  padding-top: 6px;
-  opacity: 200;
+.poketokenbar-divider {
+  height: 1px;
+  margin: 2px 0;
+  background-color: rgba(255, 255, 255, 0.1);
 }
 
-/* The stat name beside a bar on the Pokédex page: a fixed width, so the six
-   bars start at the same x and read as a chart rather than a list. */
-.poketokenbar-statname {
-  min-width: 64px;
-  font-size: 0.9em;
+/* The segmented control: the main tabs, and Pokédex / Catch log. */
+.poketokenbar-segmented {
+  spacing: 2px;
+  padding: 3px;
+  border-radius: 9px;
+  background-color: rgba(255, 255, 255, 0.07);
 }
+
+.poketokenbar-segment {
+  padding: 5px 10px;
+  border-radius: 7px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.poketokenbar-segment:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.poketokenbar-segment-selected {
+  font-weight: bold;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.poketokenbar-segmented-accent .poketokenbar-segment-selected {
+  background-color: #0a84ff;
+}
+
+/* The settings page's own header: back on the left, the title centred. */
+.poketokenbar-pageheader {
+  spacing: 6px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.poketokenbar-pagetitle {
+  font-weight: bold;
+  font-size: 1.05em;
+}
+
+.poketokenbar-link {
+  color: #0a84ff;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.poketokenbar-link:hover {
+  background-color: rgba(10, 132, 255, 0.12);
+}
+
+/* --- type ------------------------------------------------------------------ */
 
 .poketokenbar-title {
-  font-size: 1.2em;
+  font-size: 1.15em;
   font-weight: bold;
 }
 
+.poketokenbar-name {
+  font-weight: bold;
+}
+
+.poketokenbar-big {
+  font-size: 2em;
+  font-weight: bold;
+  font-feature-settings: "tnum";
+}
+
+.poketokenbar-callout {
+  font-feature-settings: "tnum";
+}
+
+.poketokenbar-callout-bold {
+  font-weight: bold;
+}
+
+.poketokenbar-caption {
+  font-size: 0.82em;
+}
+
+.poketokenbar-caption2 {
+  font-size: 0.75em;
+}
+
+.poketokenbar-secondary {
+  color: rgba(255, 255, 255, 0.62);
+}
+
+.poketokenbar-tertiary {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+.poketokenbar-strong {
+  font-weight: bold;
+}
+
+.poketokenbar-orange {
+  color: #ff9f0a;
+}
+
+.poketokenbar-green {
+  color: #30d158;
+}
+
+.poketokenbar-accent {
+  color: #0a84ff;
+}
+
+.poketokenbar-section-caption {
+  font-size: 0.82em;
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* Legacy names still used by a few rows. */
 .poketokenbar-key {
-  opacity: 200;
+  color: rgba(255, 255, 255, 0.85);
 }
 
 .poketokenbar-value {
@@ -107,147 +200,243 @@
 }
 
 .poketokenbar-subtle {
-  font-size: 0.85em;
-  opacity: 150;
+  font-size: 0.82em;
+  color: rgba(255, 255, 255, 0.55);
 }
 
-.poketokenbar-status {
-  font-style: italic;
-  opacity: 180;
+.poketokenbar-heading {
+  font-weight: bold;
   padding-top: 4px;
+  color: rgba(255, 255, 255, 0.6);
 }
 
 .poketokenbar-placeholder {
-  padding: 12px;
-  opacity: 150;
+  padding: 16px;
+  color: rgba(255, 255, 255, 0.5);
 }
 
-.poketokenbar-celebration {
+/* --- capsules and buttons -------------------------------------------------- */
+
+.poketokenbar-pill {
+  font-size: 0.62em;
   font-weight: bold;
-  padding: 6px;
-  border-radius: 6px;
+  padding: 1px 6px;
+  border-radius: 99px;
+  color: #ffffff;
+}
+
+.poketokenbar-pill-gray { background-color: rgba(142, 142, 147, 0.85); }
+.poketokenbar-pill-green { background-color: #30d158; }
+.poketokenbar-pill-blue { background-color: #0a84ff; }
+.poketokenbar-pill-orange { background-color: #ff9f0a; }
+.poketokenbar-pill-soft-blue { background-color: rgba(10, 132, 255, 0.2); color: #4da3ff; }
+.poketokenbar-pill-soft-orange { background-color: rgba(255, 159, 10, 0.18); color: #ff9f0a; }
+.poketokenbar-pill-soft-gray { background-color: rgba(142, 142, 147, 0.2); color: rgba(255, 255, 255, 0.65); }
+
+.poketokenbar-button,
+.poketokenbar-button-bordered,
+.poketokenbar-button-prominent {
+  padding: 3px 12px;
+  border-radius: 7px;
+  font-size: 0.92em;
+}
+
+.poketokenbar-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.poketokenbar-button-bordered {
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.poketokenbar-button-bordered:hover {
   background-color: rgba(255, 255, 255, 0.08);
 }
 
-.poketokenbar-footer {
-  font-size: 0.8em;
-  opacity: 150;
-}
-
-.poketokenbar-actions {
-  spacing: 6px;
-  padding-top: 4px;
-}
-
-/* The overwrite prompt. Boxed and set apart from the actions row above it,
-   because it is the one place in the popup where a click destroys something. */
-.poketokenbar-confirm {
-  spacing: 4px;
-  margin-top: 6px;
-  padding: 8px;
-  border-radius: 6px;
-  background-color: rgba(255, 255, 255, 0.08);
-}
-
-.poketokenbar-confirm-title {
+.poketokenbar-button-prominent {
+  background-color: #0a84ff;
+  color: #ffffff;
   font-weight: bold;
 }
 
-.poketokenbar-confirm-detail {
-  font-size: 0.9em;
-  opacity: 200;
+.poketokenbar-button-prominent:hover {
+  background-color: #3a9bff;
 }
 
-.poketokenbar-confirm-warning {
-  font-size: 0.9em;
-  color: #d29922;
-}
-
-/* The destructive half of the prompt, so "Replace" never looks like "Cancel". */
+/* The destructive half of the import prompt, so "Replace" never looks like "Cancel". */
 .poketokenbar-danger {
-  color: #f85149;
+  color: #ff453a;
 }
 
-.poketokenbar-button {
+.poketokenbar-iconbutton {
+  padding: 4px;
+  border-radius: 6px;
+}
+
+.poketokenbar-iconbutton:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.poketokenbar-icon {
+  icon-size: 16px;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.poketokenbar-switch {
+  padding: 0;
+}
+
+/* Provider pills on Home. */
+.poketokenbar-providerpill {
+  font-size: 0.82em;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: 99px;
+  color: rgba(255, 255, 255, 0.6);
+  background-color: rgba(255, 255, 255, 0.07);
 }
 
-.poketokenbar-card {
-  spacing: 8px;
-  padding: 6px;
-  border-radius: 6px;
+.poketokenbar-providerpill-selected {
+  font-weight: bold;
+  color: #0a84ff;
+  background-color: rgba(10, 132, 255, 0.18);
+}
+
+/* Rarity filter chips above the Pokédex and the catch log. */
+.poketokenbar-chip {
+  font-size: 0.78em;
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-/* The stand-in for an item with no sprite of its own — an egg, a Mint. Sized to
-   match the 32px sprites beside it so the rows line up either way. */
+.poketokenbar-chip-selected {
+  border: 1px solid rgba(48, 209, 88, 0.6);
+  background-color: rgba(48, 209, 88, 0.18);
+}
+
+.poketokenbar-chip-empty {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.poketokenbar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 4px;
+}
+
+.poketokenbar-dot-gray { background-color: #8e8e93; }
+.poketokenbar-dot-green { background-color: #30d158; }
+.poketokenbar-dot-blue { background-color: #0a84ff; }
+.poketokenbar-dot-orange { background-color: #ff9f0a; }
+.poketokenbar-dot-red { background-color: #ff453a; }
+
+/* --- surfaces -------------------------------------------------------------- */
+
+.poketokenbar-card {
+  spacing: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.poketokenbar-banner {
+  background-color: rgba(255, 159, 10, 0.14);
+}
+
+.poketokenbar-notice {
+  background-color: rgba(255, 159, 10, 0.12);
+}
+
+/* The stand-in for an item with no sprite of its own. */
 .poketokenbar-item-emoji {
   font-size: 24px;
   width: 32px;
   text-align: center;
 }
 
-/* --- companion and collection -------------------------------------------- */
-
-.poketokenbar-companion-sprite {
-  padding: 4px;
-}
-
-.poketokenbar-evoline {
-  spacing: 8px;
-  padding: 4px 0;
-}
+/* --- bars ------------------------------------------------------------------ */
 
 .poketokenbar-meter {
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
-  background-color: rgba(255, 255, 255, 0.12);
+  background-color: rgba(255, 255, 255, 0.14);
 }
-
-/* This month by day. The spacing is what separates thirty-one bars in a
-   380px popup; the weekend mark is a short underline because a full-height
-   shade reads as a tall bar on a dark panel. */
-.poketokenbar-trend { spacing: 1px; padding-top: 4px; }
-.poketokenbar-trend-ticks { spacing: 1px; }
-.poketokenbar-trend-axis { spacing: 1px; }
-.poketokenbar-trend-bar { background-color: rgba(255, 255, 255, 0.45); border-radius: 1px; }
-.poketokenbar-trend-empty { background-color: rgba(255, 255, 255, 0.18); }
-.poketokenbar-trend-today { background-color: #f5a623; }
-.poketokenbar-trend-weekend { background-color: rgba(255, 255, 255, 0.5); }
-.poketokenbar-trend-label { font-size: 0.7em; opacity: 180; }
-.poketokenbar-trend-label-today { font-size: 0.7em; color: #f5a623; }
 
 .poketokenbar-meter-fill {
-  height: 6px;
+  height: 5px;
   border-radius: 3px;
-  background-color: #3fb950;
+  background-color: #30d158;
 }
 
-.poketokenbar-meter-fill.poketokenbar-warn {
-  background-color: #d29922;
+.poketokenbar-meter-fill.poketokenbar-warn { background-color: #ff9f0a; }
+.poketokenbar-meter-fill.poketokenbar-crit { background-color: #ff453a; }
+.poketokenbar-fill-orange { background-color: #ff9f0a; }
+.poketokenbar-fill-blue { background-color: #0a84ff; }
+
+/* This month by day. The weekend mark is a short underline because a
+   full-height shade reads as a tall bar on a dark panel. */
+.poketokenbar-trend { spacing: 2px; padding-top: 2px; }
+.poketokenbar-trend-ticks { spacing: 2px; }
+.poketokenbar-trend-axis { spacing: 2px; }
+.poketokenbar-trend-bar { background-color: rgba(255, 255, 255, 0.4); border-radius: 1px; }
+.poketokenbar-trend-empty { background-color: rgba(255, 255, 255, 0.16); }
+.poketokenbar-trend-today { background-color: #0a84ff; }
+.poketokenbar-trend-weekend { background-color: rgba(255, 255, 255, 0.45); }
+.poketokenbar-trend-label { font-size: 0.72em; color: rgba(255, 255, 255, 0.55); }
+.poketokenbar-trend-label-today { font-size: 0.72em; color: #0a84ff; }
+
+/* --- companion ------------------------------------------------------------- */
+
+.poketokenbar-companion {
+  spacing: 12px;
 }
 
-.poketokenbar-meter-fill.poketokenbar-crit {
-  background-color: #f85149;
+.poketokenbar-companion-sprite {
+  width: 84px;
+  height: 84px;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
-.poketokenbar-dexrow {
+.poketokenbar-companion-lines {
   spacing: 4px;
 }
 
-.poketokenbar-dexcell {
-  spacing: 1px;
+.poketokenbar-evoline {
+  spacing: 10px;
+  padding: 2px 0 0 4px;
 }
 
-/* One Pokedex cell. Filled and rounded rather than a bare sprite on the popup
-   background: at 48px the sprites have enough presence to read as tiles, and a
-   tile with a surface of its own is what says "this is something to tap". Six
-   of these at 54px plus five 4px gaps is 344px, inside the 364px the popup has
-   once its own padding is taken off. */
+.poketokenbar-evostage {
+  spacing: 2px;
+}
+
+.poketokenbar-evodot {
+  width: 5px;
+  height: 5px;
+  border-radius: 3px;
+  background-color: #0a84ff;
+}
+
+.poketokenbar-pinrow {
+  spacing: 6px;
+}
+
+/* --- Pokédex ------------------------------------------------------------------ */
+
+.poketokenbar-dexrow {
+  spacing: 5px;
+}
+
 .poketokenbar-dexbutton {
+  /* Four of these and three gaps fit beside the scrollbar in a 380px popup. */
+  width: 72px;
   padding: 3px;
-  border-radius: 6px;
+  border-radius: 8px;
+  /* Every cell carries a border, transparent unless pinned, so a pinned cell
+     is not wider than the others and the fourth column never clips. */
+  border: 1.5px solid transparent;
   background-color: rgba(255, 255, 255, 0.06);
 }
 
@@ -255,37 +444,163 @@
   background-color: rgba(255, 255, 255, 0.14);
 }
 
-.poketokenbar-pager {
-  spacing: 6px;
-  padding-top: 4px;
-}
-
-/* The pin's own row on Home. Set apart from the companion above it: it
-   describes the panel, not the Pokemon being raised. */
-.poketokenbar-pinrow {
-  spacing: 6px;
-  padding: 4px 2px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-/* The cell holding the panel. Outlined as well as tinted: the sprite is the
-   thing being identified, and a fill alone is lost among the other tiles. */
+/* The species holding the panel: tinted and outlined in the accent colour. */
 .poketokenbar-dexbutton-pinned {
-  border: 1px solid rgba(120, 200, 255, 0.9);
-  background-color: rgba(120, 200, 255, 0.12);
-  padding: 2px;
+  border: 1.5px solid #0a84ff;
+  background-color: rgba(10, 132, 255, 0.16);
+}
+
+.poketokenbar-dexcell {
+  spacing: 1px;
 }
 
 .poketokenbar-dexnum {
-  font-size: 0.75em;
-  opacity: 150;
+  font-size: 0.66em;
+  font-weight: bold;
+  padding: 0 4px;
+  border-radius: 99px;
+  color: rgba(255, 255, 255, 0.8);
+  background-color: rgba(0, 0, 0, 0.35);
+}
+
+.poketokenbar-dexname {
+  font-size: 0.72em;
+  text-align: center;
+}
+
+.poketokenbar-pager {
+  spacing: 6px;
 }
 
 .poketokenbar-chain {
+  spacing: 8px;
+}
+
+.poketokenbar-chainstage {
+  spacing: 2px;
+  min-width: 56px;
+}
+
+.poketokenbar-arrow {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* --- detail page ----------------------------------------------------------- */
+
+.poketokenbar-statname {
+  min-width: 62px;
+  font-size: 0.82em;
+}
+
+.poketokenbar-statvalue {
+  min-width: 30px;
+  font-size: 0.82em;
+  font-weight: bold;
+  text-align: right;
+  font-feature-settings: "tnum";
+}
+
+.poketokenbar-pair {
+  spacing: 1px;
+  padding-right: 14px;
+}
+
+.poketokenbar-pair-name {
+  font-size: 0.72em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.poketokenbar-pair-value {
+  font-size: 0.9em;
+  font-weight: bold;
+}
+
+/* --- settings page --------------------------------------------------------- */
+
+.poketokenbar-group {
+  spacing: 0;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.poketokenbar-group-row {
+  spacing: 2px;
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.poketokenbar-group-line {
+  spacing: 8px;
+  min-height: 24px;
+}
+
+.poketokenbar-group-title {
+  font-weight: bold;
+  color: rgba(255, 255, 255, 0.6);
+  padding: 6px 4px 0 4px;
+}
+
+.poketokenbar-valuepill {
+  font-size: 0.85em;
+  padding: 3px 10px;
+  border-radius: 7px;
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.poketokenbar-valuepill:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.poketokenbar-stepper {
   spacing: 2px;
 }
 
-/* --- desktop pet ---------------------------------------------------------- */
+.poketokenbar-stepvalue {
+  min-width: 52px;
+  text-align: center;
+  font-feature-settings: "tnum";
+}
+
+.poketokenbar-entry {
+  padding: 4px 6px;
+}
+
+/* The overwrite prompt: the one place in the popup where a click destroys
+   something, so it is set apart. */
+.poketokenbar-confirm {
+  spacing: 4px;
+  padding: 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 69, 58, 0.1);
+}
+
+.poketokenbar-confirm-title {
+  font-weight: bold;
+}
+
+.poketokenbar-confirm-detail {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.poketokenbar-confirm-warning {
+  font-size: 0.85em;
+  color: #ff9f0a;
+}
+
+/* --- footer ---------------------------------------------------------------- */
+
+.poketokenbar-footer {
+  spacing: 6px;
+}
+
+.poketokenbar-footer-text {
+  font-size: 0.8em;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+/* --- desktop pet ------------------------------------------------------------- */
 
 .poketokenbar-pet-tooltip {
   background-color: rgba(0, 0, 0, 0.75);
@@ -295,6 +610,7 @@
   font-size: 0.85em;
 }
 
+/* Kept for the pet and any row still using the old small badge. */
 .poketokenbar-badge {
   background-color: rgba(255, 255, 255, 0.15);
   border-radius: 4px;
@@ -307,15 +623,4 @@
   border-radius: 3px;
   padding: 0 4px;
   font-size: 0.6em;
-}
-
-.poketokenbar-badge-pinned {
-  background-color: rgba(120, 200, 255, 0.35);
-  border-radius: 3px;
-  padding: 0 4px;
-  font-size: 0.6em;
-}
-
-.poketokenbar-entry {
-  padding: 4px 6px;
 }

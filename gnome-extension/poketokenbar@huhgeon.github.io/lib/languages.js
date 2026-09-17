@@ -6,3 +6,14 @@
  */
 
 export const LANGUAGES = ['en', 'ko', 'ja', 'es', 'fr', 'pt', 'de'];
+
+// Each language named in itself, as a language picker shows it.
+export const LANGUAGE_NAMES = {
+    en: 'English',
+    ko: '한국어',
+    ja: '日本語',
+    es: 'Español',
+    fr: 'Français',
+    pt: 'Português',
+    de: 'Deutsch',
+};

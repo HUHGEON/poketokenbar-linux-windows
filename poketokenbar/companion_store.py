@@ -17,15 +17,18 @@ from .companion import CompanionState
 from .format import compact as _compact
 
 
-def _duration(seconds: float | None) -> str:
+def _duration(seconds: float | None, language: str = "en") -> str:
+    """How long a Pokémon was raised, as upstream's catch log words it."""
     if not seconds or seconds <= 0:
         return ""
     days = int(seconds // 86400)
     hours = int((seconds % 86400) // 3600)
-    if days > 0:
-        return f"{days} days, {hours} hr"
     minutes = int((seconds % 3600) // 60)
-    return f"{hours} hr, {minutes} min" if hours else f"{minutes} min"
+    if days > 0:
+        return l10n.t("duration_days_hours", language).replace("%1", str(days)).replace("%2", str(hours))
+    if hours > 0:
+        return l10n.t("duration_hours_minutes", language).replace("%1", str(hours)).replace("%2", str(minutes))
+    return l10n.t("duration_minutes", language).replace("%1", str(minutes))
 
 
 class CompanionStore:
@@ -562,6 +565,11 @@ class CompanionStore:
                 "label": f"\N{EGG}{round(progress * 100)}%",
                 "egg_usage": self.state.egg_usage,
                 "egg_progress": round(progress, 4),
+                # Upstream's egg header: "about to hatch" from 90%, and how
+                # many tokens are left until it does.
+                "egg_imminent": progress >= 0.9,
+                "egg_remaining_text": _compact(
+                    max(0, self.state.egg_hatch_threshold - self.state.egg_usage)),
                 "egg_tier": str(self.state.egg_tier) if self.state.egg_tier else None,
                 # The egg's own picture. This was a hardcoded "", so Home drew
                 # an empty box for the whole egg stage.
@@ -894,7 +902,7 @@ class CompanionStore:
                 "is_shiny": e.is_shiny,
                 "chain": self._chain(e.chain_order, e.is_shiny),
                 "caught_at": e.caught_at,
-                "raised_text": _duration(e.raised_seconds),
+                "raised_text": _duration(e.raised_seconds, self.state.language),
                 "raising": False,
                 "released": e.is_released,
             }

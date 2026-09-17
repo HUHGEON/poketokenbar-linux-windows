@@ -9,6 +9,8 @@ import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
+import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
+
 /** Utilisation bands, matching limits.level() in the daemon. */
 export function levelClass(level) {
     if (level === 'crit')
@@ -104,10 +106,16 @@ class Meter extends St.Widget {
         this._fraction = 0;
     }
 
-    /** `fraction` is 0..1; anything past 1 is clamped so a full bar stays full. */
-    setFraction(fraction, level = 'ok') {
+    /**
+     * `fraction` is 0..1; anything past 1 is clamped so a full bar stays full.
+     * `tint` names a fixed colour (orange, blue) for bars that are not a
+     * utilisation, like growth or a stat; without one the level colours it.
+     */
+    setFraction(fraction, level = 'ok', tint = null) {
         this._fraction = Math.max(0, Math.min(1, fraction || 0));
-        this._fill.style_class = `poketokenbar-meter-fill ${levelClass(level)}`;
+        this._fill.style_class = tint
+            ? `poketokenbar-meter-fill poketokenbar-fill-${tint}`
+            : `poketokenbar-meter-fill ${levelClass(level)}`;
         this.queue_relayout();
     }
 
@@ -256,3 +264,118 @@ export function markSent(widget, sent) {
     widget.can_focus = false;
     widget.opacity = 120;
 }
+
+// MARK: the upstream-style pieces
+//
+// The macOS popover this ports is built from a handful of shapes: a segmented
+// control, rounded cards, capsule badges, bordered buttons and thin bars. These
+// are those shapes, so the sections read as the same layout.
+
+/** Soaks up the free space in a row. */
+export function spacer() {
+    return new St.Widget({x_expand: true});
+}
+
+/** A rounded surface grouping one thing: a shop item, a catch, a detail block. */
+export function card(children, extraClass = '') {
+    const box = column(children, `poketokenbar-card ${extraClass}`.trim());
+    box.x_expand = true;
+    return box;
+}
+
+/** A hairline between blocks, as upstream's Divider. */
+export function divider() {
+    return new St.Widget({style_class: 'poketokenbar-divider', x_expand: true});
+}
+
+/** Rarity to capsule colour, as upstream's rarityColor. */
+export const RARITY_TINT = {
+    common: 'gray',
+    uncommon: 'green',
+    rare: 'blue',
+    legendary: 'orange',
+};
+
+/** A capsule badge in one of the fixed tints. */
+export function pill(text, tint = 'gray') {
+    return label(text, `poketokenbar-pill poketokenbar-pill-${tint}`);
+}
+
+/** A small caption, upstream's .caption with a secondary or tertiary colour. */
+export function caption(text, tone = 'secondary') {
+    return label(text, `poketokenbar-caption poketokenbar-${tone}`);
+}
+
+/** A name above a value, as upstream's detail page lays out level and gender. */
+export function valuePair(name, value) {
+    return column([
+        label(name, 'poketokenbar-pair-name'),
+        label(value, 'poketokenbar-pair-value'),
+    ], 'poketokenbar-pair');
+}
+
+/**
+ * A segmented control: one button per option, the chosen one raised.
+ *
+ * `accent` fills the chosen segment with the accent colour, as upstream's
+ * Pokédex / Catch log switch does; the main tab bar uses the neutral look.
+ */
+export function segmented(options, current, onSelect, {accent = false, expand = true} = {}) {
+    const box = row([], accent ? 'poketokenbar-segmented poketokenbar-segmented-accent'
+        : 'poketokenbar-segmented');
+    box.x_expand = expand;
+    if (!expand)
+        box.x_align = Clutter.ActorAlign.START;
+    for (const option of options) {
+        const selected = option.value === current;
+        const widget = button(option.label, () => {
+            if (!selected)
+                onSelect(option.value);
+        }, selected ? 'poketokenbar-segment poketokenbar-segment-selected'
+            : 'poketokenbar-segment');
+        widget.x_expand = expand;
+        box.add_child(widget);
+    }
+    return box;
+}
+
+/** A borderless symbolic icon button, for the footer's refresh and settings. */
+export function iconButton(iconName, onClick) {
+    const widget = new St.Button({
+        style_class: 'poketokenbar-iconbutton',
+        can_focus: true,
+        reactive: true,
+        track_hover: true,
+        child: new St.Icon({icon_name: iconName, style_class: 'poketokenbar-icon'}),
+    });
+    widget.connect('clicked', () => onClick());
+    return widget;
+}
+
+/** Upstream's .bordered button; `prominent` is .borderedProminent. */
+export function borderedButton(text, onClick, prominent = false) {
+    return button(text, onClick,
+        prominent ? 'poketokenbar-button-prominent' : 'poketokenbar-button-bordered');
+}
+
+/** An on/off switch drawn the way the Shell's own menus draw one. */
+export function switchButton(value, onToggle) {
+    const widget = new St.Button({
+        style_class: 'poketokenbar-switch',
+        can_focus: true,
+        reactive: true,
+        track_hover: true,
+        y_align: Clutter.ActorAlign.CENTER,
+        child: new PopupMenu.Switch(Boolean(value)),
+    });
+    widget.connect('clicked', () => onToggle(!value));
+    return widget;
+}
+
+/** A single-line label that ends in "…" instead of widening its row. */
+export function ellipsized(text, styleClass = '') {
+    const widget = label(text, styleClass);
+    widget.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+    return widget;
+}
+

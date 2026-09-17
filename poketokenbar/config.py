@@ -21,6 +21,9 @@ DEFAULTS: dict[str, object] = {
     "show_cost_in_menu": False,
     "show_limit_in_menu": True,
     "limit_display_mode": "both",
+    # Whether limit percentages read as used ("15%") or remaining ("85% left"),
+    # everywhere they are shown. Upstream's limitDisplayMode; used is its default.
+    "limit_value_mode": "used",
     "limit_notifications": True,
     "companion_notifications": True,
     "status_checks_enabled": True,

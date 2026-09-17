@@ -488,6 +488,10 @@ _NOT_PAYLOAD = {
     "state",
 }
 
+# Clutter actor layout properties. Every section sets these on its own widgets,
+# and no payload row carries a field by these names.
+_ACTOR_LAYOUT = {"x_expand", "y_expand", "x_align", "y_align"}
+
 # The negative lookahead is what separates data from API: St and Clutter methods
 # are snake_case too (`add_child`, `set_size`), and listing them by name would be
 # a list to maintain forever. A payload field is never called.
@@ -514,6 +518,8 @@ def test_no_payload_access_escapes_the_declared_accessors():
                 continue
             if "_" not in field:
                 continue  # a method or a plain property, not a payload field
+            if field in _ACTOR_LAYOUT:
+                continue  # set on a widget, never read from the payload
             escaped.setdefault(variable, []).append(field)
     assert not escaped, (
         "these read payload-shaped fields but are not declared accessors: "
