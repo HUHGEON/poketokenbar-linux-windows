@@ -9,6 +9,8 @@ Three behaviours matter here:
     blank the panel.
   - 429 and 401 back off. Retrying a rate limit every poll makes it worse, and
     an expired login will not fix itself.
+  - A change of login skips all of that: the cached value, and any backoff,
+    belong to the login that was replaced.
 """
 
 from __future__ import annotations
@@ -28,6 +30,15 @@ AUTH_BACKOFF = 900.0
 NETWORK_RETRY = 30.0
 
 
+def _credentials_marker() -> object:
+    """(mtime, size) of Claude Code's credentials file, or None without one."""
+    try:
+        stat = limits.default_credentials_path().stat()
+    except OSError:
+        return None
+    return (stat.st_mtime_ns, stat.st_size)
+
+
 class LimitsSource:
     def __init__(
         self,
@@ -35,8 +46,14 @@ class LimitsSource:
         clock: Callable[[], float] = time.monotonic,
         ttl: float = 300.0,
         wall_clock: Callable[[], float] = time.time,
+        login_marker: Callable[[], object] | None = None,
     ) -> None:
         self._fetch = fetch or limits.fetch_status
+        # Something that changes when Claude Code logs in again, possibly as
+        # someone else. The real source watches the credentials file; a test
+        # handing in its own fetch has no such file, so it opts in explicitly.
+        self._login_marker = login_marker or (_credentials_marker if fetch is None else None)
+        self._login: object = self._read_login()
         self._clock = clock
         self._ttl = ttl
         self._cached: limits.LimitStatus | None = None
@@ -70,8 +87,19 @@ class LimitsSource:
         self._fetched_at = None
         self._blocked_until = 0.0
 
+    def _read_login(self) -> object:
+        return self._login_marker() if self._login_marker is not None else None
+
     def get(self) -> limits.LimitStatus | None:
         now = self._clock()
+
+        # Upstream 3214f83: an account switched in place used to wait out the
+        # TTL (or a 15-minute auth backoff) showing the previous account's
+        # limits. A stat per poll is all it costs to notice at once.
+        login = self._read_login()
+        if login != self._login:
+            self._login = login
+            self.invalidate()
 
         if now < self._blocked_until:
             return self._cached

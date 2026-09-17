@@ -232,3 +232,43 @@ def test_the_payload_says_when_limits_are_stale():
                           limits_freshness={"stale": True, "updated_at": 5.0})
     assert payload["limits"]["stale"] is True
     assert payload["limits"]["updated_at"] == 5.0
+
+
+# MARK: a login changed in place (upstream 3214f83)
+
+
+def test_a_new_login_refetches_inside_the_ttl_and_the_backoff():
+    clock = FakeClock()
+    login = {"marker": "alice"}
+    calls = []
+
+    def fetch():
+        calls.append(login["marker"])
+        if login["marker"] == "expired":
+            raise limits.AuthExpiredError("HTTP 401")
+        return _status()
+
+    src = LimitsSource(fetch=fetch, clock=clock, ttl=300, login_marker=lambda: login["marker"])
+    src.get()
+    clock.advance(10)
+    src.get()
+    assert calls == ["alice"], "the same login is served from cache"
+
+    login["marker"] = "expired"
+    src.get()
+    assert calls == ["alice", "expired"]
+
+    login["marker"] = "bob"
+    clock.advance(1)
+    assert src.get() is not None
+    assert calls == ["alice", "expired", "bob"], "a fresh login skips the auth backoff"
+
+
+def test_the_real_source_watches_the_credentials_file(tmp_path, monkeypatch):
+    from poketokenbar import limits_source
+
+    credentials = tmp_path / ".credentials.json"
+    monkeypatch.setattr(limits, "default_credentials_path", lambda env=None: credentials)
+    assert limits_source._credentials_marker() is None
+    credentials.write_text("{}")
+    assert limits_source._credentials_marker() is not None
