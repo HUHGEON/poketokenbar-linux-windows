@@ -137,6 +137,18 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "dex_released": ("Released", "놓아줌", "逃がした", "Liberado",
         "Relâché", "Solto", "Freigelassen",
     ),
+    # The wall-clock time a limit resets at, when it is not today (f2fe5ac):
+    # %1 weekday, %2 day of the month, %3 24-hour time.
+    "reset_clock_far": ("%1 %2, %3", "%2일 (%1) %3", "%2日(%1) %3", "%1 %2, %3",
+        "%1 %2, %3", "%1 %2, %3", "%1 %2., %3",
+    ),
+    "weekday_mon": ("Mon", "월", "月", "lun", "lun.", "seg", "Mo."),
+    "weekday_tue": ("Tue", "화", "火", "mar", "mar.", "ter", "Di."),
+    "weekday_wed": ("Wed", "수", "水", "mié", "mer.", "qua", "Mi."),
+    "weekday_thu": ("Thu", "목", "木", "jue", "jeu.", "qui", "Do."),
+    "weekday_fri": ("Fri", "금", "金", "vie", "ven.", "sex", "Fr."),
+    "weekday_sat": ("Sat", "토", "土", "sáb", "sam.", "sáb", "Sa."),
+    "weekday_sun": ("Sun", "일", "日", "dom", "dim.", "dom", "So."),
     # This month's day-by-day bars (upstream 0912c68).
     "daily_trend": ("Daily this month", "이번 달 일별", "今月の日別", "Diario de este mes",
         "Par jour ce mois-ci", "Diário deste mês", "Täglich",

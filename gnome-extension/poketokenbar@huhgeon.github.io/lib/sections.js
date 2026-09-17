@@ -15,6 +15,7 @@ import * as Commands from './commands.js';
 import * as Config from './config.js';
 import {ANIMATION_OFF, DEFAULT_QUALITY} from './framecap.js';
 import {LANGUAGES} from './languages.js';
+import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
     Meter, badge, button, column, heading, label, levelClass, markSent,
@@ -372,8 +373,10 @@ class HomeSection extends Section {
             meter.setFraction(percent / 100, limitWindow.severity);
             this.add_child(meter);
             const resets = resetsIn(limitWindow.resets_at, t);
-            if (resets)
-                this.add_child(label(resets, 'poketokenbar-subtle'));
+            if (resets) {
+                this.add_child(label(`${resets}${resetClock(limitWindow.resets_at, t)}`,
+                    'poketokenbar-subtle'));
+            }
 
             // The forecast belongs to the window it is a forecast for.
             const burnRow = state?.burn?.[key];

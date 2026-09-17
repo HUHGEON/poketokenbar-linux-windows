@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import balance, commands, config, l10n
+from ..format import reset_clock
 from .widgets import (
     Sprite, button, card, clear_layout, column, heading, label, level_colour,
     meter, row, separator, stat_line,
@@ -230,6 +231,8 @@ class HomePanel(Panel):
                 self.t(name), f"{percent}%", colour=level_colour(window.get("severity"))))
             self.add(meter(percent / 100, window.get("severity")))
             countdown = resets_in(window.get("resets_at"), self.t)
+            if countdown:
+                countdown += reset_clock(window.get("resets_at"), self.t)
             if countdown:
                 self.add(label(countdown, dim=True))
             burn = ((state or {}).get("burn") or {}).get(key) or {}
