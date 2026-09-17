@@ -12,6 +12,7 @@ affects the token counts, which come from local logs.
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -76,11 +77,32 @@ class LimitStatus:
     account: dict | None = None
 
 
-def default_credentials_path() -> Path:
-    return Path.home() / ".claude" / ".credentials.json"
+def _config_dir(env) -> Path | None:
+    configured = ((os.environ if env is None else env).get("CLAUDE_CONFIG_DIR") or "").strip()
+    return Path(configured).expanduser() if configured else None
 
 
-def default_account_path() -> Path:
+def default_credentials_path(env=None) -> Path:
+    """Where Claude Code keeps its login.
+
+    Under $CLAUDE_CONFIG_DIR when that is set, as the usage scan already
+    assumes; reading ~/.claude regardless meant limits for a different login,
+    or none, than the usage beside them. The Linux counterpart of upstream's
+    fixes for resolving the right account (e81e620, c9c016d).
+    """
+    configured = _config_dir(env)
+    base = configured if configured is not None else Path.home() / ".claude"
+    return base / ".credentials.json"
+
+
+def default_account_path(env=None) -> Path:
+    """Claude Code's global config, which names the logged-in account.
+
+    With $CLAUDE_CONFIG_DIR set Claude Code writes it inside that directory.
+    """
+    configured = _config_dir(env)
+    if configured is not None:
+        return configured / ".claude.json"
     return Path.home() / ".claude.json"
 
 

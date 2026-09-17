@@ -171,3 +171,16 @@ def test_an_unreachable_endpoint_is_a_network_error(monkeypatch):
     monkeypatch.setattr(urllib.request, "urlopen", unreachable)
     with pytest.raises(limits.NetworkError):
         limits.fetch(limits.Credential(access_token="t"))
+
+
+def test_claude_config_dir_moves_the_credentials_and_the_account(tmp_path):
+    env = {"CLAUDE_CONFIG_DIR": str(tmp_path / "work-claude")}
+    assert limits.default_credentials_path(env) == tmp_path / "work-claude" / ".credentials.json"
+    assert limits.default_account_path(env) == tmp_path / "work-claude" / ".claude.json"
+
+
+def test_without_claude_config_dir_the_home_locations_are_used(tmp_path):
+    from pathlib import Path
+
+    assert limits.default_credentials_path({}) == Path.home() / ".claude" / ".credentials.json"
+    assert limits.default_account_path({"CLAUDE_CONFIG_DIR": "  "}) == Path.home() / ".claude.json"
