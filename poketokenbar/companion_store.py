@@ -12,7 +12,7 @@ import random
 from datetime import date as _date
 from pathlib import Path
 
-from . import balance, companion, l10n, pokeapi, save, shop, sprites
+from . import balance, companion, l10n, pokeapi, profile, save, shop, sprites
 from .companion import CompanionState
 from .format import compact as _compact
 
@@ -35,11 +35,15 @@ class CompanionStore:
         api: pokeapi.PokeAPI | None = None,
         sprite_store: sprites.SpriteStore | None = None,
         rng: random.Random | None = None,
+        detail_loader=None,
     ) -> None:
         self.save_path = save_path
         self.state: CompanionState = save.load(save_path)
         self.migrate_profiles()
         self.api = api
+        # Fetches species details in the background; None means only what is
+        # already cached is used (and in tests, nothing is fetched at all).
+        self.detail_loader = detail_loader
         self.sprites = sprite_store
         self.rng = rng or random.Random()
         # Held for one poll so the popup can show a celebration banner; the
@@ -64,6 +68,48 @@ class CompanionStore:
         except OSError:
             pass  # a failed backup must not stop the save from loading
         self._persist()
+
+    def cached_details(self, species_id: int):
+        """Species details if cached, else None. Never waits on the network."""
+        lookup = getattr(self.api, "cached_details", None)
+        if lookup is None:
+            return None
+        try:
+            return lookup(species_id)
+        except Exception:
+            return None
+
+    def enrich_profiles(self) -> bool:
+        """Fill gender, ability and moves wherever species details are cached.
+
+        Ports upstream's enrichProfiles and preparePokemonProfiles. Runs on
+        every publish, so a profile catches up as soon as its details arrive
+        and moves follow the level as it rises. Only the companion's details
+        are fetched unasked; a dex entry's arrive when its page is opened.
+        Returns whether any profile changed, having saved if so.
+        """
+        targets = []
+        mon = self.state.active
+        if mon is not None and mon.profile is not None:
+            targets.append((mon.current_id, mon.profile, True))
+        for entry in self.state.dex:
+            if entry.profile is not None:
+                targets.append((entry.final_id, entry.profile, False))
+
+        changed = False
+        for species_id, individual, is_active in targets:
+            details = self.cached_details(species_id)
+            if details is None:
+                if is_active and self.detail_loader is not None:
+                    self.detail_loader.request_details(species_id)
+                continue
+            before = save._encode_profile(individual)
+            profile.enrich(individual, details)
+            if save._encode_profile(individual) != before:
+                changed = True
+        if changed:
+            self._persist()
+        return changed
 
     # --- usage -------------------------------------------------------------
 

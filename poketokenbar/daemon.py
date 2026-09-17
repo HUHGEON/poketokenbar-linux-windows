@@ -12,6 +12,7 @@ from .burn import BurnTracker
 from .notify import Notifier
 from .status import StatusChecker
 from .limits_source import LimitsSource
+from .detail_loader import DetailLoader
 from .pokeapi import PokeAPI
 from .sprites import SpriteStore
 from .cache import ScanCache
@@ -333,6 +334,7 @@ class Daemon:
                 # companion reads the save, so they must be kept in step or the
                 # popup renders half-translated.
                 self.companion_store.state.language = language
+                self.companion_store.enrich_profiles()
                 self.companion_store.update(
                     {pid: d.total_tokens for pid, d in daily_by_provider.items()}
                 )
@@ -427,10 +429,23 @@ class Daemon:
                 time.sleep(COMMAND_POLL_SECONDS)
                 if self._has_commands():
                     self.react()
+                elif self._details_arrived():
+                    # Rebuilt from the last scan: details change what the
+                    # popup shows, not what the logs say.
+                    self._publish([], fresh_limits=False)
+
+    def _details_arrived(self) -> bool:
+        loader = getattr(self.companion_store, "detail_loader", None)
+        return loader is not None and self._last_scan is not None and loader.take_changed()
 
     def _has_commands(self) -> bool:
         spool = self.spool or commands.spool_dir()
         return spool.is_dir() and any(spool.glob("*.json"))
+
+
+def _companion_store() -> CompanionStore:
+    api = PokeAPI()
+    return CompanionStore(api=api, sprite_store=SpriteStore(), detail_loader=DetailLoader(api))
 
 
 def main() -> int:
@@ -443,9 +458,7 @@ def main() -> int:
         cache=cache,
         providers=None,  # replaced below, once the daemon can answer for its config
         limits_source=LimitsSource(),
-        companion_store=CompanionStore(
-            api=PokeAPI(), sprite_store=SpriteStore()
-        ),
+        companion_store=_companion_store(),
         notifier=Notifier(),
         burn_tracker=BurnTracker(),
         status_checker=StatusChecker(),

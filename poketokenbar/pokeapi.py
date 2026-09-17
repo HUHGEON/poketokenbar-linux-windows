@@ -10,12 +10,15 @@ tokens in the egg and hatches later — progress is never discarded.
 from __future__ import annotations
 
 import json
+import re
+import threading
+import time
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from . import l10n
+from . import l10n, profile as profiles
 from .balance import DITTO_SPECIES_ID, Rarity
 from .companion import EvoLine
 
@@ -29,6 +32,16 @@ MAX_SPECIES_ID = 649
 LANG_CODES = ("ko", "en", "ja-hrkt", "ja", "es", "fr", "pt-br", "pt", "de")
 # PokéAPI's GraphQL endpoint answers 403 to urllib's default User-Agent.
 USER_AGENT = "poketokenbar/0.1 (+https://github.com/chattymin/PokeTokenBar)"
+
+
+# Species details and localized resource names change rarely; after this long a
+# cached copy is refreshed, and until then it is served without a request. A
+# stale copy is still served when the refresh fails.
+DETAIL_TTL_SECONDS = 30 * 86400
+# The resources a detail page names. Anything else is refused before it can
+# become part of a URL or a cache path.
+NAME_KINDS = ("type", "ability", "move")
+_RESOURCE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
 
 class PokeAPIError(Exception):
@@ -64,11 +77,127 @@ def _post_json(url: str, payload: dict, timeout: float = 20.0):
 
 
 class PokeAPI:
-    def __init__(self, cache_dir: Path | None = None) -> None:
+    def __init__(self, cache_dir: Path | None = None, clock=time.time) -> None:
         self.cache_dir = cache_dir or (Path.home() / ".cache" / "poketokenbar")
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._species: dict[int, dict] = {}
         self._lines: dict[int, EvoLine] = {}
+        self._details: dict[int, profiles.PokemonDetails] = {}
+        self._names: dict[tuple[str, str], dict[str, str]] = {}
+        # The detail loader fills these from its own thread while the daemon
+        # reads them; the lock keeps a half-written entry from being seen.
+        self._lock = threading.Lock()
+        self._clock = clock
+
+    # --- details (upstream b6bf676) ------------------------------------------
+
+    def _details_file(self, species_id: int) -> Path:
+        return self.cache_dir / "pokemon-details-v1" / f"{int(species_id)}.json"
+
+    def cached_details(self, species_id: int) -> profiles.PokemonDetails | None:
+        """Details from memory or disk, however old. Never touches the network.
+
+        What the daemon's own thread uses: enriching a profile or drawing a
+        detail page must not wait on a request.
+        """
+        with self._lock:
+            found = self._details.get(species_id)
+        if found is not None:
+            return found
+        snapshot = _read_snapshot(self._details_file(species_id))
+        if snapshot is None:
+            return None
+        details = _details_from_json(snapshot.get("details"))
+        if details is not None:
+            with self._lock:
+                self._details[species_id] = details
+        return details
+
+    def details(self, species_id: int) -> profiles.PokemonDetails:
+        """Details for one species: memory, a fresh disk copy, then PokéAPI.
+
+        A stale disk copy answers when the request fails, so a Pokémon seen
+        once is never blank offline.
+        """
+        with self._lock:
+            found = self._details.get(species_id)
+        if found is not None:
+            return found
+        path = self._details_file(species_id)
+        snapshot = _read_snapshot(path)
+        disk = _details_from_json(snapshot.get("details")) if snapshot else None
+        if disk is not None and self._clock() - snapshot.get("fetched_at", 0) < DETAIL_TTL_SECONDS:
+            with self._lock:
+                self._details[species_id] = disk
+            return disk
+        try:
+            raw = _get_json(f"{REST_BASE}/pokemon/{int(species_id)}")
+            gender_rate = self.species(species_id).get("gender_rate")
+            details = parse_details(species_id, raw, gender_rate)
+        except (PokeAPIError, KeyError, TypeError, ValueError) as exc:
+            if disk is not None:
+                with self._lock:
+                    self._details[species_id] = disk
+                return disk
+            raise PokeAPIError(f"details for {species_id}: {exc}") from exc
+        _write_snapshot(path, {"fetched_at": self._clock(), "details": asdict(details)})
+        with self._lock:
+            self._details[species_id] = details
+        return details
+
+    # --- localized names for types, abilities and moves (upstream 2fab082) ---
+
+    def _names_file(self, kind: str, name: str) -> Path:
+        return self.cache_dir / "pokemon-names-v1" / kind / f"{name}.json"
+
+    @staticmethod
+    def _valid_resource(kind: str, name: str) -> bool:
+        return kind in NAME_KINDS and bool(_RESOURCE_NAME.match(name or ""))
+
+    def cached_resource_names(self, kind: str, name: str) -> dict[str, str] | None:
+        """{language code: name} from memory or disk, or None. No network."""
+        if not self._valid_resource(kind, name):
+            return None
+        with self._lock:
+            found = self._names.get((kind, name))
+        if found is not None:
+            return found
+        snapshot = _read_snapshot(self._names_file(kind, name))
+        names = snapshot.get("names") if snapshot else None
+        if not isinstance(names, dict):
+            return None
+        with self._lock:
+            self._names[(kind, name)] = names
+        return names
+
+    def resource_names(self, kind: str, name: str) -> dict[str, str]:
+        """Localized names of one type, ability or move."""
+        if not self._valid_resource(kind, name):
+            raise PokeAPIError(f"not a {kind} name: {name!r}")
+        with self._lock:
+            found = self._names.get((kind, name))
+        if found is not None:
+            return found
+        path = self._names_file(kind, name)
+        snapshot = _read_snapshot(path)
+        disk = snapshot.get("names") if snapshot else None
+        if isinstance(disk, dict) and self._clock() - snapshot.get("fetched_at", 0) < DETAIL_TTL_SECONDS:
+            with self._lock:
+                self._names[(kind, name)] = disk
+            return disk
+        try:
+            raw = _get_json(f"{REST_BASE}/{kind}/{name}/")
+            names = l10n.names_from_api(raw.get("names") if isinstance(raw, dict) else None)
+        except PokeAPIError:
+            if isinstance(disk, dict):
+                with self._lock:
+                    self._names[(kind, name)] = disk
+                return disk
+            raise
+        _write_snapshot(path, {"fetched_at": self._clock(), "names": names})
+        with self._lock:
+            self._names[(kind, name)] = names
+        return names
 
     # --- hatch candidates --------------------------------------------------
 
@@ -127,8 +256,12 @@ class PokeAPI:
             except ValueError:
                 pass
         data = _get_json(f"{REST_BASE}/pokemon-species/{species_id}")
+        # Atomic: the detail loader's thread writes here too, and a half-written
+        # file read by the daemon would send it back to the network.
         cached.parent.mkdir(parents=True, exist_ok=True)
-        cached.write_text(json.dumps(data), encoding="utf-8")
+        tmp = cached.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data), encoding="utf-8")
+        tmp.replace(cached)
         self._species[species_id] = data
         return data
 
@@ -198,6 +331,84 @@ class PokeAPI:
             raise PokeAPIError("no hatch candidates")
         weights = [c.capture_rate for c in candidates]
         return rng.choices(candidates, weights=weights, k=1)[0].id
+
+
+def parse_details(species_id: int, raw: dict, gender_rate) -> profiles.PokemonDetails:
+    """PokéAPI's /pokemon/{id} reduced to what a profile and its page use.
+
+    Moves are cut down to the supported version group here, at the trust
+    boundary, before anything is cached: the full cross-generation history is
+    most of the response and none of it is shown.
+    """
+    moves = []
+    for entry in raw.get("moves") or []:
+        methods = [
+            profiles.LearnMethod(row["move_learn_method"]["name"], int(row["level_learned_at"]))
+            for row in entry.get("version_group_details") or []
+            if (row.get("version_group") or {}).get("name") == profiles.PREFERRED_VERSION_GROUP
+        ]
+        if methods:
+            moves.append(profiles.MoveOption(entry["move"]["name"], methods))
+    moves.sort(key=lambda m: m.name)
+    return profiles.PokemonDetails(
+        species_id=int(species_id),
+        name=str(raw["name"]),
+        height=int(raw.get("height") or 0),
+        weight=int(raw.get("weight") or 0),
+        base_experience=raw.get("base_experience") if isinstance(raw.get("base_experience"), int) else None,
+        gender_rate=gender_rate if isinstance(gender_rate, int) else -1,
+        types=[t["type"]["name"] for t in sorted(raw.get("types") or [], key=lambda t: t["slot"])],
+        base_stats={s["stat"]["name"]: int(s["base_stat"]) for s in raw.get("stats") or []},
+        abilities=sorted(
+            (profiles.AbilityOption(a["ability"]["name"], int(a["slot"]), bool(a["is_hidden"]))
+             for a in raw.get("abilities") or []),
+            key=lambda a: a.slot,
+        ),
+        moves=moves,
+    )
+
+
+def _details_from_json(raw) -> profiles.PokemonDetails | None:
+    """Details as cached by asdict(), or None when the file is not that."""
+    if not isinstance(raw, dict):
+        return None
+    try:
+        return profiles.PokemonDetails(
+            species_id=int(raw["species_id"]),
+            name=str(raw["name"]),
+            height=int(raw["height"]),
+            weight=int(raw["weight"]),
+            base_experience=raw.get("base_experience"),
+            gender_rate=int(raw["gender_rate"]),
+            types=[str(t) for t in raw["types"]],
+            base_stats={str(k): int(v) for k, v in raw["base_stats"].items()},
+            abilities=[profiles.AbilityOption(str(a["name"]), int(a["slot"]), bool(a["is_hidden"]))
+                       for a in raw["abilities"]],
+            moves=[profiles.MoveOption(str(m["name"]),
+                                       [profiles.LearnMethod(str(l["method"]), int(l["level"]))
+                                        for l in m["learn_methods"]])
+                   for m in raw["moves"]],
+        )
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+
+
+def _read_snapshot(path: Path) -> dict | None:
+    try:
+        raw = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return raw if isinstance(raw, dict) else None
+
+
+def _write_snapshot(path: Path, body: dict) -> None:
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(body), encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        pass  # a cache that cannot be written is only a slower cache
 
 
 def _id_from_url(url: str) -> int | None:
