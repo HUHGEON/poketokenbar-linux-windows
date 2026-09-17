@@ -343,7 +343,7 @@ class CompanionStore:
                 **self._panel_fields(),
             }
 
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+        threshold = mon.phase_threshold
         # Remaining to the NEXT step: an evolution mid-line, graduation at the end.
         remaining = max(0, threshold - mon.used_at_stage)
         evo_line = []
@@ -376,6 +376,8 @@ class CompanionStore:
             "total_forms": mon.total_forms,
             "used_at_stage": mon.used_at_stage,
             "stage_threshold": threshold,
+            # 2 on a repeat hatch, else None. Home badges it next to the stage.
+            "growth_multiplier": mon.growth_multiplier if mon.has_growth_boost else None,
             "stage_progress": round(min(1.0, mon.used_at_stage / threshold), 4)
             if threshold
             else 0.0,

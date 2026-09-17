@@ -128,9 +128,14 @@ class HomePanel(Panel):
                 self.add(label(
                     f"✨ {name}" if companion.get("is_shiny") else name,
                     bold=True, size=16))
-                self.add(label(
-                    f"{self.t(companion.get('rarity', 'common'))}"
-                    f" · {companion.get('nature', '')}", dim=True))
+                traits = (f"{self.t(companion.get('rarity', 'common'))}"
+                          f" · {companion.get('nature', '')}")
+                # A repeat hatch grows faster; say so, or the meter looks wrong.
+                if companion.get("growth_multiplier"):
+                    boost = self.t("growth_boost").replace(
+                        "%1", str(companion["growth_multiplier"]))
+                    traits = f"{traits} · {boost}"
+                self.add(label(traits, dim=True))
                 self.add(meter(companion.get("stage_progress", 0)))
                 goal = self.t(
                     "graduation" if companion.get("is_final_form") else "next_evolution")

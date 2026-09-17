@@ -59,18 +59,31 @@ def graduation_total(rarity: Rarity) -> int:
     return GRADUATION_TOTAL[Rarity(rarity)]
 
 
-def phase_threshold(rarity: Rarity, total_forms: int, stage_index: int) -> int:
+# A line that has graduated before grows this many times faster when it hatches
+# again (upstream dec297a).
+REPEAT_GROWTH_MULTIPLIER = 2
+
+
+def _round(value: float) -> int:
+    """Half away from zero, as Swift's rounded(). round() rounds half to even."""
+    return int(value + 0.5) if value >= 0 else -int(-value + 0.5)
+
+
+def phase_threshold(
+    rarity: Rarity, total_forms: int, stage_index: int, growth_multiplier: int = 1
+) -> int:
     """Tokens needed at a stage before the next evolution or graduation.
 
     Weighted so later stages cost more while the sum over all stages equals the
     graduation total — a line's total is the same regardless of how many forms
-    it has.
+    it has. A growth multiplier divides the result, never below one token.
     """
     k = max(1, total_forms)
     i = stage_index + 1  # 1-based
     total = float(graduation_total(rarity))
     denom = (k * (k + 1)) / 2.0
-    return round(total * i / denom)
+    standard = _round(total * i / denom)
+    return max(1, _round(standard / max(1, growth_multiplier)))
 
 
 # --- items -----------------------------------------------------------------

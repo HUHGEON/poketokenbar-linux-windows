@@ -42,6 +42,21 @@ class MonState:
     ditto_disguise: int | None = None
     ditto_revealed: bool = False
     hatched_at: float | None = None
+    # Fixed at hatch: this line had graduated before, so it grows
+    # REPEAT_GROWTH_MULTIPLIER times faster. False on saves from before it.
+    has_growth_boost: bool = False
+
+    @property
+    def growth_multiplier(self) -> int:
+        return balance.REPEAT_GROWTH_MULTIPLIER if self.has_growth_boost else 1
+
+    @property
+    def phase_threshold(self) -> int:
+        """Tokens this stage needs. Every threshold check goes through here, so
+        none of them can forget the boost."""
+        return balance.phase_threshold(
+            self.rarity, self.total_forms, self.stage_index, self.growth_multiplier
+        )
 
     @property
     def current_id(self) -> int:
@@ -124,6 +139,11 @@ class CompanionState:
         if self.active is None:
             return []
         return list(self.active.path_ids[: self.active.stage_index + 1])
+
+    def has_collected_final(self, base_id: int) -> bool:
+        """Whether any line starting at this base species has graduated."""
+        prefix = f"{base_id}-"
+        return any(key.startswith(prefix) for key in self.collected_finals)
 
     def owns_species(self, species_id: int) -> bool:
         """Whether a graduation record or the current companion covers this species.
@@ -267,6 +287,7 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         # The disguise stores the species being impersonated; the reveal swaps
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
         ditto_disguise=line.base_id if roll_ditto(rng, line) else None,
+        has_growth_boost=state.has_collected_final(line.base_id),
     )
     state.active = mon
     # The guarantee is consumed by the hatch it paid for.
@@ -380,7 +401,7 @@ def apply_usage(
     mon = state.active
     mon.used_at_stage += tokens
     while True:
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+        threshold = mon.phase_threshold
         if mon.used_at_stage < threshold:
             break
         mon.used_at_stage -= threshold

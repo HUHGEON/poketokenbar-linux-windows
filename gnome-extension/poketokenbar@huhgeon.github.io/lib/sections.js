@@ -141,9 +141,16 @@ class HomeSection extends Section {
                 const name = companion.name || `#${companion.species_id}`;
                 this.add_child(label(
                     companion.is_shiny ? `✨ ${name}` : name, 'poketokenbar-title'));
-                this.add_child(label(
+                const traits = row([label(
                     `${t(companion.rarity ?? 'common')} · ${companion.nature ?? ''}`,
-                    'poketokenbar-subtle'));
+                    'poketokenbar-subtle')]);
+                // A repeat hatch grows faster. Said next to the stage, or the
+                // meter filling twice as fast looks like a counting bug.
+                if (companion.growth_multiplier)
+                    traits.add_child(badge(
+                        t('growth_boost').replace('%1', String(companion.growth_multiplier)),
+                        'poketokenbar-badge-small'));
+                this.add_child(traits);
 
                 const meter = new Meter();
                 meter.setFraction(companion.stage_progress ?? 0);
