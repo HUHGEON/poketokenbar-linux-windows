@@ -16,7 +16,7 @@ from pathlib import Path
 from . import format as fmt
 from . import platform_paths
 from . import l10n, limits
-from .models import DailyUsage
+from .models import CostCoverage, DailyUsage
 
 SCHEMA_VERSION = 1
 
@@ -47,7 +47,33 @@ def _limits_payload(status) -> dict:
     }
 
 
-def _period_rows(periods: dict | None) -> dict:
+def _cost_texts(amount: float, coverage, language: str, tokens: int) -> tuple[str, str]:
+    """(popup text, panel text) for a cost total. Ports UsageCost.text.
+
+    Plain dollars whenever anything was priced, as upstream a8b3ba8 settled
+    on; "Unavailable" (the panel's "$—") when usage exists but none of it
+    could be priced; nothing at all when there was no usage to price.
+    """
+    if coverage is None or not (coverage.has_known or coverage.unknown):
+        # A total built without coverage is read as upstream decodes one: no
+        # tokens is nothing, an amount is an estimate, otherwise unpriced.
+        if tokens <= 0:
+            return "", ""
+        coverage = CostCoverage(estimated=amount > 0, unknown=amount <= 0)
+    if coverage.only_unknown:
+        return l10n.t("cost_unavailable", language), "$\u2014"
+    return fmt.cost(amount), fmt.cost_compact(amount)
+
+
+def _combined_coverage(coverages) -> CostCoverage:
+    combined = CostCoverage()
+    for coverage in coverages:
+        if coverage is not None:
+            combined.merge(coverage)
+    return combined
+
+
+def _period_rows(periods: dict | None, language: str = "en") -> dict:
     """Week and month with their text prepared, like every other number here.
 
     The daemon sums these as raw ints; formatting them in the UI is what led to
@@ -62,7 +88,7 @@ def _period_rows(periods: dict | None) -> dict:
             "cost": cost,
             "tokens_text": fmt.grouped(tokens),
             "tokens_compact": fmt.compact(tokens),
-            "cost_text": fmt.cost(cost),
+            "cost_text": _cost_texts(cost, bucket.get("coverage"), language, tokens)[0],
         }
     return out
 
@@ -167,6 +193,9 @@ def build(
     total_tokens = sum(d.total_tokens for d in daily_by_provider.values())
     total_cost = sum(d.total_cost for d in daily_by_provider.values())
     limit_mode = config_values.get("limit_display_mode", "both")
+    language = config_values.get("language", "en")
+    coverage = _combined_coverage(d.cost_coverage for d in daily_by_provider.values())
+    cost_text, cost_compact = _cost_texts(total_cost, coverage, language, total_tokens)
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -178,7 +207,7 @@ def build(
             "total_cost": total_cost,
             "tokens_grouped": fmt.grouped(total_tokens),
             "tokens_compact": fmt.compact(total_tokens),
-            "cost_text": fmt.cost(total_cost),
+            "cost_text": cost_text,
             # Across every provider, so a day spent on one model through two
             # tools still reads as one row.
             "models": _model_rows(_combined_models(daily_by_provider)),
@@ -191,6 +220,7 @@ def build(
                 "total_tokens_text": fmt.grouped(d.total_tokens),
                 "total_tokens_compact": fmt.compact(d.total_tokens),
                 "total_cost": d.total_cost,
+                "cost_text": _cost_texts(d.total_cost, d.cost_coverage, language, d.total_tokens)[0],
                 "input_tokens": d.input_tokens,
                 "output_tokens": d.output_tokens,
                 "cache_creation_tokens": d.cache_creation_tokens,
@@ -210,7 +240,7 @@ def build(
         "catch_log": catch_log or [],
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
-        "periods": _period_rows(periods),
+        "periods": _period_rows(periods, language),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
         # The Pokédex page the popup has open, or {} for none.
@@ -232,7 +262,7 @@ def build(
             "tokens_text": fmt.compact(total_tokens)
             if config_values.get("show_tokens_in_menu")
             else "",
-            "cost_text": fmt.cost_compact(total_cost)
+            "cost_text": cost_compact
             if config_values.get("show_cost_in_menu")
             else "",
             "limit_text": limits.panel_text(limit_status, limit_mode)

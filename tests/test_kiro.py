@@ -417,9 +417,17 @@ def test_session_root_is_a_dotfile_and_unchanged(tmp_path):
     ]
 
 
-def test_kiro_reports_no_cost():
-    """Tokens are an estimate and usage_summary credits are not API dollars."""
-    assert kiro.KiroProvider().reports_cost is False
+def test_kiro_turns_are_unpriced(tmp_path):
+    """Tokens are a byte estimate and usage_summary credits are not dollars."""
+    path = seed_v2(
+        tmp_path / "data.sqlite3",
+        [("conv-1", conversation("conv-1", [turn(1_780_000_000_000, user_text="u" * 400,
+                                                 response_bytes=200)]))],
+    )
+    entries = kiro.parse_database(path)
+    assert all(e.cost_unavailable for e in entries)
+    daily = kiro.KiroProvider().aggregate_daily(entries[0].local_day, entries)
+    assert daily.cost_coverage.only_unknown
 
 
 def test_provider_identity():

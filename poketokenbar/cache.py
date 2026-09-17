@@ -41,6 +41,8 @@ def _encode(entries: list[Entry]) -> str:
                 "cache_write": e.cache_write,
                 "cache_read": e.cache_read,
                 "explicit_cost": e.explicit_cost,
+                "cost_is_estimate": e.cost_is_estimate,
+                "cost_unavailable": e.cost_unavailable,
             }
             for e in entries
         ]
@@ -60,6 +62,8 @@ def _decode(raw: str) -> list[Entry]:
             cache_read=d["cache_read"],
             # Blobs written before the field existed simply carry no charge.
             explicit_cost=d.get("explicit_cost"),
+            cost_is_estimate=bool(d.get("cost_is_estimate", False)),
+            cost_unavailable=bool(d.get("cost_unavailable", False)),
         )
         for d in json.loads(raw)
     ]

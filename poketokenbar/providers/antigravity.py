@@ -302,7 +302,6 @@ class AntigravityProvider(SQLiteProvider):
     id = "antigravity"
     display_name = "Antigravity"
     # Subscription-billed; it states no per-token amount.
-    reports_cost = False
     PARSER_VERSION = 1
 
     def curated_roots(self) -> list[Path]:

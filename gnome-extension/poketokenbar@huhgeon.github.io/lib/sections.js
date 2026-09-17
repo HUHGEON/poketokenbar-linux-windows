@@ -27,6 +27,12 @@ import {
 const DEX_COLUMNS = 6;
 const DEX_ROWS = 3;
 const DEX_SPRITE_SIZE = 48;
+
+/** "1,234,567 · $1.23": a period's tokens, and its cost when there is one. */
+function withCost(periodRow) {
+    const tokens = periodRow.tokens_text ?? '';
+    return periodRow.cost_text ? `${tokens} · ${periodRow.cost_text}` : tokens;
+}
 const DETAIL_SPRITE_SIZE = 80;
 
 /** Base: a vertical box that empties itself before each update. */
@@ -184,9 +190,9 @@ class HomeSection extends Section {
 
         const periods = state?.periods;
         if (periods?.week)
-            this.add_child(statLine(t('this_week'), periods.week.tokens_text ?? ''));
+            this.add_child(statLine(t('this_week'), withCost(periods.week)));
         if (periods?.month)
-            this.add_child(statLine(t('this_month'), periods.month.tokens_text ?? ''));
+            this.add_child(statLine(t('this_month'), withCost(periods.month)));
 
         // Only worth the rows when the day actually spanned several models.
         const models = today?.models ?? [];

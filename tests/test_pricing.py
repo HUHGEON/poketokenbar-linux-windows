@@ -9,35 +9,47 @@ def test_exact_table_match():
     assert r.output == pytest.approx(15 / 1_000_000)
 
 
-def test_family_fallback_for_unknown_version():
-    # Version drift must not silently zero a real model's cost.
-    assert pricing.rate("claude-opus-9-9").input == pytest.approx(5 / 1_000_000)
+def test_an_unlisted_version_is_unpriced_rather_than_priced_like_its_family():
+    # Upstream 69ff39b: "opus" in a name is not evidence of an Opus price.
+    assert pricing.estimated_cost("claude-opus-9-9", 1_000_000, 0, 0, 0) is None
+    assert pricing.rate("claude-opus-9-9") == pricing.ZERO
 
 
-def test_grok_is_zero_before_any_family_fallback():
-    # grok-codex-* would otherwise match the "codex" -> GPT fallback and show a
-    # fabricated dollar amount.
-    assert pricing.rate("grok-codex-fast") == pricing.ZERO
-    assert pricing.rate("grok-4o-mini") == pricing.ZERO
+def test_grok_names_are_unpriced():
+    assert pricing.estimated_cost("grok-codex-fast", 1, 1, 0, 0) is None
+    assert pricing.estimated_cost("grok-4o-mini", 1, 1, 0, 0) is None
 
 
-def test_antigravity_prefix_is_zero_even_for_a_priced_model():
-    # That CLI calls claude-sonnet-4-6, which would match the exact table
-    # without the prefix. It is subscription-billed, so cost must stay 0.
-    assert pricing.rate("antigravity/claude-sonnet-4-6") == pricing.ZERO
+def test_antigravity_prefix_is_unpriced_even_for_a_priced_model():
+    # That CLI calls claude-sonnet-4-6, which is in the table without the prefix.
+    assert pricing.estimated_cost("antigravity/claude-sonnet-4-6", 1, 1, 0, 0) is None
 
 
-def test_unknown_model_costs_nothing_rather_than_guessing():
+def test_unknown_model_is_unpriced_rather_than_guessed():
+    assert pricing.estimated_cost("totally-unknown-model", 1, 1, 0, 0) is None
     assert pricing.rate("totally-unknown-model") == pricing.ZERO
 
 
-def test_gemini_family_fallback():
-    assert pricing.rate("gemini-3.0-pro").input == pytest.approx(1.25 / 1_000_000)
-    assert pricing.rate("gemini-3.0-flash").input == pytest.approx(0.30 / 1_000_000)
+def test_an_unlisted_gemini_is_unpriced():
+    assert pricing.estimated_cost("gemini-3.0-pro", 1, 1, 0, 0) is None
+    assert pricing.estimated_cost("gemini-3.0-flash", 1, 1, 0, 0) is None
 
 
-def test_unknown_gemini_variant_is_zero():
-    assert pricing.rate("gemini-experimental-x") == pricing.ZERO
+def test_cache_writes_on_a_model_with_no_write_rate_are_unpriced():
+    # gpt-5.4 has no separate write rate; zero there is "unknown", not "free".
+    assert pricing.estimated_cost("gpt-5.4", 1_000, 1_000, 1, 0) is None
+    assert pricing.estimated_cost("gpt-5.4", 1_000, 1_000, 0, 1_000) is not None
+
+
+def test_the_long_context_tier_is_per_request():
+    base = pricing.estimated_cost("gpt-5.4", 272_000, 1_000_000, 0, 0)
+    assert base == pytest.approx(272_000 * 2.5e-6 + 15.0)
+    long = pricing.estimated_cost("gpt-5.4", 272_001, 1_000_000, 0, 0)
+    assert long == pytest.approx(272_001 * 2.5e-6 * 2 + 15.0 * 1.5)
+    assert pricing.estimated_cost("gemini-2.5-pro", 150_000, 0, 0, 60_000) == pytest.approx(
+        (150_000 * 1.25e-6 + 60_000 * 0.125e-6) * 2)
+    # Models without the tier are never surcharged.
+    assert pricing.estimated_cost("claude-sonnet-4-6", 1_000_000, 0, 0, 0) == pytest.approx(3.0)
 
 
 def test_cost_sums_all_four_token_kinds():

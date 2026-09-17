@@ -109,16 +109,16 @@ def store_dir(tmp_path, monkeypatch):
     return root
 
 
-def test_cursor_reports_no_cost(tmp_path, store_dir):
-    """Included-plan usage is billed by request; the dashboard is token-only."""
+def test_cursor_local_usage_is_unpriced(tmp_path, store_dir):
+    """Local bubbles carry no cost and are not enough to price from the table."""
     root = store_dir
     root.mkdir(parents=True)
     write_store(root / "state.vscdb", [("bubbleId:b", bubble(input=1_000_000, output=1_000_000))])
     provider = cursor.CursorProvider(home=tmp_path)
     entries = provider.scan_entries()
     daily = provider.aggregate_daily(entries[0].local_day, entries)
-    assert provider.reports_cost is False
     assert daily.total_cost == 0
+    assert daily.cost_coverage.only_unknown
     assert daily.total_tokens == 2_000_000
 
 

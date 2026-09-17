@@ -137,6 +137,10 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "dex_released": ("Released", "놓아줌", "逃がした", "Liberado",
         "Relâché", "Solto", "Freigelassen",
     ),
+    # A cost total where nothing could be priced (upstream 69ff39b).
+    "cost_unavailable": ("Unavailable", "계산 불가", "計算不可", "No disponible",
+        "Indisponible", "Indisponível", "Nicht verfügbar",
+    ),
     # Pokédex detail page (upstream b6bf676)
     "detail_back": ("Back", "뒤로", "戻る", "Atrás", "Retour", "Voltar", "Zurück"),
     "retry": ("Retry", "다시 시도", "再試行", "Reintentar", "Réessayer", "Tentar novamente", "Erneut versuchen"),

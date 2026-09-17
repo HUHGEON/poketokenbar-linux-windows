@@ -244,12 +244,10 @@ def test_roots_are_dotfile_paths_and_unchanged_on_linux(tmp_path):
     ]
 
 
-def test_antigravity_reports_no_cost(tmp_path):
-    """Subscription-billed; it states no per-token amount.
-
-    The `antigravity/` prefix also keeps its model names away from the price
-    table, which matters because it calls models like claude-sonnet-4-6.
-    """
+def test_antigravity_usage_is_unpriced(tmp_path):
+    """Subscription-billed, with no cost field. The `antigravity/` prefix keeps
+    its model names off the price table, which matters because it calls models
+    like claude-sonnet-4-6, so the day is unavailable rather than a guess."""
     from poketokenbar import pricing
 
     write_conversation(
@@ -258,10 +256,10 @@ def test_antigravity_reports_no_cost(tmp_path):
     provider = ag.AntigravityProvider(home=tmp_path)
     entries = provider.scan_entries()
     assert entries[0].model == "antigravity/claude-sonnet-4-6"
-    assert pricing.rate(entries[0].model) == pricing.ZERO
+    assert pricing.estimated_cost(entries[0].model, 1, 1, 0, 0) is None
     daily = provider.aggregate_daily(entries[0].local_day, entries)
-    assert provider.reports_cost is False
     assert daily.total_cost == 0
+    assert daily.cost_coverage.only_unknown
 
 
 # MARK: the wire reader itself

@@ -134,7 +134,8 @@ class OpenCodeProvider(SQLiteProvider):
     id = "opencode"
     display_name = "OpenCode"
     reports_cost = True
-    PARSER_VERSION = 1
+    # v2: tokens beyond the buckets are unpriced (69ff39b).
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return roots(self._home)

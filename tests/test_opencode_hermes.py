@@ -89,10 +89,12 @@ def test_opencode_falls_back_to_a_database_without_time_created(tmp_path):
     assert entries[0].total == 13
 
 
-def test_opencode_zero_cost_is_not_recorded_as_a_charge(tmp_path):
-    """0 means the store had no figure, not that the turn was free."""
+def test_opencode_zero_cost_is_a_recorded_zero(tmp_path):
+    """0 is a free turn, not a missing figure (upstream 69ff39b)."""
     payload = dict(OPENCODE_PAYLOAD, cost=0)
-    assert opencode.parse_message(payload, "x").explicit_cost is None
+    entry = opencode.parse_message(payload, "x")
+    assert entry.explicit_cost == 0.0
+    assert not entry.cost_is_estimate
 
 
 @pytest.fixture
@@ -211,18 +213,24 @@ def test_hermes_reads_session_tokens_reasoning_and_actual_cost(tmp_path):
     assert e.explicit_cost == 0.34, "the actual charge wins over the estimate"
 
 
-def test_hermes_falls_back_to_the_estimate_when_no_actual_cost(tmp_path):
+def test_hermes_falls_back_to_the_estimate_only_when_no_actual_cost_was_recorded(tmp_path):
     database = tmp_path / "state.db"
     execute(
         database,
         HERMES_SCHEMA
         + """
-        INSERT INTO sessions VALUES (
-            's', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, 0.12, 0
-        );
+        INSERT INTO sessions VALUES ('none', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, 0.12, NULL);
+        INSERT INTO sessions VALUES ('zero', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, 0.12, 0);
+        INSERT INTO sessions VALUES ('neither', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, NULL, NULL);
         """,
     )
-    assert hermes.parse_database(database)[0].explicit_cost == 0.12
+    by_id = {e.id: e for e in hermes.parse_database(database)}
+    estimated = by_id["hermes|none"]
+    assert (estimated.explicit_cost, estimated.cost_is_estimate) == (0.12, True)
+    zero = by_id["hermes|zero"]
+    assert (zero.explicit_cost, zero.cost_is_estimate) == (0.0, False), "a recorded $0 counts"
+    neither = by_id["hermes|neither"]
+    assert neither.explicit_cost is None and neither.cost_unavailable
 
 
 def test_hermes_accepts_a_millisecond_started_at(tmp_path):

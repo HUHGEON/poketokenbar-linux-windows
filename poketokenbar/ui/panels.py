@@ -151,10 +151,13 @@ class HomePanel(Panel):
             self.add(stat_line("", today["cost_text"]))
 
         periods = (state or {}).get("periods") or {}
-        if periods.get("week"):
-            self.add(stat_line(self.t("this_week"), periods["week"].get("tokens_text", "")))
-        if periods.get("month"):
-            self.add(stat_line(self.t("this_month"), periods["month"].get("tokens_text", "")))
+        for key, name in (("week", "this_week"), ("month", "this_month")):
+            period = periods.get(key)
+            if period:
+                text = period.get("tokens_text", "")
+                if period.get("cost_text"):
+                    text = f"{text} · {period['cost_text']}"
+                self.add(stat_line(self.t(name), text))
 
         # Only worth the rows when the day actually spanned several models.
         models = today.get("models") or []

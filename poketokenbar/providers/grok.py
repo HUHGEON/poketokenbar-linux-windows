@@ -25,6 +25,8 @@ present. Treating them as synonyms subtracts the cached reads twice.
 
 from __future__ import annotations
 
+import math
+
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -139,7 +141,8 @@ def _cost(usage: dict) -> float | None:
     ticks = number(usage.get("costUsdTicks"))
     if ticks is None:
         ticks = number(usage.get("cost_usd_ticks"))
-    if ticks is None or ticks <= 0:
+    # Zero ticks is a recorded $0 (upstream 69ff39b), not a missing figure.
+    if ticks is None or not math.isfinite(ticks) or ticks < 0:
         return None
     return ticks / 1e10
 
@@ -271,7 +274,8 @@ class GrokProvider(ScanningProvider):
     id = "grok"
     display_name = "Grok CLI"
     reports_cost = True
-    PARSER_VERSION = 1
+    # v2: a zero-tick cost counts (69ff39b).
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return session_roots(self._home)

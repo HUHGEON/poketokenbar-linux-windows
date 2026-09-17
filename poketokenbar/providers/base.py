@@ -16,6 +16,7 @@ a `fetch_periods` at all, so its week and month silently read zero.
 
 from __future__ import annotations
 
+import math
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,7 +25,7 @@ from typing import Callable, Iterator, Protocol
 from .. import pricing
 from .. import scan_roots
 from ..cache import ScanCache
-from ..models import DailyUsage, Entry, ProviderEnrichment
+from ..models import CostCoverage, DailyUsage, Entry, ProviderEnrichment
 
 try:  # orjson is ~2x faster on this workload but must not be required
     import orjson
@@ -288,19 +289,28 @@ class ScanningProvider:
             self._cache.prune(self.id, live)
         return self.dedup(all_entries)
 
-    def cost_of(self, entry: Entry) -> float:
-        """Priced per entry, because a day mixes models with different rates.
+    def cost_of(self, entry: Entry) -> tuple[float, CostCoverage]:
+        """One entry's cost and where it came from. Ports upstream's Bucket.add.
 
-        An agent that recorded its own charge wins over the price table — that
-        figure is the source of truth for what was actually billed.
+        Priced per entry, because a day mixes models with different rates. A
+        recorded cost wins, zero included; then the price table, unless the
+        entry cannot be priced; otherwise the entry is unpriced. A zero-token
+        entry counts for nothing, so a replayed record cannot make an
+        unpriced total look partly priced.
         """
-        if not self.reports_cost:
-            return 0.0
-        if entry.explicit_cost is not None and entry.explicit_cost > 0:
-            return entry.explicit_cost
-        return pricing.cost(
-            entry.model, entry.input, entry.output, entry.cache_write, entry.cache_read
-        )
+        if entry.total <= 0:
+            return 0.0, CostCoverage()
+        recorded = entry.explicit_cost
+        if recorded is not None and math.isfinite(recorded) and recorded >= 0:
+            if entry.cost_is_estimate:
+                return recorded, CostCoverage(estimated=True)
+            return recorded, CostCoverage(reported=True)
+        if not entry.cost_unavailable:
+            estimate = pricing.estimated_cost(
+                entry.model, entry.input, entry.output, entry.cache_write, entry.cache_read)
+            if estimate is not None:
+                return estimate, CostCoverage(estimated=True)
+        return 0.0, CostCoverage(unknown=True)
 
     def fetch_daily(self, today: str | None = None) -> DailyUsage | None:
         day = today or _date.today().strftime("%Y-%m-%d")
@@ -316,7 +326,9 @@ class ScanningProvider:
             daily.output_tokens += e.output
             daily.cache_creation_tokens += e.cache_write
             daily.cache_read_tokens += e.cache_read
-            daily.total_cost += self.cost_of(e)
+            amount, coverage = self.cost_of(e)
+            daily.total_cost += amount
+            daily.cost_coverage.merge(coverage)
             daily.models[e.model] = daily.models.get(e.model, 0) + e.total
         daily.total_tokens = (
             daily.input_tokens
@@ -336,13 +348,14 @@ class ScanningProvider:
         week_start = anchor - timedelta(days=anchor.weekday())
         month_prefix = day[:7]
 
-        week = {"tokens": 0, "cost": 0.0}
-        month = {"tokens": 0, "cost": 0.0}
+        week = {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
+        month = {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
         for e in self.scan_entries():
-            cost = self.cost_of(e)
+            cost, coverage = self.cost_of(e)
             if e.local_day[:7] == month_prefix:
                 month["tokens"] += e.total
                 month["cost"] += cost
+                month["coverage"].merge(coverage)
             try:
                 entry_day = datetime.strptime(e.local_day, "%Y-%m-%d").date()
             except ValueError:
@@ -350,6 +363,7 @@ class ScanningProvider:
             if week_start <= entry_day <= anchor:
                 week["tokens"] += e.total
                 week["cost"] += cost
+                week["coverage"].merge(coverage)
         return {"week": week, "month": month}
 
     def fetch_enrichment(self) -> ProviderEnrichment:

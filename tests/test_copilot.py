@@ -6,6 +6,8 @@ two timestamp shapes are verified without a Copilot install.
 
 import sqlite3
 
+import pytest
+
 from poketokenbar.providers import copilot
 
 SCHEMA = """
@@ -178,17 +180,21 @@ def test_provider_reads_the_store_under_home(tmp_path):
     assert len(provider.scan_entries()) == 1
 
 
-def test_copilot_reports_no_cost(tmp_path):
-    """Copilot bills subscription premium requests, not per-token dollars."""
+def test_copilot_estimates_only_models_with_a_known_price(tmp_path):
+    """Premium requests are not dollars, so nothing is reported; a model with a
+    table price is estimated, and one without is unavailable (upstream 69ff39b)."""
     root = tmp_path / ".copilot"
     root.mkdir()
-    seed(root / "session-store.db", [row(1, model="claude-opus-5", input=1_000_000, output=1_000_000)])
+    seed(root / "session-store.db", [
+        row(1, model="claude-sonnet-4-6", input=1_000_000, output=0),
+        row(2, model="some-unlisted-model", input=1_000_000, output=0),
+    ])
     provider = copilot.CopilotProvider(home=tmp_path)
     entries = provider.scan_entries()
     daily = provider.aggregate_daily(entries[0].local_day, entries)
-    assert provider.reports_cost is False
-    assert daily.total_cost == 0, "a dollar figure here would be invented"
-    assert daily.total_tokens > 0
+    assert daily.total_cost == pytest.approx(3.0)
+    assert daily.cost_coverage.estimated and daily.cost_coverage.unknown
+    assert not daily.cost_coverage.reported
 
 
 def test_roots_default_and_override(tmp_path):

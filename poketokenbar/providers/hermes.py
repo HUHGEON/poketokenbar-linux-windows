@@ -26,6 +26,10 @@ WHERE model IS NOT NULL AND TRIM(model) != ''
 """
 
 
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def parse_database(path: Path) -> list[Entry]:
     rows = query(path, _SQL)
     if not rows:
@@ -49,7 +53,12 @@ def parse_database(path: Path) -> list[Entry]:
             output=(row[6] or 0) + (row[9] or 0),
             cache_write=row[8],
             cache_read=row[7],
-            cost=actual if isinstance(actual, (int, float)) and actual > 0 else estimated,
+            # The actual cost when Hermes recorded one, zero included, else its
+            # own estimate.
+            cost=actual if _number(actual) else (estimated if _number(estimated) else None),
+            cost_is_estimate=not _number(actual),
+            # Session totals cannot be priced per request from the table.
+            cost_unavailable=True,
         )
         if entry is not None:
             out.append(entry)
@@ -71,7 +80,8 @@ class HermesProvider(SQLiteProvider):
     id = "hermes"
     display_name = "Hermes Agent"
     reports_cost = True
-    PARSER_VERSION = 1
+    # v2: recorded zero counts and session totals are unpriced (69ff39b).
+    PARSER_VERSION = 2
     database_names = ("state.db",)
 
     def curated_roots(self) -> list[Path]:

@@ -102,7 +102,6 @@ class CopilotProvider(SQLiteProvider):
     id = "copilot"
     display_name = "Copilot CLI"
     # Subscription premium requests, not per-token dollars.
-    reports_cost = False
     PARSER_VERSION = 1
     database_names = ("session-store.db",)
 

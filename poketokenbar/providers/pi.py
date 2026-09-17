@@ -23,6 +23,8 @@ than invented a split for.
 
 from __future__ import annotations
 
+import math
+
 import os
 import uuid
 from datetime import datetime, timezone
@@ -59,16 +61,16 @@ def _envelope_date(envelope: dict) -> datetime | None:
 
 
 def _explicit_cost(usage: dict) -> float | None:
-    """`usage.cost.total` is the charge the agent computed from its own pricing.
+    """`usage.cost.total`, the cost the agent estimated from its own prices.
 
-    Only a positive figure counts: free or unpriced models are written as 0,
-    which means "no figure available", not "this turn was free".
+    Zero counts (upstream 69ff39b): a free model's turn cost nothing, and
+    reading 0 as "no figure" priced it from the table instead.
     """
     cost = usage.get("cost")
     if not isinstance(cost, dict):
         return None
     total = number(cost.get("total"))
-    return total if total is not None and total > 0 else None
+    return total if total is not None and math.isfinite(total) and total >= 0 else None
 
 
 def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | None:
@@ -79,6 +81,8 @@ def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | No
         "local_day": local_day(date),
         "model": model,
         "explicit_cost": cost,
+        # The agent's figure is its own estimate from model prices.
+        "cost_is_estimate": True,
     }
     if any(number(usage.get(name)) is not None for name in _BUCKETS):
         return Entry(
@@ -97,6 +101,8 @@ def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | No
         output=0,
         cache_write=0,
         cache_read=0,
+        # No bucket split to price from the table.
+        cost_unavailable=True,
         **common,
     )
 
@@ -246,7 +252,8 @@ class PiProvider(ScanningProvider):
     id = "pi"
     display_name = "Pi Agent"
     reports_cost = True
-    PARSER_VERSION = 1
+    # v2: zero recorded costs count, total-only turns are unpriced (69ff39b).
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return pi_session_roots(self._home)
@@ -267,7 +274,8 @@ class OmpProvider(ScanningProvider):
     id = "omp"
     display_name = "omp"
     reports_cost = True
-    PARSER_VERSION = 1
+    # v2: zero recorded costs count, total-only turns are unpriced (69ff39b).
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return omp_session_roots(self._home)

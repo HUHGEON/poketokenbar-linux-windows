@@ -1,7 +1,7 @@
 """Per-model token rates — ports ModelPricing.swift.
 
-Rates are USD per million tokens. A model with no row and no family fallback
-costs 0 — showing a guessed price would be worse than showing none.
+Rates are USD per million tokens. A model with no row is unpriced, and a total
+that includes it says so — showing a guessed price would be worse than none.
 """
 
 from __future__ import annotations
@@ -92,45 +92,53 @@ def model_key(model: str) -> str:
 
 
 def rate(model: str) -> ModelRate:
-    """Exact match first, then a family fallback for version drift."""
-    m = model_key(model)
-    exact = TABLE.get(m)
-    if exact is not None:
-        return exact
+    """The table rate for a model, or ZERO when it has none."""
+    return TABLE.get(model_key(model), ZERO)
 
-    # Grok reports its own cost; there is no rate card. This must precede the
-    # family fallbacks so names like grok-codex-* are not priced as GPT.
-    if m.startswith("grok"):
-        return ZERO
-    # Antigravity is subscription-billed and reports no amount. Its
-    # "antigravity/" prefix also dodges the exact table, which matters because
-    # that CLI calls models like claude-sonnet-4-6 that would otherwise match.
-    if m.startswith("antigravity/"):
-        return ZERO
 
-    if "fable" in m:
-        return per_million(10, 50, 12.5, 1.0)
-    if "opus" in m:
-        return per_million(5, 25, 6.25, 0.5)
-    if "sonnet" in m:
-        return per_million(3, 15, 3.75, 0.3)
-    if "haiku" in m:
-        return per_million(1, 5, 1.25, 0.1)
-    if "gpt" in m or "codex" in m or "o4" in m or "o3" in m:
-        return per_million(5, 30, 0, 0.5)
-    if m.startswith("gemini"):
-        if "pro" in m:
-            return per_million(1.25, 10, 0, 0.125)
-        if "flash" in m:
-            return per_million(0.30, 2.5, 0, 0.03)
-    return ZERO
+# Long-context tier: past this many prompt tokens in one request, input is
+# billed at 2x and output at 1.5x.
+_LONG_CONTEXT = {
+    "gpt-6-astra": 272_000,
+    "gpt-5.6-sol": 272_000,
+    "gpt-5.6-terra": 272_000,
+    "gpt-5.6-luna": 272_000,
+    "gpt-5.5": 272_000,
+    "gpt-5.4": 272_000,
+    "gemini-2.5-pro": 200_000,
+}
+
+
+def estimated_cost(
+    model: str, input_: int, output: int, cache_write: int, cache_read: int
+) -> float | None:
+    """API-equivalent cost of one request, or None when it cannot be priced.
+
+    Ports upstream's estimatedCost (69ff39b). A model with no row is not
+    priced like its family any more: containing "gpt" or "opus" is not
+    evidence of sharing that price, so it is unavailable rather than guessed.
+    Pass one request, never a day's sum: the long-context tier is decided per
+    request.
+    """
+    key = model_key(model)
+    r = TABLE.get(key)
+    if r is None or min(input_, output, cache_write, cache_read) < 0:
+        return None
+    # A zero write rate means no known separate rate, not free writes.
+    if cache_write and not r.cache_write:
+        return None
+    prompt = input_ + cache_read + cache_write
+    threshold = _LONG_CONTEXT.get(key)
+    long_context = threshold is not None and prompt > threshold
+    input_multiplier = 2.0 if long_context else 1.0
+    output_multiplier = 1.5 if long_context else 1.0
+    return (
+        (input_ * r.input + cache_write * r.cache_write + cache_read * r.cache_read)
+        * input_multiplier
+        + output * r.output * output_multiplier
+    )
 
 
 def cost(model: str, input_: int, output: int, cache_write: int, cache_read: int) -> float:
-    r = rate(model)
-    return (
-        input_ * r.input
-        + output * r.output
-        + cache_write * r.cache_write
-        + cache_read * r.cache_read
-    )
+    """estimated_cost, with an unpriced request counted as 0."""
+    return estimated_cost(model, input_, output, cache_write, cache_read) or 0.0

@@ -8,6 +8,7 @@ land in only one of them.
 
 from __future__ import annotations
 
+import math
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -82,6 +83,8 @@ def make_entry(
     cache_read: int = 0,
     total: int = 0,
     cost: float | None = None,
+    cost_is_estimate: bool = False,
+    cost_unavailable: bool = False,
 ) -> Entry | None:
     """Ports `makeEntry` — the shared bucket-safety and total-identity rule.
 
@@ -111,7 +114,13 @@ def make_entry(
         output=safe_output,
         cache_write=safe_cache_write,
         cache_read=safe_cache_read,
-        explicit_cost=cost if cost is not None and cost > 0 else None,
+        # Zero is a recorded cost too (upstream 69ff39b); only NaN, infinities
+        # and negatives are not.
+        explicit_cost=cost if isinstance(cost, (int, float)) and math.isfinite(cost) and cost >= 0
+        else None,
+        cost_is_estimate=cost_is_estimate,
+        # Tokens beyond the buckets cannot be put in a bucket to price.
+        cost_unavailable=cost_unavailable or reported_total > parts,
     )
 
 

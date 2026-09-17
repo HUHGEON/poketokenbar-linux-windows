@@ -284,6 +284,7 @@ ROW_ACCESSORS = {
     "providerStatus": "provider_status",
     "config": "config",
     "dexRow": "dex",
+    "periodRow": "period",
     "individual": "detail_individual",
     "statRow": "detail_stat",
     "knownMove": "detail_known_move",
@@ -332,6 +333,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "period":
+        return set(payload["periods"]["week"])
     if name.startswith("detail_"):
         detail = payload["detail"]
         individual = detail["individuals"][0]

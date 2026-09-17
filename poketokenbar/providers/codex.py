@@ -23,7 +23,8 @@ from .base import ScanningProvider, dedup_keep_first
 from .claude import _parse_timestamp, jsonl_files
 
 # v2: a turn whose last_token_usage has only total_tokens is counted (upstream #278).
-PARSER_VERSION = 2
+# v3: such turns, and turns before any model is named, are unpriced (69ff39b).
+PARSER_VERSION = 3
 
 
 def _int(value) -> int:
@@ -40,7 +41,9 @@ def parse_rollout(path: Path) -> ParsedRollout:
     """Parse one rollout file into per-turn entries."""
     entries: list[Entry] = []
     session_id: str | None = None
-    model = "gpt-5.5"
+    # Until a line names the model the turn is unpriced, not billed as some
+    # other model: "codex" has no row in the price table.
+    model = "codex"
     turn = 0
     # Cumulative total of the previous token_count event that carried one, for
     # telling a real total-only turn from a fork's zero-context replay.
@@ -84,11 +87,13 @@ def parse_rollout(path: Path) -> ParsedRollout:
                 cumulative = info.get("total_token_usage")
                 if not isinstance(cumulative, dict):
                     cumulative = None
-                if input_ + cached + output == 0 and _trust_total_only(
+                total_only = input_ + cached + output == 0 and _trust_total_only(
                     _last_total(last), cumulative, previous_cumulative
-                ):
+                )
+                if total_only:
                     # Every component is 0 but the turn has a total. The
-                    # split cannot be recovered, so it is all counted as input.
+                    # split cannot be recovered, so it is all counted as input,
+                    # and it cannot be priced.
                     input_, output, cached = _last_total(last), 0, 0
                 if cumulative is not None:
                     previous_cumulative = _int(cumulative.get("total_tokens"))
@@ -109,6 +114,7 @@ def parse_rollout(path: Path) -> ParsedRollout:
                         output=output,
                         cache_write=0,
                         cache_read=cached,
+                        cost_unavailable=total_only,
                     )
                 )
                 turn += 1

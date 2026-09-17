@@ -50,7 +50,9 @@ def test_only_assistant_usage_lines_are_collected(tmp_path):
     ee = found["ee01"]
     assert ee.model == "modal/nvidia/GLM-5.2"
     assert ee.total == 15
-    assert ee.explicit_cost is None, "a free model's 0 is 'no figure', not 'free'"
+    # A recorded 0 is a free turn, not a missing figure (upstream 69ff39b).
+    assert ee.explicit_cost == 0.0
+    assert ee.cost_is_estimate and cc.cost_is_estimate, "omp's cost is its own estimate"
 
 
 def test_non_assistant_and_malformed_lines_yield_nothing(tmp_path):

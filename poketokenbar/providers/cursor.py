@@ -69,6 +69,9 @@ def parse_bubble(obj: dict, key: str) -> Entry | None:
         model if isinstance(model, str) and model else "unknown",
         input=input_tokens,
         output=output,
+        # Local bubbles carry no cost, and their model and token split are not
+        # enough to price from the table (upstream 69ff39b).
+        cost_unavailable=True,
     )
 
 
@@ -119,8 +122,8 @@ class CursorProvider(SQLiteProvider):
     id = "cursor"
     display_name = "Cursor"
     # Included-plan usage is billed by request, and the dashboard is token-only.
-    reports_cost = False
-    PARSER_VERSION = 1
+    # v2: local bubbles are unpriced (69ff39b).
+    PARSER_VERSION = 2
     database_names = ("state.vscdb",)
 
     def curated_roots(self) -> list[Path]:

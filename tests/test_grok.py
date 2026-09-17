@@ -319,13 +319,12 @@ def test_daily_cost_of_an_untrusted_turn_is_zero(tmp_path):
     assert daily.total_cost == 0, "an unpriced model shows no amount rather than a wrong one"
 
 
-def test_grok_names_never_inherit_another_family_pricing():
-    """`grok-codex-*` and `grok-4o-*` would otherwise match the GPT fallback."""
+def test_grok_names_are_never_priced_from_the_table():
+    """There is no Grok rate card, and a name containing "codex" or "4o" is not
+    evidence of a GPT price. Only the server's own figure is used."""
     for name in ["grok-build-1", "grok-4-fast", "grok-code-fast-1", "grok-codex-next", "grok-4o-mini"]:
+        assert pricing.estimated_cost(name, 1_000_000, 1_000_000, 0, 0) is None, name
         assert pricing.rate(name) == pricing.ZERO, name
-    assert pricing.cost("grok-codex-next", 1_000_000, 1_000_000, 0, 0) == 0
-    # The other providers' fallbacks must survive — no over-blocking.
-    assert pricing.rate("gpt-5.6-codex") == pricing.per_million(5, 30, 0, 0.5)
 
 
 # MARK: timestamps

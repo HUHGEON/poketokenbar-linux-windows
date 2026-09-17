@@ -16,7 +16,7 @@ from .detail_loader import DetailLoader
 from .pokeapi import PokeAPI
 from .sprites import SpriteStore
 from .cache import ScanCache
-from .models import DailyUsage
+from .models import CostCoverage, DailyUsage
 
 # How long a queued command waits before the daemon notices it. One glob of a
 # near-empty directory, so checking often costs nothing; sleeping two seconds
@@ -272,9 +272,12 @@ class Daemon:
                 scan_errors.append(f"{provider.id} periods: {exc}")
                 continue
             for key in ("week", "month"):
-                bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0})
+                bucket = periods.setdefault(
+                    key, {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()})
                 bucket["tokens"] += result[key]["tokens"]
                 bucket["cost"] += result[key]["cost"]
+                if result[key].get("coverage") is not None:
+                    bucket["coverage"].merge(result[key]["coverage"])
         self._last_scan = (daily_by_provider, periods, scan_errors)
         self._last_full_poll_at = time.monotonic()
 

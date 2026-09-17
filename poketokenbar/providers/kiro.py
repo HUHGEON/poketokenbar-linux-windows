@@ -142,6 +142,8 @@ def conversation_entries(conversation_id: str, obj: dict) -> list[Entry]:
                     model if isinstance(model, str) and model else "unknown",
                     input=(cumulative + user_bytes) // BYTES_PER_TOKEN,
                     output=to_int(meta.get("response_size")) // BYTES_PER_TOKEN,
+                    # Byte counts divided into tokens: nothing to price.
+                    cost_unavailable=True,
                 )
                 if entry is not None:
                     out.append(entry)
@@ -234,6 +236,8 @@ def parse_cli_jsonl(path: Path) -> list[Entry]:
                 model,
                 input=(history + prompt + tool) // BYTES_PER_TOKEN,
                 output=assistant // BYTES_PER_TOKEN,
+                # Byte counts divided into tokens: nothing to price.
+                cost_unavailable=True,
             )
             if entry is not None:
                 entries.append(entry)
@@ -314,6 +318,8 @@ def parse_v3_jsonl(path: Path) -> list[Entry]:
                     model,
                     input=(history + prompt) // BYTES_PER_TOKEN,
                     output=assistant // BYTES_PER_TOKEN,
+                    # Byte counts divided into tokens: nothing to price.
+                    cost_unavailable=True,
                 )
                 if entry is not None:
                     entries.append(entry)
@@ -438,8 +444,8 @@ class KiroProvider(SQLiteProvider):
     id = "kiro"
     display_name = "Kiro CLI"
     # Tokens here are an estimate, and usage_summary credits are not API dollars.
-    reports_cost = False
-    PARSER_VERSION = 1
+    # v2: byte-estimated turns are unpriced (69ff39b).
+    PARSER_VERSION = 2
     database_names = ("data.sqlite3",)
 
     def curated_roots(self) -> list[Path]:
