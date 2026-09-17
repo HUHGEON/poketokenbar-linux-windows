@@ -26,7 +26,7 @@ import {Sprite} from './sprite.js';
 import {
     Meter, RARITY_TINT, ago, borderedButton, button, caption, card, column, divider,
     ellipsized, label, levelClass, markSent, paragraph, pill, placeholder, resetsIn,
-    row, segmented, spacer, switchButton, valuePair,
+    row, segmented, spacer, switchButton, valuePair, verticalBox,
 } from './widgets.js';
 
 // The Pokédex grid, as upstream's: four across and six down per page.
@@ -326,19 +326,22 @@ class HomeSection extends Section {
         for (const trendDay of days) {
             // A column the full track height, so a low bar is as easy to point
             // at as a tall one; the bar itself sits at its bottom.
-            const barColumn = new St.Bin({
-                x_expand: true, reactive: true, track_hover: true,
-                height: TREND_TRACK, y_align: Clutter.ActorAlign.END,
+            // A column the full track height with the bar at its foot. The
+            // space above the bar is what expands: an St.Bin ignored the bar's
+            // own END alignment and centred it, so the bars floated mid-track
+            // instead of rising from a shared baseline.
+            const barColumn = verticalBox({
+                x_expand: true, reactive: true, track_hover: true, height: TREND_TRACK,
             });
             const classes = ['poketokenbar-trend-bar'];
             if (trendDay.is_today)
                 classes.push('poketokenbar-trend-today');
             else if (trendDay.is_empty)
                 classes.push('poketokenbar-trend-empty');
-            barColumn.set_child(new St.Widget({
+            barColumn.add_child(new St.Widget({y_expand: true}));
+            barColumn.add_child(new St.Widget({
                 style_class: classes.join(' '),
                 x_expand: true,
-                y_align: Clutter.ActorAlign.END,
                 height: Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
             }));
             barColumn.connect('notify::hover', () => {
