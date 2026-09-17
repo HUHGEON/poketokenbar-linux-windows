@@ -40,6 +40,28 @@ _HOME_VARIABLES = ("HOME", "USERPROFILE")
 _RUNTIME_VARIABLE = "XDG_RUNTIME_DIR"
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_session_locations(tmp_path_factory):
+    """The same isolation for fixtures wider than one test.
+
+    A module- or session-scoped fixture is set up before any function-scoped
+    one, so `isolated_locations` below did not cover it. The contract tests
+    build their CompanionStore in module-scoped fixtures, and with HOME still
+    the developer's own those stores loaded the real save; once loading a save
+    could migrate and persist it, running the suite rewrote the real file.
+    """
+    home = tmp_path_factory.mktemp("session-home")
+    with pytest.MonkeyPatch.context() as patch:
+        for variable in _LOCATION_VARIABLES:
+            patch.delenv(variable, raising=False)
+        for variable in _HOME_VARIABLES:
+            patch.setenv(variable, str(home))
+        runtime = home / "run"
+        runtime.mkdir(exist_ok=True)
+        patch.setenv(_RUNTIME_VARIABLE, str(runtime))
+        yield home
+
+
 @pytest.fixture(autouse=True)
 def isolated_locations(monkeypatch, tmp_path_factory):
     """Give each test a home of its own, and clear every path override.
