@@ -192,16 +192,7 @@ class CompanionStore:
             entry = self.api.species(species_id)
         except Exception:
             return ""
-        names = {
-            n["language"]["name"]: n["name"]
-            for n in entry.get("names", [])
-            if n.get("language", {}).get("name")
-        }
-        # ja-Hrkt is the kana form PokeAPI uses for Japanese.
-        for code in ({"ja": ["ja-Hrkt", "ja"]}.get(language, [language])):
-            if names.get(code):
-                return names[code]
-        return names.get("en", "")
+        return l10n.resolve_name(l10n.names_from_api(entry.get("names")), language) or ""
 
     def _egg_sprite(self) -> str:
         """The egg's own picture, for every surface that draws the companion.
@@ -370,7 +361,7 @@ class CompanionStore:
             "goal": "graduation" if mon.is_final_form else "next evolution",
             "evo_line": evo_line,
             "is_shiny": mon.is_shiny,
-            "nature": mon.nature,
+            "nature": l10n.nature_name(mon.nature, self.state.language),
             "rarity": str(mon.rarity),
             "stage_index": mon.stage_index,
             "total_forms": mon.total_forms,
@@ -453,7 +444,8 @@ class CompanionStore:
         """
         language = self.state.language
         if result.nature is not None:
-            return l10n.t("shop_nature_now", language).replace("%1", result.nature)
+            return l10n.t("shop_nature_now", language).replace(
+                "%1", l10n.nature_name(result.nature, language))
         key = "shop_bought" if result.action == "buy" else "shop_used"
         return l10n.t(key, language).replace("%1", self._label_for(result.key))
 
@@ -461,7 +453,8 @@ class CompanionStore:
         """The popup banner for an item use that changed no threshold."""
         language = self.state.language
         detail = (
-            l10n.t("shop_nature_now", language).replace("%1", result.nature)
+            l10n.t("shop_nature_now", language).replace(
+                "%1", l10n.nature_name(result.nature, language))
             if result.nature is not None
             else l10n.t("shop_used_body", language).replace(
                 "%1", self._item_words(result.key)[2])
@@ -656,7 +649,7 @@ class CompanionStore:
         out = [
             {
                 "rarity": str(e.rarity),
-                "nature": e.nature,
+                "nature": l10n.nature_name(e.nature, self.state.language),
                 "is_shiny": e.is_shiny,
                 "chain": self._chain(e.chain_order, e.is_shiny),
                 "caught_at": e.caught_at,
@@ -675,7 +668,7 @@ class CompanionStore:
                 0,
                 {
                     "rarity": str(mon.rarity),
-                    "nature": mon.nature,
+                    "nature": l10n.nature_name(mon.nature, self.state.language),
                     "is_shiny": mon.is_shiny,
                     "chain": self._chain(mon.path_ids[: mon.stage_index + 1], mon.is_shiny),
                     "caught_at": mon.hatched_at,

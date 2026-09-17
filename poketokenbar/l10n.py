@@ -528,6 +528,46 @@ STRINGS: dict[str, tuple[str, ...]] = {
 
 _INDEX = {code: i for i, code in enumerate(LANGUAGES)}
 
+# Nature names, in the same language order as STRINGS. The official
+# main-series names, except Portuguese: there is no Portuguese release, so
+# upstream chose its own 25 distinct names, matching the feminine "natureza".
+# Kept out of STRINGS so the catalogue shipped in state.json stays the UI's
+# own words; the daemon resolves these where it builds the payload.
+NATURE_NAMES: dict[str, tuple[str, ...]] = {
+    "hardy": ("Hardy", "노력", "がんばりや", "Fuerte", "Hardi", "Esforçada", "Robust"),
+    "lonely": ("Lonely", "외로움", "さみしがり", "Huraña", "Solo", "Carente", "Solo"),
+    "brave": ("Brave", "용감", "ゆうかん", "Audaz", "Brave", "Corajosa", "Mutig"),
+    "adamant": ("Adamant", "고집", "いじっぱり", "Firme", "Rigide", "Teimosa", "Hart"),
+    "naughty": ("Naughty", "개구쟁이", "やんちゃ", "Pícara", "Mauvais", "Levada", "Frech"),
+    "bold": ("Bold", "대담", "ずぶとい", "Osada", "Assuré", "Ousada", "Kühn"),
+    "docile": ("Docile", "온순", "すなお", "Dócil", "Docile", "Dócil", "Sanft"),
+    "relaxed": ("Relaxed", "무사태평", "のんき", "Plácida", "Relax", "Descontraída", "Locker"),
+    "impish": ("Impish", "장난꾸러기", "わんぱく", "Agitada", "Malin", "Travessa", "Pfiffig"),
+    "lax": ("Lax", "촐랑", "のうてんき", "Floja", "Lâche", "Despreocupada", "Lasch"),
+    "timid": ("Timid", "겁쟁이", "おくびょう", "Miedosa", "Timide", "Medrosa", "Scheu"),
+    "hasty": ("Hasty", "성급", "せっかち", "Activa", "Pressé", "Apressada", "Hastig"),
+    "serious": ("Serious", "성실", "まじめ", "Seria", "Sérieux", "Séria", "Ernst"),
+    "jolly": ("Jolly", "명랑", "ようき", "Alegre", "Jovial", "Alegre", "Froh"),
+    "naive": ("Naive", "천진난만", "むじゃき", "Ingenua", "Naïf", "Ingênua", "Naiv"),
+    "modest": ("Modest", "조심", "ひかえめ", "Modesta", "Modeste", "Modesta", "Mäßig"),
+    "mild": ("Mild", "의젓", "おっとり", "Afable", "Doux", "Meiga", "Mild"),
+    "quiet": ("Quiet", "냉정", "れいせい", "Mansa", "Discret", "Discreta", "Ruhig"),
+    "bashful": ("Bashful", "수줍음", "てれや", "Tímida", "Pudique", "Tímida", "Zaghaft"),
+    "rash": ("Rash", "덜렁", "うっかりや", "Alocada", "Foufou", "Impulsiva", "Hitzig"),
+    "calm": ("Calm", "차분", "おだやか", "Serena", "Calme", "Calma", "Still"),
+    "gentle": ("Gentle", "얌전", "おとなしい", "Amable", "Gentil", "Gentil", "Zart"),
+    "sassy": ("Sassy", "건방", "なまいき", "Grosera", "Malpoli", "Atrevida", "Forsch"),
+    "careful": ("Careful", "신중", "しんちょう", "Cauta", "Prudent", "Cautelosa", "Sacht"),
+    "quirky": ("Quirky", "변덕", "きまぐれ", "Rara", "Bizarre", "Excêntrica", "Kauzig"),
+}
+
+# PokéAPI language codes to try for each UI language, most preferred first.
+# Japanese names are kana under ja-Hrkt; Brazilian Portuguese is pt-BR.
+API_CODES: dict[str, tuple[str, ...]] = {
+    "ja": ("ja-hrkt", "ja"),
+    "pt": ("pt-br", "pt"),
+}
+
 
 def t(key: str, language: str = "en") -> str:
     """Resolve one string, falling back to English then to the key itself.
@@ -546,6 +586,56 @@ def t(key: str, language: str = "en") -> str:
     if index >= len(row):
         return row[0]
     return row[index] or row[0]
+
+
+def nature_name(nature: str | None, language: str = "en") -> str:
+    """A nature's name in the UI language. An unknown slug is shown as is."""
+    if not nature:
+        return ""
+    row = NATURE_NAMES.get(nature)
+    if row is None:
+        return nature
+    index = _INDEX.get(language, 0)
+    return row[index] if index < len(row) and row[index] else row[0]
+
+
+def _api_code(raw: str) -> str:
+    return (raw or "").strip().lower().replace("_", "-")
+
+
+def api_codes(language: str) -> tuple[str, ...]:
+    return API_CODES.get(language, (_api_code(language),))
+
+
+def resolve_name(names: dict[str, str], language: str) -> str | None:
+    """Pick one PokéAPI name for the UI language, falling back to English.
+
+    Ports upstream's PokemonNameLocalization.resolve (2fab082). Codes are
+    compared case-insensitively: PokéAPI writes ja-Hrkt and pt-BR, and exact
+    matching is how Portuguese kept falling back to English.
+    """
+    normalized: dict[str, str] = {}
+    for key in sorted(names):
+        value = (names[key] or "").strip()
+        if value:
+            normalized[_api_code(key)] = value
+    for code in (*api_codes(language), "en"):
+        if code in normalized:
+            return normalized[code]
+    return None
+
+
+def names_from_api(entries) -> dict[str, str]:
+    """{language code: name} from a PokéAPI `names` array."""
+    out: dict[str, str] = {}
+    for entry in entries or []:
+        if not isinstance(entry, dict):
+            continue
+        code = _api_code(((entry.get("language") or {}).get("name")) or "")
+        name = (entry.get("name") or "").strip()
+        if code and name:
+            out[code] = name
+    return out
 
 
 def catalogue(language: str = "en") -> dict[str, str]:

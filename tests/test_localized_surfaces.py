@@ -262,7 +262,7 @@ def test_a_mint_reports_the_nature_it_rolled():
     subject.state.inventory["mint"] = 1
     message = subject.use_item("mint")
     assert message == l10n.t("shop_nature_now", "ko").replace(
-        "%1", subject.state.active.nature)
+        "%1", l10n.nature_name(subject.state.active.nature, "ko"))
 
 
 def test_an_item_that_crosses_no_threshold_still_gets_a_banner():

@@ -15,6 +15,7 @@ import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import l10n
 from .balance import DITTO_SPECIES_ID, Rarity
 from .companion import EvoLine
 
@@ -22,11 +23,10 @@ REST_BASE = "https://pokeapi.co/api/v2"
 GRAPHQL_URL = "https://graphql.pokeapi.co/v1beta2"
 # Gen I-V. The animated Black/White sprites the panel uses stop here.
 MAX_SPECIES_ID = 649
-# Lockstep with l10n.LANGUAGES, so a Pokemon's name is available in whatever
-# language the UI is set to. "pt" collects nothing today — PokeAPI has no such
-# language — but is listed so it is picked up the moment one appears; omitting
-# it would pin Portuguese users to English names forever.
-LANG_CODES = ("ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt", "de")
+# Every PokéAPI code l10n.api_codes can ask for, lower-cased as
+# l10n.names_from_api stores them. Brazilian Portuguese names are under pt-BR;
+# plain "pt" is kept in case PokéAPI ever adds it.
+LANG_CODES = ("ko", "en", "ja-hrkt", "ja", "es", "fr", "pt-br", "pt", "de")
 # PokéAPI's GraphQL endpoint answers 403 to urllib's default User-Agent.
 USER_AGENT = "poketokenbar/0.1 (+https://github.com/chattymin/PokeTokenBar)"
 
@@ -171,12 +171,11 @@ class PokeAPI:
                 entry = self.species(sid)
             except PokeAPIError:
                 continue
-            by_lang = {
-                n["language"]["name"]: n["name"]
-                for n in entry.get("names", [])
-                if n.get("language", {}).get("name") in LANG_CODES
+            names[sid] = {
+                code: name
+                for code, name in l10n.names_from_api(entry.get("names")).items()
+                if code in LANG_CODES
             }
-            names[sid] = by_lang
 
         evo = EvoLine(base_id=base_species_id, path_ids=path, rarity=rarity, names=names)
         self._lines[base_species_id] = evo

@@ -102,3 +102,33 @@ def test_the_extension_language_list_matches_the_daemon():
     ).read_text(encoding="utf-8")
     listed = json.loads(re.search(r"\[(.*?)\]", source, re.S).group(0).replace("'", '"'))
     assert listed == list(l10n.LANGUAGES)
+
+
+def test_every_nature_has_a_distinct_name_in_every_language():
+    from poketokenbar import balance
+
+    assert set(l10n.NATURE_NAMES) == set(balance.NATURES)
+    for index, language in enumerate(l10n.LANGUAGES):
+        names = [row[index] for row in l10n.NATURE_NAMES.values()]
+        assert all(name.strip() for name in names), language
+        assert len(set(names)) == len(names), language
+
+
+def test_a_nature_is_named_in_the_ui_language():
+    assert l10n.nature_name("adamant", "ko") == "고집"
+    assert l10n.nature_name("adamant", "en") == "Adamant"
+    assert l10n.nature_name("adamant", "de") == "Hart"
+    assert l10n.nature_name("not-a-nature", "ko") == "not-a-nature"
+    assert l10n.nature_name(None, "ko") == ""
+
+
+def test_pokeapi_names_resolve_case_insensitively_with_regional_codes():
+    names = l10n.names_from_api([
+        {"language": {"name": "ja-Hrkt"}, "name": "フシギダネ"},
+        {"language": {"name": "pt-BR"}, "name": "Bulbassauro"},
+        {"language": {"name": "en"}, "name": "Bulbasaur"},
+    ])
+    assert l10n.resolve_name(names, "ja") == "フシギダネ"
+    assert l10n.resolve_name(names, "pt") == "Bulbassauro"
+    assert l10n.resolve_name(names, "ko") == "Bulbasaur"
+    assert l10n.resolve_name({}, "ko") is None
