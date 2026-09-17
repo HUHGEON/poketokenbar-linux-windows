@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 
-from . import platform_paths
+from . import balance, platform_paths
 
 from .balance import Rarity
 from .companion import CompanionState, DexEntry, MonState
@@ -144,6 +144,13 @@ def decode(raw: dict) -> CompanionState:
         state.collected_finals = {f for f in finals if isinstance(f, str)}
 
     state.language = _lenient(raw, "language", str, "en")
+    # Saves from before difficulty were earned at the default.
+    growth = raw.get("growth_difficulty")
+    state.growth_difficulty = (
+        balance.clamp_difficulty(growth)
+        if isinstance(growth, (int, float)) and not isinstance(growth, bool)
+        else balance.DEFAULT_DIFFICULTY
+    )
     inventory = raw.get("inventory")
     if isinstance(inventory, dict):
         state.inventory = {k: v for k, v in inventory.items() if isinstance(v, int)}
@@ -201,6 +208,7 @@ def encode(state: CompanionState) -> dict:
         ],
         "collected_finals": sorted(state.collected_finals),
         "language": state.language,
+        "growth_difficulty": state.growth_difficulty,
         "inventory": state.inventory,
         "candy_grant_tier": state.candy_grant_tier,
         "candy_feature_seeded": state.candy_feature_seeded,

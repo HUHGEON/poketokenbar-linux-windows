@@ -325,7 +325,7 @@ class CompanionStore:
             self.state, today_tokens, limit_warning, just_evolved=just_evolved)
         mon = self.state.active
         if mon is None:
-            progress = min(1.0, self.state.egg_usage / balance.EGG_HATCH_THRESHOLD)
+            progress = min(1.0, self.state.egg_usage / self.state.egg_hatch_threshold)
             return {
                 "stage": "egg",
                 "label": f"\N{EGG}{round(progress * 100)}%",
@@ -343,7 +343,7 @@ class CompanionStore:
                 **self._panel_fields(),
             }
 
-        threshold = mon.phase_threshold
+        threshold = self.state.stage_threshold(mon)
         # Remaining to the NEXT step: an evolution mid-line, graduation at the end.
         remaining = max(0, threshold - mon.used_at_stage)
         evo_line = []
@@ -391,6 +391,18 @@ class CompanionStore:
         }
 
     # --- economy -----------------------------------------------------------
+
+    def sync_difficulty(self, growth, shop) -> None:
+        """Bring the save in line with the difficulty settings.
+
+        Called whenever the settings or the save may have changed under the
+        store. Growth re-expresses banked progress when it differs from what
+        the save was earned under, and is persisted at once so a restart does
+        not do it twice.
+        """
+        self.state.shop_difficulty = balance.clamp_difficulty(shop)
+        if companion.set_growth_difficulty(self.state, growth):
+            self._persist()
 
     def grant_candy(self, windows: dict[str, float]) -> int:
         granted = shop.grant_candy(self.state, windows)

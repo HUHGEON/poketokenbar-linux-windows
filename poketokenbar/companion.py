@@ -52,8 +52,10 @@ class MonState:
 
     @property
     def phase_threshold(self) -> int:
-        """Tokens this stage needs. Every threshold check goes through here, so
-        none of them can forget the boost."""
+        """Tokens this stage needs at the default difficulty, boost included.
+
+        Growth is checked through CompanionState.stage_threshold, which scales
+        this by the difficulty."""
         return balance.phase_threshold(
             self.rarity, self.total_forms, self.stage_index, self.growth_multiplier
         )
@@ -125,10 +127,32 @@ class CompanionState:
     inventory: dict[str, int] = field(default_factory=dict)
     candy_grant_tier: dict[str, int] = field(default_factory=dict)
     candy_feature_seeded: bool = False
+    # The growth difficulty that egg_usage and used_at_stage were earned under.
+    # Saved, unlike the setting itself: when the setting differs (changed in
+    # the settings, changed while the daemon was down, or a save imported from
+    # a machine set differently) the banked progress is re-expressed at the
+    # new difficulty rather than silently changing how complete it is.
+    growth_difficulty: float = balance.DEFAULT_DIFFICULTY
+    # Shop price multiplier, from the settings. Not saved: prices hold no
+    # progress, so there is nothing to re-express.
+    shop_difficulty: float = balance.DEFAULT_DIFFICULTY
 
     @property
     def spendable_tokens(self) -> int:
         return max(0, self.used_since_install - self.spent_tokens)
+
+    @property
+    def egg_hatch_threshold(self) -> int:
+        return max(1, balance.scaled(balance.EGG_HATCH_THRESHOLD, self.growth_difficulty))
+
+    def stage_threshold(self, mon: MonState) -> int:
+        """Tokens a stage needs: the boost, then the difficulty.
+
+        Every growth check goes through here, so none of them can forget
+        either one. Never below one token, or the growth loop never stops
+        crediting a stage.
+        """
+        return max(1, balance.scaled(mon.phase_threshold, self.growth_difficulty))
 
     def reached_species(self) -> list[int]:
         """Stages the current companion has actually reached.
@@ -333,6 +357,36 @@ def release(state: CompanionState, mon: MonState, now: float | None = None) -> D
     return entry
 
 
+def set_growth_difficulty(state: CompanionState, value) -> bool:
+    """Change the growth difficulty, keeping the earned fraction of this stage.
+
+    Ports upstream's rescaleBankedGrowth (5963293). These are progression
+    credits, not usage: used_since_install, the provider ledger and the wallet
+    are untouched. It never evolves, graduates or hatches on the spot, because
+    an incomplete stage is capped one token short of its new threshold.
+    Returns whether anything changed.
+    """
+    new = balance.clamp_difficulty(value)
+    old = state.growth_difficulty
+    if new == old:
+        return False
+
+    def rescaled(credits: int, base: int) -> int:
+        old_threshold = max(1, balance.scaled(base, old))
+        new_threshold = max(1, balance.scaled(base, new))
+        value = max(0, int(credits / old_threshold * new_threshold))
+        # Rounding must never turn an incomplete stage into a completed one.
+        return min(new_threshold - 1, value) if credits < old_threshold else value
+
+    if state.active is not None:
+        state.active.used_at_stage = rescaled(
+            state.active.used_at_stage, state.active.phase_threshold)
+    else:
+        state.egg_usage = rescaled(state.egg_usage, balance.EGG_HATCH_THRESHOLD)
+    state.growth_difficulty = new
+    return True
+
+
 def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> DexEntry:
     """Archive a completed companion and clear the slot for a fresh egg."""
     import time as _time
@@ -384,13 +438,13 @@ def apply_usage(
     # --- egg ---
     if state.active is None:
         state.egg_usage += tokens
-        if state.egg_usage < balance.EGG_HATCH_THRESHOLD:
+        if state.egg_usage < state.egg_hatch_threshold:
             return events
         if line_for_egg is None:
             # No species data (offline). Hold the tokens in the egg and hatch
             # once a line is available — never discard progress.
             return events
-        overflow = state.egg_usage - balance.EGG_HATCH_THRESHOLD
+        overflow = state.egg_usage - state.egg_hatch_threshold
         mon = hatch(state, line_for_egg, rng)
         events.hatched = mon.current_id
         tokens = overflow
@@ -401,7 +455,7 @@ def apply_usage(
     mon = state.active
     mon.used_at_stage += tokens
     while True:
-        threshold = mon.phase_threshold
+        threshold = state.stage_threshold(mon)
         if mon.used_at_stage < threshold:
             break
         mon.used_at_stage -= threshold

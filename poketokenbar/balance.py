@@ -86,6 +86,45 @@ def phase_threshold(
     return max(1, _round(standard / max(1, growth_multiplier)))
 
 
+# --- difficulty ------------------------------------------------------------
+#
+# Two independent multipliers from the settings (upstream b0c6074, 5963293):
+# growth scales the hatch threshold and every stage threshold, shop scales
+# every price. Below 1 grows faster and costs less. Rare Candy XP is not
+# scaled: scaling it with the thresholds would cancel out and leave the candy
+# the one thing difficulty does not reach.
+
+DEFAULT_DIFFICULTY = 1.0
+DIFFICULTY_MIN = 0.1
+DIFFICULTY_MAX = 2.0
+# What the settings offer. Upstream's log slider snaps to two significant
+# figures anywhere in the range; a stepper through fixed values is how every
+# other number in these settings is chosen.
+DIFFICULTY_STEPS = (0.1, 0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+
+
+def clamp_difficulty(value) -> float:
+    """A multiplier inside the allowed range.
+
+    The config file is hand-editable, so 0, a negative, NaN or a string can
+    all arrive. A multiplier of 0 makes every threshold 0.
+    """
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_DIFFICULTY
+    if number != number or number in (float("inf"), float("-inf")):
+        return DEFAULT_DIFFICULTY
+    return min(max(number, DIFFICULTY_MIN), DIFFICULTY_MAX)
+
+
+def scaled(base: int, difficulty) -> int:
+    """base x difficulty. The tables themselves are never scaled: egg prices
+    derive from graduation_total, so scaling the table would drag the shop
+    along with growth."""
+    return _round(base * clamp_difficulty(difficulty))
+
+
 # --- items -----------------------------------------------------------------
 
 RARE_CANDY_XP = 100_000_000

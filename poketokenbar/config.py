@@ -43,6 +43,12 @@ DEFAULTS: dict[str, object] = {
     # per-provider on purpose, so a folder added for Gemini is never handed to
     # Claude's parser.
     "custom_scan_roots": {},
+    # Difficulty multipliers (1.0 = the default balance, 0.1-2.0). Growth
+    # scales hatch and stage thresholds, shop scales prices. A preference, so
+    # it lives here rather than in the save; the save only records what its
+    # banked progress was earned under.
+    "growth_difficulty": 1.0,
+    "shop_difficulty": 1.0,
 }
 
 
@@ -82,6 +88,8 @@ def _coerce(key: str, raw: str):
         raise ValueError(f"{key} expects a boolean, got {raw!r}")
     if isinstance(default, int):
         return int(raw)
+    if isinstance(default, float):
+        return float(raw)
     return raw
 
 

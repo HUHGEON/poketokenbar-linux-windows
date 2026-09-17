@@ -48,14 +48,21 @@ class ShopEntry:
 
 
 def entries(state: CompanionState) -> list[ShopEntry]:
-    """Everything on sale, cheapest first."""
+    """Everything on sale, cheapest first, at the shop difficulty.
+
+    The price listed is the price charged: buy() debits entry.price, so the
+    two cannot disagree.
+    """
+    def price(base: int) -> int:
+        return balance.scaled(base, state.shop_difficulty)
+
     out = [
-        ShopEntry("rareCandy", "item", balance.RARE_CANDY_PRICE, "Rare Candy"),
-        ShopEntry("mint", "item", balance.MINT_PRICE, "Mint"),
+        ShopEntry("rareCandy", "item", price(balance.RARE_CANDY_PRICE), "Rare Candy"),
+        ShopEntry("mint", "item", price(balance.MINT_PRICE), "Mint"),
         ShopEntry(
             "shinyCharm",
             "item",
-            balance.SHINY_CHARM_PRICE,
+            price(balance.SHINY_CHARM_PRICE),
             "Shiny Charm",
             # Passive and permanent: held, never consumed, bought once.
             owned=state.inventory.get("shinyCharm", 0) > 0,
@@ -68,7 +75,7 @@ def entries(state: CompanionState) -> list[ShopEntry]:
             Rarity.UNCOMMON: "Uncommon Egg",
             Rarity.RARE: "Rare Egg",
         }[tier]
-        out.append(ShopEntry(key, "egg", balance.egg_price(tier), label))
+        out.append(ShopEntry(key, "egg", price(balance.egg_price(tier)), label))
     return sorted(out, key=lambda e: e.price)
 
 

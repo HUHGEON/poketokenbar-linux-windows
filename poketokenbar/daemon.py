@@ -180,9 +180,25 @@ class Daemon:
             payload = self._full_poll(list(errors))
         return payload
 
+    def _sync_difficulty(self) -> None:
+        """Hand the difficulty settings to the save.
+
+        Run before anything reads a threshold or a price: at every drain, after
+        a config reload, and after a transfer replaces the save — an imported
+        save may have been earned at another difficulty, and it arrives with
+        the default shop multiplier.
+        """
+        if self.companion_store is None:
+            return
+        self.companion_store.sync_difficulty(
+            self.config_values.get("growth_difficulty", 1.0),
+            self.config_values.get("shop_difficulty", 1.0),
+        )
+
     def _handle_commands(self, errors: list[str]) -> set[str]:
         """Drain the spool. Returns the names of the commands acted on."""
         handled: set[str] = set()
+        self._sync_difficulty()
         for command in commands.drain(spool=self.spool):
             name = command.get("name")
             handled.add(str(name))
@@ -192,11 +208,13 @@ class Daemon:
                     self.limits_source.invalidate()
             elif name == "reload_config":
                 self.config_values = config.load(self.config_path)
+                self._sync_difficulty()
             elif name in ("export", "import", "restore") and self.companion_store is not None:
                 try:
                     self._transfer_command(name, command)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
+                self._sync_difficulty()
             elif name == "represent" and self.companion_store is not None:
                 raw = (command.get("args") or {}).get("species_id")
                 try:

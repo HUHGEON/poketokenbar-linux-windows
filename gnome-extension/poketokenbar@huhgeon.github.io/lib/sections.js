@@ -662,6 +662,16 @@ const STEPPERS = [
         min: 48, max: 192, step: 12},
 ];
 
+// Difficulty multipliers, stepped through a fixed ladder rather than a slider.
+// DIFFICULTY_STEPS mirrors balance.DIFFICULTY_STEPS; a test holds them equal.
+// Each step applies at once: the daemon keeps the earned fraction of the
+// current egg or stage, and never lets a change complete one.
+const DIFFICULTY_STEPS = [0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
+const DIFFICULTIES = [
+    {key: 'growth_difficulty', string: 'difficulty_growth'},
+    {key: 'shop_difficulty', string: 'difficulty_shop'},
+];
+
 // Settings chosen from a short row of buttons. Both the setting and each of its
 // values carry a catalogue key: the values used to render as the raw strings
 // the daemon stores, so the settings tab offered "both / session / weekly" and
@@ -721,6 +731,7 @@ class SettingsSection extends Section {
         for (const choice of CHOICES)
             this._addChoice(choice, config);
         this._addLanguage(config);
+        this._addDifficulty(config);
         this._addScanFolders(state);
     }
 
@@ -773,6 +784,40 @@ class SettingsSection extends Section {
             return widget;
         });
         this.add_child(row(buttons));
+    }
+
+    _addDifficulty(config) {
+        const t = key => this._reader.text(key);
+        this.add_child(heading(t('difficulty_section')));
+        for (const spec of DIFFICULTIES) {
+            const raw = Number(config[spec.key]);
+            const current = Number.isFinite(raw)
+                ? Math.min(Math.max(raw, DIFFICULTY_STEPS[0]), DIFFICULTY_STEPS.at(-1))
+                : 1;
+            // A hand-edited value between two steps moves to its neighbour.
+            const lower = DIFFICULTY_STEPS.filter(step => step < current).at(-1);
+            const higher = DIFFICULTY_STEPS.find(step => step > current);
+            const down = button('−', () => {
+                if (lower !== undefined)
+                    Config.set(spec.key, lower);
+            });
+            const up = button('+', () => {
+                if (higher !== undefined)
+                    Config.set(spec.key, higher);
+            });
+            down.opacity = lower === undefined ? 130 : 255;
+            up.opacity = higher === undefined ? 130 : 255;
+            this.add_child(row([
+                paragraph(t(spec.string), 'poketokenbar-key'),
+                down,
+                label(`${Math.round(current * 100)}%`, 'poketokenbar-value'),
+                up,
+            ]));
+        }
+        this.add_child(paragraph(
+            `${Math.round(DIFFICULTY_STEPS[0] * 100)}%–${Math.round(DIFFICULTY_STEPS.at(-1) * 100)}% · ${
+                t('difficulty_hint')}`,
+            'poketokenbar-subtle'));
     }
 
     _addScanFolders(state) {

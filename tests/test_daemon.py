@@ -450,3 +450,22 @@ def test_an_offline_limits_fetch_is_reported_in_words(tmp_path):
     assert payload["errors"] == [
         "limits: <urlopen error [Errno -2] Name or service not known>"
     ]
+
+
+def test_a_difficulty_change_reaches_the_shop_and_the_save(tmp_path):
+    """The extension writes config.json and sends reload_config; the next buy
+    in the same drain must already see the new price, and the save must carry
+    the new growth difficulty."""
+    from poketokenbar import balance, commands, save
+
+    d, _provider, _limits, store, key = _clicky_daemon(tmp_path)
+    d.poll_once()
+    (tmp_path / "config.json").write_text(
+        '{"growth_difficulty": 0.5, "shop_difficulty": 0.5}', encoding="utf-8")
+    commands.enqueue("reload_config", {}, spool=d.spool)
+    commands.enqueue("buy", {"key": key}, spool=d.spool)
+    d.react()
+
+    assert store.state.spent_tokens == balance.RARE_CANDY_PRICE // 2
+    assert store.state.growth_difficulty == 0.5
+    assert save.load(store.save_path).growth_difficulty == 0.5

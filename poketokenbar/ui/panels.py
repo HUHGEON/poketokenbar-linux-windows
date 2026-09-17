@@ -21,7 +21,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QSpinBox, QVBoxLayout, QWidget,
 )
 
-from .. import commands, config, l10n
+from .. import balance, commands, config, l10n
 from .widgets import (
     Sprite, button, card, clear_layout, column, heading, label, level_colour,
     meter, row, separator, stat_line,
@@ -444,6 +444,12 @@ class SettingsPanel(Panel):
         ("floating_pet_enabled", "Desktop pet"),
         ("floating_pet_bubble_alerts", "Pet speech bubbles"),
     )
+    # Difficulty multipliers, chosen from balance.DIFFICULTY_STEPS. The daemon
+    # keeps the earned fraction of the current egg or stage when growth changes.
+    DIFFICULTIES = (
+        ("growth_difficulty", "Growth difficulty"),
+        ("shop_difficulty", "Shop price difficulty"),
+    )
     CHOICES = (
         ("limit_display_mode", "Limits shown", ("both", "session", "weekly")),
         ("animation_quality", "Animation", ("off", "saver", "balanced", "smooth")),
@@ -469,6 +475,17 @@ class SettingsPanel(Panel):
             spin.setValue(int(values.get(key) or low))
             spin.valueChanged.connect(lambda value, k=key: self._set(k, value))
             form.addRow(text, spin)
+
+        for key, text in self.DIFFICULTIES:
+            combo = QComboBox()
+            steps = balance.DIFFICULTY_STEPS
+            combo.addItems([f"{round(step * 100)}%" for step in steps])
+            current = balance.clamp_difficulty(values.get(key, 1.0))
+            # A hand-edited value between two steps shows as the nearest one.
+            combo.setCurrentIndex(min(range(len(steps)), key=lambda i: abs(steps[i] - current)))
+            combo.currentIndexChanged.connect(
+                lambda index, k=key: self._set(k, balance.DIFFICULTY_STEPS[index]))
+            form.addRow(text, combo)
 
         for key, text, options in self.CHOICES:
             combo = QComboBox()
