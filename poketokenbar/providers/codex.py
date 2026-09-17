@@ -22,7 +22,8 @@ from ..models import DailyUsage, Entry, ProviderEnrichment
 from .base import ScanningProvider, dedup_keep_first
 from .claude import _parse_timestamp, jsonl_files
 
-PARSER_VERSION = 1
+# v2: a turn whose last_token_usage has only total_tokens is counted (upstream #278).
+PARSER_VERSION = 2
 
 
 def _int(value) -> int:
@@ -41,6 +42,9 @@ def parse_rollout(path: Path) -> ParsedRollout:
     session_id: str | None = None
     model = "gpt-5.5"
     turn = 0
+    # Cumulative total of the previous token_count event that carried one, for
+    # telling a real total-only turn from a fork's zero-context replay.
+    previous_cumulative: int | None = None
     name = path.name
 
     try:
@@ -75,6 +79,19 @@ def parse_rollout(path: Path) -> ParsedRollout:
 
                 input_total = _int(last.get("input_tokens"))
                 cached = _int(last.get("cached_input_tokens"))
+                input_ = max(0, input_total - cached)
+                output = _int(last.get("output_tokens"))
+                cumulative = info.get("total_token_usage")
+                if not isinstance(cumulative, dict):
+                    cumulative = None
+                if input_ + cached + output == 0 and _trust_total_only(
+                    _last_total(last), cumulative, previous_cumulative
+                ):
+                    # Every component is 0 but the turn has a total. The
+                    # split cannot be recovered, so it is all counted as input.
+                    input_, output, cached = _last_total(last), 0, 0
+                if cumulative is not None:
+                    previous_cumulative = _int(cumulative.get("total_tokens"))
                 entries.append(
                     Entry(
                         # Keyed by (cumulative, delta), not by file position or
@@ -88,8 +105,8 @@ def parse_rollout(path: Path) -> ParsedRollout:
                         date=date,
                         local_day=date.astimezone().strftime("%Y-%m-%d"),
                         model=model,
-                        input=max(0, input_total - cached),
-                        output=_int(last.get("output_tokens")),
+                        input=input_,
+                        output=output,
                         cache_write=0,
                         cache_read=cached,
                     )
@@ -99,6 +116,42 @@ def parse_rollout(path: Path) -> ParsedRollout:
         return ParsedRollout([], None)
 
     return ParsedRollout(entries, session_id)
+
+
+def _components(usage: dict) -> int:
+    """input (which includes cached) plus output: what an Entry is built from."""
+    return _int(usage.get("input_tokens")) + _int(usage.get("output_tokens"))
+
+
+def _trust_total_only(
+    last_total: int, cumulative: dict | None, previous_cumulative: int | None
+) -> bool:
+    """Whether a turn with no token components should count its total_tokens.
+
+    Codex sometimes writes last_token_usage with every component at 0 and only
+    total_tokens set (upstream #278); those turns were dropped. Ported from
+    upstream's shouldTrustCodexTotalOnlyLast and
+    codexEntryTrustingTotalOnlyLast. The total is trusted when:
+
+    - there is no cumulative usage, so the total is the only signal;
+    - the cumulative has no components either, so the session is total-only;
+    - the turn's total is the whole session total (a sole or first turn);
+    - the cumulative total grew since the previous event.
+
+    Otherwise it stays 0. That remaining shape is a fork's zero-context turn
+    after replaying its parent: the cumulative is unchanged, and its total is
+    not new usage.
+    """
+    if last_total <= 0:
+        return False
+    if cumulative is None:
+        return True
+    cumulative_total = _int(cumulative.get("total_tokens"))
+    if _components(cumulative) == 0 and cumulative_total > 0:
+        return True
+    if cumulative_total == last_total:
+        return True
+    return previous_cumulative is not None and cumulative_total > previous_cumulative
 
 
 def _cumulative(info: dict) -> int:

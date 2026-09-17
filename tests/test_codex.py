@@ -36,7 +36,7 @@ def test_fork_contributes_only_its_new_turns():
     # Swift expects 312_814 + 28_138 + 28_263 == 369_215. A fork replays the
     # parent's turns with fresh timestamps, so counting files naively would
     # report 994_843.
-    deduped = CodexProvider.dedup(_entries("parent.jsonl", "child.jsonl", "sibling.jsonl"))
+    deduped = CodexProvider.dedup_entries(_entries("parent.jsonl", "child.jsonl", "sibling.jsonl"))
     assert sum(e.total for e in deduped) == 369_215
 
 
@@ -47,7 +47,7 @@ def test_naive_concatenation_would_overcount():
 
 
 def test_dedup_keeps_the_forks_own_turns():
-    deduped = CodexProvider.dedup(_entries("parent.jsonl", "child.jsonl", "sibling.jsonl"))
+    deduped = CodexProvider.dedup_entries(_entries("parent.jsonl", "child.jsonl", "sibling.jsonl"))
     totals = {e.total for e in deduped}
     assert 28_138 in totals
     assert 28_263 in totals
