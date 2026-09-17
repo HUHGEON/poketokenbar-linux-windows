@@ -77,6 +77,20 @@ def test_buying_an_egg_discards_the_companion_without_dex_credit():
     assert s.egg_usage == 0
 
 
+@pytest.mark.parametrize("key", ["egg", f"egg:{Rarity.UNCOMMON}", f"egg:{Rarity.RARE}"])
+def test_no_egg_can_be_bought_during_the_egg_stage(key):
+    # Ports upstream's ShopTests contract: the eggs stay listed, every tier is
+    # refused, and the refused attempt leaves the wallet and the incubation
+    # alone. A purchase here used to charge the price and reset egg_usage.
+    s = CompanionState(egg_usage=1234)
+    s.used_since_install = balance.egg_price(Rarity.RARE) * 2
+    assert {e.key for e in shop.entries(s)} >= {"egg", "egg:uncommon", "egg:rare"}
+    with pytest.raises(shop.ShopError):
+        shop.buy(s, key)
+    assert s.spent_tokens == 0
+    assert s.egg_usage == 1234
+
+
 def test_premium_egg_records_its_guarantee():
     s = _with_mon(tokens=balance.egg_price(Rarity.RARE))
     shop.buy(s, f"egg:{Rarity.RARE}")

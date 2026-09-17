@@ -496,3 +496,15 @@ def test_the_shop_shows_a_picture_for_its_eggs():
     rows = {row["key"]: row for row in _egg_store().shop_payload()}
     for key in ("egg", "egg:uncommon", "egg:rare"):
         assert rows[key]["sprite_path"] == "/cache/egg.png", key
+
+
+def test_the_eggs_are_listed_but_locked_during_the_egg_stage():
+    subject = _egg_store()
+    subject.state.used_since_install = 10**12
+    rows = {row["key"]: row for row in subject.shop_payload()}
+    for key in ("egg", "egg:uncommon", "egg:rare"):
+        assert rows[key]["locked"] is True, key
+        assert rows[key]["affordable"] is False, key
+    # Items are not eggs; a full wallet still buys them.
+    assert rows["rareCandy"]["locked"] is False
+    assert rows["rareCandy"]["affordable"] is True

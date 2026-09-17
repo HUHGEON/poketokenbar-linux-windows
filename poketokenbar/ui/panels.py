@@ -238,10 +238,15 @@ class ShopPanel(Panel):
         self.add(label(self.t("spend_hint"), dim=True))
 
         for item in (state or {}).get("shop") or []:
-            left = column(
+            lines = [
                 label(item.get("label") or item["key"]),
                 label(item.get("description", ""), dim=True),
-            )
+            ]
+            # An egg during the egg stage: the disabled button needs a reason
+            # the price does not give.
+            if item.get("locked"):
+                lines.append(label(self.t("egg_shop_locked_hint"), dim=True))
+            left = column(*lines)
             widgets = [left]
             if item.get("owned_count"):
                 widgets.append(label(f"{self.t('owned')} x{item['owned_count']}", dim=True))

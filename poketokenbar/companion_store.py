@@ -510,6 +510,10 @@ class CompanionStore:
                 sprite = self._item_sprite("egg")
                 tier = e.key.split(":")[1] if ":" in e.key else None
                 label, description, badge = self._egg_words(tier)
+            # An egg stays listed during the egg stage but cannot be bought:
+            # shop.buy refuses it, and the card says why under a disabled
+            # button rather than vanishing.
+            locked = e.kind == "egg" and self.state.active is None
             out.append(
                 {
                     "key": e.key,
@@ -524,7 +528,8 @@ class CompanionStore:
                               "shinyCharm": "\N{SPARKLES}"}.get(e.key, "\N{EGG}"),
                     "owned": e.owned,
                     "owned_count": self.state.inventory.get(e.key, 0),
-                    "affordable": spendable >= e.price and not e.owned,
+                    "affordable": spendable >= e.price and not e.owned and not locked,
+                    "locked": locked,
                 }
             )
         return out

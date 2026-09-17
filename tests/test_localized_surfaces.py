@@ -252,7 +252,7 @@ def test_buying_answers_in_the_chosen_language():
 
 
 def test_buying_an_egg_names_the_tier_it_guarantees():
-    subject = store(language="ko")
+    subject = store(language="ko", active=raising())
     subject.state.used_since_install = balance.egg_price(balance.Rarity.RARE)
     assert l10n.t("egg_rare", "ko") in subject.buy(f"egg:{balance.Rarity.RARE}")
 

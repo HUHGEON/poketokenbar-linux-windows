@@ -96,6 +96,12 @@ def buy(state: CompanionState, key: str) -> ItemResult:
     # Eggs replace the current companion outright.
     tier = {"egg": None, f"egg:{Rarity.UNCOMMON}": Rarity.UNCOMMON,
             f"egg:{Rarity.RARE}": Rarity.RARE}[entry.key]
+    # Checked before the debit. During the egg stage there is no companion to
+    # replace, and a purchase here charged the wallet and reset egg_usage,
+    # throwing away the incubation already earned. Upstream's canBuyEgg has
+    # always required an active Pokemon; the listing keeps the eggs visible.
+    if state.active is None:
+        raise ShopError("an egg needs a hatched companion to replace")
     _debit(state, entry.price)
     # The discarded companion is NOT graduated: it never entered the dex and
     # must not affect collected_finals either — as if it had never hatched.

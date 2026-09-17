@@ -360,10 +360,15 @@ class ShopSection extends Section {
             // leave, and the description wraps inside it. With a spacer soaking
             // up the free space instead, the column got its natural width and
             // every description ran off the edge of a 380px popup.
-            const left = column([
+            const lines = [
                 label(shopItem.label || shopItem.key, 'poketokenbar-key'),
                 paragraph(shopItem.description ?? '', 'poketokenbar-subtle'),
-            ]);
+            ];
+            // An egg during the egg stage: the button below is disabled for
+            // a reason the price does not explain, so the card says it.
+            if (shopItem.locked)
+                lines.push(paragraph(t('egg_shop_locked_hint'), 'poketokenbar-subtle'));
+            const left = column(lines);
             left.x_expand = true;
             const price = label(shopItem.price_text ?? '', 'poketokenbar-value');
             const children = [icon, left];
