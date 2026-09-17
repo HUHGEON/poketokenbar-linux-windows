@@ -117,3 +117,30 @@ def test_the_systemd_unit_matches_where_the_script_installs_the_app():
     assert 'venv="$HOME/.local/share/poketokenbar/venv"' in text
     assert "%h/.local/share/poketokenbar/venv/bin/python" in unit
     assert "%h/.local/share/poketokenbar/app" in unit
+
+
+def test_each_install_puts_the_ui_in_a_new_directory_and_names_it():
+    """extension.js loads main.js from the directory named in `current`. A new
+    directory per install is what makes the running session load new code."""
+    text = script()
+    assert 'mv "$dest/lib" "$dest/$ui_dir"' in text
+    assert '> "$dest/current"' in text
+    assert re.search(r'ui_dir="lib-\$\(date [^)]*\)"', text)
+
+
+def test_a_running_extension_is_reloaded_and_the_daemon_restarted():
+    text = script()
+    assert 'gnome-extensions disable "$extension_uuid" && gnome-extensions enable "$extension_uuid"' in text
+    assert "systemctl --user restart poketokend.service" in text
+
+
+def test_the_loader_accepts_the_directory_names_the_installer_writes():
+    import subprocess
+
+    loader = (ROOT / "gnome-extension" / "poketokenbar@huhgeon.github.io" / "extension.js").read_text()
+    pattern = re.search(r"const UI_DIRECTORY = /(.*)/;", loader).group(1)
+    stamp = subprocess.run(["date", "+%Y%m%d%H%M%S"], capture_output=True, text=True).stdout.strip()
+    assert re.fullmatch(pattern.strip("^$"), f"lib-{stamp}")
+    assert re.fullmatch(pattern.strip("^$"), "lib")
+    assert not re.fullmatch(pattern.strip("^$"), "../elsewhere")
+

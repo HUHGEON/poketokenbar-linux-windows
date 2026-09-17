@@ -74,10 +74,28 @@ def test_the_entry_point_default_exports_an_extension():
     assert "enable()" in source and "disable()" in source
 
 
+def test_the_loader_imports_the_current_ui_on_every_enable():
+    """extension.js is cached for the whole session, so it must not import the
+    UI statically: a static import would pin the popup to the code the session
+    started with, and an update would need a new session again."""
+    source = (EXTENSION_DIR / "extension.js").read_text(encoding="utf-8")
+    code = re.sub(r"/\*.*?\*/", "", source, flags=re.S)
+    assert not re.search(r"^import .* from '\./lib/", code, re.M), (
+        "extension.js imports the UI statically; the UI has to be loaded in enable()")
+    enable = code.split("    enable() {")[1].split("    disable() {")[0]
+    disable = code.split("    disable() {")[1]
+    assert "import(" in enable and "'current'" in code
+    # A late import after disable() must not bring the UI back.
+    assert "generation !== this._generation" in enable
+    assert "this._main?.disable()" in disable
+    # The name read from disk can only pick a lib directory beside the loader.
+    assert "UI_DIRECTORY.test(name)" in code
+
+
 def test_everything_enable_starts_is_torn_down_in_disable():
     """A timer or signal left connected leaks inside the compositor, where the
     only way out is a session restart."""
-    source = (EXTENSION_DIR / "extension.js").read_text(encoding="utf-8")
+    source = (EXTENSION_DIR / "lib" / "main.js").read_text(encoding="utf-8")
     # Comments first: the file's own header describes this rule in prose, and
     # splitting on the word would cut the body at the sentence instead.
     source = re.sub(r"/\*.*?\*/", "", source, flags=re.S)

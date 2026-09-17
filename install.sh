@@ -50,6 +50,14 @@ install_gnome() {
   echo "==> installing GNOME Shell extension to $dest"
   copy_tree "$here/gnome-extension/$extension_uuid" "$dest"
 
+  # The UI goes in a directory of its own for this release, named in `current`.
+  # extension.js imports main.js from there on every enable, and a directory
+  # the session has never loaded is new code to it — which is what lets an
+  # update show without logging out. copy_tree already removed older ones.
+  local ui_dir="lib-$(date +%Y%m%d%H%M%S)"
+  mv "$dest/lib" "$dest/$ui_dir"
+  printf '%s\n' "$ui_dir" > "$dest/current"
+
   # The commonest way this "installs fine" and then does not appear: an
   # extension whose shell-version omits the running Shell is hidden outright —
   # no error and no entry in the list. Say so here rather than let someone hunt.
@@ -64,9 +72,18 @@ install_gnome() {
     echo
   fi
 
-  echo "    enable it in the Extensions app, or:"
-  echo "      gnome-extensions enable $extension_uuid"
-  echo "    on Xorg press Alt+F2 then r to reload the shell; on Wayland log out and back in."
+  # Already running in this session: turn it off and on, so it loads the
+  # release just installed. Nothing to do in a session without GNOME Shell.
+  if command -v gnome-extensions >/dev/null 2>&1 \
+      && gnome-extensions list --enabled 2>/dev/null | grep -qx "$extension_uuid"; then
+    gnome-extensions disable "$extension_uuid" && gnome-extensions enable "$extension_uuid"
+    echo "    reloaded the running extension: the popup now shows this release."
+    echo "    (the first install with live reload still needs one log out; after that it does not)"
+  else
+    echo "    enable it in the Extensions app, or:"
+    echo "      gnome-extensions enable $extension_uuid"
+    echo "    on Xorg press Alt+F2 then r to reload the shell; on Wayland log out and back in."
+  fi
   echo "    if it does not appear:  journalctl --user -b -o cat /usr/bin/gnome-shell | tail -40"
 }
 
@@ -142,5 +159,7 @@ mkdir -p "$HOME/.config/systemd/user"
 install -m644 "$here/systemd/poketokend.service" "$HOME/.config/systemd/user/"
 systemctl --user daemon-reload
 systemctl --user enable --now poketokend.service
+# enable --now leaves a daemon that is already running on the old code.
+systemctl --user restart poketokend.service
 
 echo "==> done. check: systemctl --user status poketokend"
