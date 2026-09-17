@@ -81,6 +81,8 @@ def _period_rows(periods: dict | None, language: str = "en") -> dict:
     """
     out = {}
     for key, bucket in (periods or {}).items():
+        if key == "month_daily":
+            continue  # a series, not a bucket: see _month_trend
         tokens = bucket.get("tokens", 0)
         cost = bucket.get("cost", 0.0)
         out[key] = {
@@ -91,6 +93,45 @@ def _period_rows(periods: dict | None, language: str = "en") -> dict:
             "cost_text": _cost_texts(cost, bucket.get("coverage"), language, tokens)[0],
         }
     return out
+
+
+def _month_trend(periods: dict | None, language: str, today: str) -> dict:
+    """This month's day-by-day bars, ready to draw. Ports MonthDailyTrend.
+
+    Heights are fractions of the peak day; a day with usage never draws
+    thinner than the empty-day baseline the extension gives every bar. The
+    axis labels the 1st, every 7th day and today, and drops a regular label
+    within two days of today so two numbers never run together.
+    """
+    series = (periods or {}).get("month_daily") or {}
+    if not series:
+        return {}
+    days = sorted(series)
+    peak = max(series[day]["tokens"] for day in days)
+    if peak <= 0:
+        return {}
+    today_number = int(today[-2:]) if today[:7] == days[0][:7] else None
+    out = []
+    for day in days:
+        row = series[day]
+        number = int(day[-2:])
+        is_today = day == today
+        regular = number == 1 or number % 7 == 0
+        near_today = today_number is not None and abs(number - today_number) < 3
+        tokens = row["tokens"]
+        cost_text = _cost_texts(row["cost"], row.get("coverage"), language, tokens)[0]
+        stamp = l10n.day_stamp(day, language)
+        out.append({
+            "date": day,
+            "tokens": tokens,
+            "fraction": round(min(1.0, tokens / peak), 4),
+            "is_today": is_today,
+            "is_empty": tokens == 0,
+            "is_weekend": datetime.strptime(day, "%Y-%m-%d").weekday() >= 5,
+            "axis_label": str(number) if is_today or (regular and not near_today) else "",
+            "readout": " ".join(part for part in (stamp, fmt.compact(tokens), cost_text) if part),
+        })
+    return {"days": out, "peak_text": fmt.compact(peak)}
 
 
 def _combined_models(daily_by_provider: dict) -> dict[str, int]:
@@ -241,6 +282,7 @@ def build(
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
         "periods": _period_rows(periods, language),
+        "month_trend": _month_trend(periods, language, time.strftime("%Y-%m-%d")),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
         # The Pokédex page the popup has open, or {} for none.

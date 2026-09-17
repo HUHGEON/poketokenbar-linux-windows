@@ -158,6 +158,7 @@ class HomePanel(Panel):
                 if period.get("cost_text"):
                     text = f"{text} · {period['cost_text']}"
                 self.add(stat_line(self.t(name), text))
+        self._add_month_trend((state or {}).get("month_trend") or {})
 
         # Only worth the rows when the day actually spanned several models.
         models = today.get("models") or []
@@ -235,6 +236,34 @@ class HomePanel(Panel):
             if burn.get("eta_text"):
                 self.add(label(
                     self.t("at_this_rate").replace("%1", burn["eta_text"]), dim=True))
+
+    def _add_month_trend(self, trend: dict) -> None:
+        """This month by day, as in the GNOME popup (upstream 0912c68)."""
+        days = trend.get("days") or []
+        if not days:
+            return
+        today = next((d for d in days if d.get("is_today")), days[-1])
+        self.add(row(label(self.t("daily_trend"), dim=True), label(today["readout"]),
+                     label(f"{self.t('peak_day')} {trend.get('peak_text', '')}", dim=True)))
+        bars = QWidget()
+        layout = QHBoxLayout(bars)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(1)
+        for day in days:
+            colour = ("#f5a623" if day["is_today"]
+                      else "rgba(128,128,128,0.25)" if day["is_empty"] else "rgba(128,128,128,0.6)")
+            bar = _trend_bar(max(2, round(day["fraction"] * 26)), colour)
+            bar.setToolTip(day["readout"])
+            layout.addWidget(bar, 1, Qt.AlignmentFlag.AlignBottom)
+        bars.setFixedHeight(28)
+        self.add(bars)
+
+
+def _trend_bar(height: int, colour: str) -> QWidget:
+    bar = QWidget()
+    bar.setFixedHeight(height)
+    bar.setStyleSheet(f"background-color: {colour}; border-radius: 1px;")
+    return bar
 
 
 class ShopPanel(Panel):

@@ -278,6 +278,16 @@ class Daemon:
                 bucket["cost"] += result[key]["cost"]
                 if result[key].get("coverage") is not None:
                     bucket["coverage"].merge(result[key]["coverage"])
+            # This month by day, summed across providers. The axis is the union
+            # of theirs, so one whose scan straddled midnight cannot cut
+            # everyone else's last day.
+            daily = periods.setdefault("month_daily", {})
+            for day, row in (result.get("month_daily") or {}).items():
+                bucket = daily.setdefault(
+                    day, {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()})
+                bucket["tokens"] += row["tokens"]
+                bucket["cost"] += row["cost"]
+                bucket["coverage"].merge(row["coverage"])
         self._last_scan = (daily_by_provider, periods, scan_errors)
         self._last_full_poll_at = time.monotonic()
 

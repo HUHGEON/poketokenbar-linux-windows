@@ -205,6 +205,19 @@
   background-color: rgba(255, 255, 255, 0.12);
 }
 
+/* This month by day. The spacing is what separates thirty-one bars in a
+   380px popup; the weekend mark is a short underline because a full-height
+   shade reads as a tall bar on a dark panel. */
+.poketokenbar-trend { spacing: 1px; padding-top: 4px; }
+.poketokenbar-trend-ticks { spacing: 1px; }
+.poketokenbar-trend-axis { spacing: 1px; }
+.poketokenbar-trend-bar { background-color: rgba(255, 255, 255, 0.45); border-radius: 1px; }
+.poketokenbar-trend-empty { background-color: rgba(255, 255, 255, 0.18); }
+.poketokenbar-trend-today { background-color: #f5a623; }
+.poketokenbar-trend-weekend { background-color: rgba(255, 255, 255, 0.5); }
+.poketokenbar-trend-label { font-size: 0.7em; opacity: 180; }
+.poketokenbar-trend-label-today { font-size: 0.7em; color: #f5a623; }
+
 .poketokenbar-meter-fill {
   height: 6px;
   border-radius: 3px;

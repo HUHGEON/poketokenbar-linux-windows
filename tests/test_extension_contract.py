@@ -13,6 +13,7 @@ running the extension on a real desktop — nothing here proves an actor renders
 """
 
 import re
+import time
 from pathlib import Path
 
 import pytest
@@ -98,7 +99,8 @@ def full_payload() -> dict:
         catch_log=store.catch_log_payload(),
         rarity_counts=store.rarity_counts(),
         catch_counts=store.catch_rarity_counts(),
-        periods={"week": {"tokens": 1, "cost": 0.0}, "month": {"tokens": 2, "cost": 0.0}},
+        periods={"week": {"tokens": 1, "cost": 0.0}, "month": {"tokens": 2, "cost": 0.0},
+                 "month_daily": {time.strftime("%Y-%m-01"): {"tokens": 2, "cost": 0.0}}},
         burn={"session": {"rate_per_minute": 1.0, "minutes_to_full": 5, "eta_text": "x"}},
         limit_status=limits.LimitStatus(
             session=limits.LimitWindow(utilization=42.0, resets_at="2h", severity="warn"),
@@ -285,6 +287,9 @@ ROW_ACCESSORS = {
     "config": "config",
     "dexRow": "dex",
     "periodRow": "period",
+    "monthTrend": "month_trend",
+    "trendDay": "month_trend_day",
+    "todayRow": "month_trend_day",
     "individual": "detail_individual",
     "statRow": "detail_stat",
     "knownMove": "detail_known_move",
@@ -333,6 +338,10 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "month_trend":
+        return set(payload["month_trend"])
+    if name == "month_trend_day":
+        return set(payload["month_trend"]["days"][0])
     if name == "period":
         return set(payload["periods"]["week"])
     if name.startswith("detail_"):

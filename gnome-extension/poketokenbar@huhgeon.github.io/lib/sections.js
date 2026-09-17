@@ -27,6 +27,10 @@ import {
 const DEX_COLUMNS = 6;
 const DEX_ROWS = 3;
 const DEX_SPRITE_SIZE = 48;
+// The trend's tallest bar and an empty day's baseline, in pixels. A day with
+// no usage keeps a sliver, or its column would read as a missing date.
+const TREND_TRACK = 26;
+const TREND_BASELINE = 2;
 
 /** "1,234,567 · $1.23": a period's tokens, and its cost when there is one. */
 function withCost(periodRow) {
@@ -193,6 +197,7 @@ class HomeSection extends Section {
             this.add_child(statLine(t('this_week'), withCost(periods.week)));
         if (periods?.month)
             this.add_child(statLine(t('this_month'), withCost(periods.month)));
+        this._addMonthTrend(state?.month_trend, t);
 
         // Only worth the rows when the day actually spanned several models.
         const models = today?.models ?? [];
@@ -233,6 +238,61 @@ class HomeSection extends Section {
      * "nothing is pinned", and the difference is exactly what surprises
      * someone at the next evolution.
      */
+    /**
+     * This month by day (upstream 0912c68): a bar per day from the 1st to
+     * today, today in the accent colour, weekends underlined, and a readout
+     * that follows the pointer and returns to today when it leaves.
+     */
+    _addMonthTrend(monthTrend, t) {
+        const days = monthTrend?.days ?? [];
+        if (days.length === 0)
+            return;
+        const todayRow = days.find(trendDay => trendDay.is_today) ?? days[days.length - 1];
+        const readout = label(todayRow.readout, 'poketokenbar-value');
+        this.add_child(row([
+            label(t('daily_trend'), 'poketokenbar-subtle'),
+            readout,
+            new St.Widget({x_expand: true}),
+            label(`${t('peak_day')} ${monthTrend.peak_text}`, 'poketokenbar-subtle'),
+        ]));
+
+        const bars = new St.BoxLayout({style_class: 'poketokenbar-trend', x_expand: true});
+        const ticks = new St.BoxLayout({style_class: 'poketokenbar-trend-ticks', x_expand: true});
+        const axis = new St.BoxLayout({style_class: 'poketokenbar-trend-axis', x_expand: true});
+        for (const trendDay of days) {
+            // A column the full track height, so a low bar is as easy to point
+            // at as a tall one; the bar itself sits at its bottom.
+            const column = new St.Bin({
+                x_expand: true, reactive: true, track_hover: true,
+                height: TREND_TRACK, y_align: Clutter.ActorAlign.END,
+            });
+            const classes = ['poketokenbar-trend-bar'];
+            if (trendDay.is_today)
+                classes.push('poketokenbar-trend-today');
+            else if (trendDay.is_empty)
+                classes.push('poketokenbar-trend-empty');
+            column.set_child(new St.Widget({
+                style_class: classes.join(' '),
+                x_expand: true,
+                y_align: Clutter.ActorAlign.END,
+                height: Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
+            }));
+            column.connect('notify::hover', () => {
+                readout.text = column.hover ? trendDay.readout : todayRow.readout;
+            });
+            bars.add_child(column);
+            ticks.add_child(new St.Widget({
+                style_class: trendDay.is_weekend ? 'poketokenbar-trend-weekend' : '',
+                x_expand: true, height: 2,
+            }));
+            axis.add_child(label(trendDay.axis_label,
+                trendDay.is_today ? 'poketokenbar-trend-label-today' : 'poketokenbar-trend-label'));
+        }
+        this.add_child(bars);
+        this.add_child(ticks);
+        this.add_child(axis);
+    }
+
     _addPinRow(companion, t) {
         const pinned = companion?.representative_species_id;
         if (!pinned)

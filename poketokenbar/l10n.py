@@ -137,6 +137,11 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "dex_released": ("Released", "놓아줌", "逃がした", "Liberado",
         "Relâché", "Solto", "Freigelassen",
     ),
+    # This month's day-by-day bars (upstream 0912c68).
+    "daily_trend": ("Daily this month", "이번 달 일별", "今月の日別", "Diario de este mes",
+        "Par jour ce mois-ci", "Diário deste mês", "Täglich",
+    ),
+    "peak_day": ("Peak", "최다", "最多", "Máx.", "Max.", "Máx.", "Max."),
     # A cost total where nothing could be priced (upstream 69ff39b).
     "cost_unavailable": ("Unavailable", "계산 불가", "計算不可", "No disponible",
         "Indisponible", "Indisponível", "Nicht verfügbar",
@@ -667,6 +672,42 @@ def names_from_api(entries) -> dict[str, str]:
         if code and name:
             out[code] = name
     return out
+
+
+# Short weekday names, Monday first, per language, and how each language writes
+# a month, day and weekday together. Upstream asks the OS locale for this
+# ("MdE"); the daemon has no locale data to ask, so the seven are written out.
+_WEEKDAYS = {
+    "en": ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"),
+    "ko": ("월", "화", "수", "목", "금", "토", "일"),
+    "ja": ("月", "火", "水", "木", "金", "土", "日"),
+    "es": ("lun", "mar", "mié", "jue", "vie", "sáb", "dom"),
+    "fr": ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim."),
+    "pt": ("seg", "ter", "qua", "qui", "sex", "sáb", "dom"),
+    "de": ("Mo.", "Di.", "Mi.", "Do.", "Fr.", "Sa.", "So."),
+}
+_DAY_STAMP = {
+    "en": "{w}, {m}/{d}",
+    "ko": "{m}. {d}. ({w})",
+    "ja": "{m}/{d}({w})",
+    "es": "{w}, {d}/{m}",
+    "fr": "{w} {d:02d}/{m:02d}",
+    "pt": "{w}, {d:02d}/{m:02d}",
+    "de": "{w}, {d}.{m}.",
+}
+
+
+def day_stamp(day: str, language: str = "en") -> str:
+    """"Wed, 9/17" for a yyyy-mm-dd day, in the language's own order."""
+    from datetime import date as _date
+
+    try:
+        parsed = _date.fromisoformat(day)
+    except ValueError:
+        return day
+    code = language if language in _WEEKDAYS else "en"
+    return _DAY_STAMP[code].format(
+        w=_WEEKDAYS[code][parsed.weekday()], m=parsed.month, d=parsed.day)
 
 
 def catalogue(language: str = "en") -> dict[str, str]:

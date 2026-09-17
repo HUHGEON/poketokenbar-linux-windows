@@ -350,8 +350,21 @@ class ScanningProvider:
 
         week = {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
         month = {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
+        # Every day from the 1st through today, empty days included: a bar's
+        # position is its date (upstream 0912c68). Days are built from the
+        # month rather than from the entries, so a session carried over from
+        # last month cannot add a partial, untrue previous month.
+        month_daily = {
+            f"{month_prefix}-{number:02d}": {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
+            for number in range(1, anchor.day + 1)
+        }
         for e in self.scan_entries():
             cost, coverage = self.cost_of(e)
+            bucket = month_daily.get(e.local_day)
+            if bucket is not None:
+                bucket["tokens"] += e.total
+                bucket["cost"] += cost
+                bucket["coverage"].merge(coverage)
             if e.local_day[:7] == month_prefix:
                 month["tokens"] += e.total
                 month["cost"] += cost
@@ -364,7 +377,7 @@ class ScanningProvider:
                 week["tokens"] += e.total
                 week["cost"] += cost
                 week["coverage"].merge(coverage)
-        return {"week": week, "month": month}
+        return {"week": week, "month": month, "month_daily": month_daily}
 
     def fetch_enrichment(self) -> ProviderEnrichment:
         # Blocks/burn-rate remain unported; the *_ok flags stay false so callers
