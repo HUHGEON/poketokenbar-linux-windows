@@ -887,7 +887,7 @@ const STEPPERS = [
     {key: 'crit_threshold', string: 'setting_crit_threshold', unit: '%',
         min: 60, max: 99, step: 1},
     {key: 'floating_pet_size', string: 'setting_pet_size', unit: 'px',
-        min: 48, max: 192, step: 12},
+        min: 48, max: 384, step: 12},
 ];
 
 // Difficulty multipliers, stepped through a fixed ladder rather than a slider.

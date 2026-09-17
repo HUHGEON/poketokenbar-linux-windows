@@ -563,7 +563,7 @@ class SettingsPanel(Panel):
         ("refresh_interval", "Refresh every (s)", 60, 900, 60),
         ("warn_threshold", "Warn at (%)", 50, 95, 5),
         ("crit_threshold", "Critical at (%)", 60, 99, 1),
-        ("floating_pet_size", "Pet size (px)", 48, 192, 12),
+        ("floating_pet_size", "Pet size (px)", 48, 384, 12),
     )
     TOGGLES = (
         ("show_tokens_in_menu", "Tokens in the tray tooltip"),
