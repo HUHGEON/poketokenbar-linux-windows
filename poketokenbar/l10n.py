@@ -137,6 +137,10 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "dex_released": ("Released", "놓아줌", "逃がした", "Liberado",
         "Relâché", "Solto", "Freigelassen",
     ),
+    # Limits shown are the last good ones; refreshing them is failing (ce65fde).
+    "stale_limits": ("Stale", "갱신 지연", "更新遅延", "Desactualizado",
+        "Périmé", "Desatualizado", "Nicht aktuell",
+    ),
     # The wall-clock time a limit resets at, when it is not today (f2fe5ac):
     # %1 weekday, %2 day of the month, %3 24-hour time.
     "reset_clock_far": ("%1 %2, %3", "%2일 (%1) %3", "%2日(%1) %3", "%1 %2, %3",

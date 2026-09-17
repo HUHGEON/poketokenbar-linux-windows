@@ -34,6 +34,7 @@ class LimitsSource:
         fetch: Callable[[], limits.LimitStatus] | None = None,
         clock: Callable[[], float] = time.monotonic,
         ttl: float = 300.0,
+        wall_clock: Callable[[], float] = time.time,
     ) -> None:
         self._fetch = fetch or limits.fetch_status
         self._clock = clock
@@ -42,10 +43,23 @@ class LimitsSource:
         self._fetched_at: float | None = None
         self._blocked_until: float = 0.0
         self.last_error: str = ""
+        # Wall-clock time of the last successful fetch, for "updated N ago".
+        self._wall_clock = wall_clock
+        self.updated_at: float | None = None
         # True while the last failure was the network itself rather than the
         # endpoint, so the UI can say "offline" instead of quoting a socket
         # error nobody can act on.
         self.offline: bool = False
+
+    @property
+    def stale(self) -> bool:
+        """Serving the last good value while fetching it again is failing.
+
+        The section used to keep showing that value with nothing on it to say
+        so, and the only sign of trouble was an error line in the footer
+        (upstream ce65fde gave Antigravity the marker Claude's limits had).
+        """
+        return self._cached is not None and bool(self.last_error)
 
     def invalidate(self) -> None:
         """Force the next get() to refetch — used by a manual refresh.
@@ -68,6 +82,7 @@ class LimitsSource:
         try:
             self._cached = self._fetch()
             self._fetched_at = now
+            self.updated_at = self._wall_clock()
             self.last_error = ""
         except limits.NetworkError as exc:
             # Keep the stale value and try again soon, not after the TTL.

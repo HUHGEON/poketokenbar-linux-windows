@@ -416,6 +416,10 @@ class Daemon:
             self.config_values,
             errors,
             limit_status=limit_status,
+            limits_freshness={
+                "stale": getattr(self.limits_source, "stale", False),
+                "updated_at": getattr(self.limits_source, "updated_at", None),
+            },
             companion_payload=companion_payload,
             shop_payload=self.companion_store.shop_payload() if self.companion_store else None,
             bag_payload=self.companion_store.bag_payload() if self.companion_store else None,

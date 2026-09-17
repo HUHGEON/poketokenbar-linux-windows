@@ -19,7 +19,7 @@ import {LANGUAGES} from './languages.js';
 import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
-    Meter, badge, button, column, heading, label, levelClass, markSent,
+    Meter, ago, badge, button, column, heading, label, levelClass, markSent,
     paragraph, placeholder, resetsIn, row, statLine, toggleRow,
 } from './widgets.js';
 
@@ -363,6 +363,19 @@ class HomeSection extends Section {
             this.add_child(label(
                 account.organization ? `${who} · ${account.organization}` : who,
                 'poketokenbar-subtle'));
+        }
+        // The numbers below are the last good ones and fetching again is
+        // failing. They used to look current, with the only hint an error in
+        // the footer.
+        if (limits.stale) {
+            const age = limits.updated_at ? Date.now() / 1000 - limits.updated_at : null;
+            const refresh = button(t('refresh'), () => markSent(refresh, Commands.refresh()));
+            this.add_child(row([
+                label(age === null ? t('stale_limits') : `${t('stale_limits')} · ${ago(age, t)}`,
+                    'poketokenbar-value poketokenbar-warn'),
+                new St.Widget({x_expand: true}),
+                refresh,
+            ]));
         }
         for (const [key, name] of [['session', 'five_hour_session'], ['weekly', 'weekly']]) {
             const limitWindow = limits[key];

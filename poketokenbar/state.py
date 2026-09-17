@@ -25,10 +25,15 @@ def default_path() -> Path:
     return platform_paths.state_base() / "poketokenbar" / "state.json"
 
 
-def _limits_payload(status) -> dict:
-    """Serialise a limits.LimitStatus, or an empty dict when unavailable."""
+def _limits_payload(status, freshness: dict | None = None) -> dict:
+    """Serialise a limits.LimitStatus, or an empty dict when unavailable.
+
+    `freshness` says whether the numbers are the last good ones while fetching
+    is failing, and when they were fetched.
+    """
     if status is None:
         return {}
+    freshness = freshness or {}
 
     def window(w):
         if w is None:
@@ -44,6 +49,8 @@ def _limits_payload(status) -> dict:
         "weekly": window(status.weekly),
         "plan": status.subscription_type,
         "account": status.account or {},
+        "stale": bool(freshness.get("stale")),
+        "updated_at": freshness.get("updated_at"),
     }
 
 
@@ -216,6 +223,7 @@ def build(
     errors: list[str],
     scanning: bool = False,
     limit_status=None,
+    limits_freshness: dict | None = None,
     companion_payload: dict | None = None,
     shop_payload: list | None = None,
     bag_payload: list | None = None,
@@ -273,7 +281,7 @@ def build(
             }
             for pid, d in daily_by_provider.items()
         },
-        "limits": _limits_payload(limit_status),
+        "limits": _limits_payload(limit_status, limits_freshness),
         "companion": companion_payload or {},
         "shop": shop_payload or [],
         "bag": bag_payload or [],

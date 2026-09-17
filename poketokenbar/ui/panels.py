@@ -221,6 +221,13 @@ class HomePanel(Panel):
         if who:
             organization = account.get("organization")
             self.add(label(f"{who} · {organization}" if organization else who, dim=True))
+        if limits.get("stale"):
+            updated = limits.get("updated_at")
+            text = self.t("stale_limits")
+            if updated:
+                text = f"{text} · {ago(datetime.now(timezone.utc).timestamp() - updated)}"
+            self.add(row(label(text, colour=level_colour("warn")),
+                         button(self.t("refresh"), lambda _=False: commands.enqueue("refresh", {}))))
 
         for key, name in (("session", "five_hour_session"), ("weekly", "weekly")):
             window = limits.get(key)

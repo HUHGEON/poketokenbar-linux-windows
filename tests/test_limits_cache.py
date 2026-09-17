@@ -190,3 +190,45 @@ def test_no_network_keeps_the_last_good_value():
     clock.advance(61)
     assert src.get().session.utilization == 42.0
     assert src.offline is True
+
+
+# MARK: stale values (upstream ce65fde)
+
+
+def test_limits_are_stale_only_while_serving_a_value_that_failed_to_refresh():
+    clock = FakeClock()
+    calls = {"n": 0}
+
+    def fetch():
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return _status()
+        raise limits.LimitsError("HTTP 500")
+
+    source = LimitsSource(fetch=fetch, clock=clock, ttl=10, wall_clock=lambda: 1_789_000_000.0)
+    assert not source.stale, "nothing fetched yet is not stale, just absent"
+    source.get()
+    assert not source.stale and source.updated_at == 1_789_000_000.0
+
+    clock.now += 11
+    assert source.get() is not None
+    assert source.stale
+    assert source.updated_at == 1_789_000_000.0, "the time of the last good fetch stays"
+
+
+def test_nothing_is_stale_when_there_was_never_a_value():
+    def fetch():
+        raise limits.LimitsError("HTTP 500")
+
+    source = LimitsSource(fetch=fetch, clock=FakeClock())
+    source.get()
+    assert source.get() is None and not source.stale
+
+
+def test_the_payload_says_when_limits_are_stale():
+    from poketokenbar import state
+
+    payload = state.build({}, {}, [], limit_status=_status(),
+                          limits_freshness={"stale": True, "updated_at": 5.0})
+    assert payload["limits"]["stale"] is True
+    assert payload["limits"]["updated_at"] == 5.0
