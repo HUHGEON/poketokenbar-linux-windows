@@ -84,6 +84,29 @@ def test_a_species_seen_twice_collapses_to_one_entry(tmp_path):
     assert [r["species_id"] for r in s.dex_payload()] == [41, 42]
 
 
+def test_only_the_current_form_is_marked_raising(tmp_path):
+    # Ports upstream 79ba760: an outgrown form is still owned, but badging it
+    # read as raising two Pokemon at once.
+    s = _store(tmp_path, forms=3)
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD}, today="2026-08-19")
+    apply_usage(s.state, balance.phase_threshold(Rarity.COMMON, 3, 0))
+    rows = s.dex_payload()
+    assert [r["species_id"] for r in rows] == [1, 2]
+    assert [r["is_raising"] for r in rows] == [False, True]
+
+
+def test_a_graduated_line_raised_again_badges_its_current_form(tmp_path):
+    # The badge means "the one you are raising", not "not yet permanent", so a
+    # graduation record for the same species does not hide it.
+    s = _store(tmp_path, forms=3)
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD}, today="2026-08-19")
+    apply_usage(s.state, balance.phase_threshold(Rarity.COMMON, 3, 0))
+    s.state.dex = [
+        DexEntry(base_id=1, final_id=3, chain_order=[1, 2, 3], rarity=Rarity.COMMON)
+    ]
+    assert [r["is_raising"] for r in s.dex_payload()] == [False, True, False]
+
+
 def test_graduated_species_is_not_marked_raising(tmp_path):
     s = _store(tmp_path)
     s.state.dex = [

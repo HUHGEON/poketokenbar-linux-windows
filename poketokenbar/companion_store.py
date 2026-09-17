@@ -561,9 +561,10 @@ class CompanionStore:
         planned path is never used: it contains stages not yet evolved into,
         which would list species that have never been owned.
 
-        A species backed only by the current companion is flagged is_raising —
-        buying an egg discards that companion and the entry disappears, so it
-        is not yet permanent.
+        is_raising marks the one form the companion is right now, as upstream
+        does since 79ba760. It used to mark every reached form without a
+        graduation record, which put the badge on forms already outgrown and
+        read as raising two Pokemon at once.
         """
         acc: dict[int, dict] = {}
 
@@ -571,18 +572,17 @@ class CompanionStore:
             for species_id in entry.chain_order:
                 slot = acc.setdefault(
                     species_id,
-                    {"rarity": str(entry.rarity), "is_shiny": False, "graduated": False},
+                    {"rarity": str(entry.rarity), "is_shiny": False},
                 )
                 if entry.is_shiny:
                     slot["is_shiny"] = True
-                slot["graduated"] = True
 
         mon = self.state.active
         if mon is not None:
             for species_id in mon.path_ids[: mon.stage_index + 1]:
                 slot = acc.setdefault(
                     species_id,
-                    {"rarity": str(mon.rarity), "is_shiny": False, "graduated": False},
+                    {"rarity": str(mon.rarity), "is_shiny": False},
                 )
                 if mon.is_shiny:
                     slot["is_shiny"] = True
@@ -592,6 +592,7 @@ class CompanionStore:
         # why, or which of these cells to tap to give it back.
         self.state.reconcile_representative()
         pinned = self.state.representative_species_id
+        raising = mon.current_id if mon is not None else None
 
         out = []
         for species_id in sorted(acc):
@@ -609,7 +610,7 @@ class CompanionStore:
                     "name": self.species_name(species_id, self.state.language),
                     "rarity": slot["rarity"],
                     "is_shiny": slot["is_shiny"],
-                    "is_raising": not slot["graduated"],
+                    "is_raising": species_id == raising,
                     "is_pinned": species_id == pinned,
                     "sprite_path": sprite,
                 }
