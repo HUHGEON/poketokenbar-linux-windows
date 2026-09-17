@@ -38,6 +38,7 @@ class CompanionStore:
     ) -> None:
         self.save_path = save_path
         self.state: CompanionState = save.load(save_path)
+        self.migrate_profiles()
         self.api = api
         self.sprites = sprite_store
         self.rng = rng or random.Random()
@@ -45,6 +46,24 @@ class CompanionStore:
         # notification fires immediately but the banner needs a render pass.
         self.celebration: dict | None = None
         self.last_events: companion.GrowthEvents | None = None
+
+    def migrate_profiles(self) -> None:
+        """Give an older save's Pokémon their profiles, once.
+
+        Called on load and after an import replaces the state. The first time
+        a save on disk changes shape, the file as it was is copied beside it,
+        and that copy is never overwritten.
+        """
+        if not companion.migrate_profiles(self.state):
+            return
+        path = self.save_path or save.default_path()
+        backup = path.with_name(path.stem + ".pre-profiles-v1" + path.suffix)
+        try:
+            if path.is_file() and not backup.exists():
+                backup.write_bytes(path.read_bytes())
+        except OSError:
+            pass  # a failed backup must not stop the save from loading
+        self._persist()
 
     # --- usage -------------------------------------------------------------
 

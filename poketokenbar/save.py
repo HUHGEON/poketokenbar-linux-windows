@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 
-from . import balance, platform_paths
+from . import balance, platform_paths, profile as profiles
 
 from .balance import Rarity
 from .companion import CompanionState, DexEntry, MonState
@@ -48,6 +48,62 @@ def _optional_rarity(value) -> Rarity | None:
 def _lenient(raw: dict, key: str, kind, default):
     value = raw.get(key, default)
     return value if isinstance(value, kind) else default
+
+
+def _int(value) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _decode_profile(raw) -> profiles.PokemonProfile | None:
+    """A profile, or None when it is damaged beyond clamping.
+
+    None costs nothing: migrate_profiles gives the Pokémon a new one, and the
+    Pokémon itself is kept either way.
+    """
+    if not isinstance(raw, dict):
+        return None
+    seed = _int(raw.get("seed"))
+    ivs = raw.get("ivs")
+    if seed is None or not isinstance(ivs, dict):
+        return None
+    if not all(_int(ivs.get(stat)) is not None for stat in profiles.STAT_ORDER):
+        return None
+    moves = []
+    for move in raw.get("moves") or []:
+        if isinstance(move, dict) and isinstance(move.get("name"), str):
+            moves.append(profiles.KnownMove(move["name"], _int(move.get("learned_at_level")) or 0))
+    ability_name = raw.get("ability_name")
+    profile = profiles.PokemonProfile(
+        instance_id=raw.get("instance_id") if isinstance(raw.get("instance_id"), str) else "",
+        seed=seed & ((1 << 64) - 1),
+        ivs={stat: ivs[stat] for stat in profiles.STAT_ORDER},
+        gender=raw.get("gender") if isinstance(raw.get("gender"), str) else None,
+        ability_slot=_int(raw.get("ability_slot")),
+        ability_name=ability_name if isinstance(ability_name, str) else None,
+        ability_is_hidden=_lenient(raw, "ability_is_hidden", bool, False),
+        level=_int(raw.get("level")) or profiles.HATCH_LEVEL,
+        growth_tokens=_int(raw.get("growth_tokens")) or 0,
+        moves=moves,
+    )
+    profiles.sanitize(profile)
+    return profile
+
+
+def _encode_profile(p: profiles.PokemonProfile | None):
+    if p is None:
+        return None
+    return {
+        "instance_id": p.instance_id,
+        "seed": p.seed,
+        "ivs": dict(p.ivs),
+        "gender": p.gender,
+        "ability_slot": p.ability_slot,
+        "ability_name": p.ability_name,
+        "ability_is_hidden": p.ability_is_hidden,
+        "level": p.level,
+        "growth_tokens": p.growth_tokens,
+        "moves": [{"name": m.name, "learned_at_level": m.learned_at_level} for m in p.moves],
+    }
 
 
 def _decode_mon(raw) -> MonState | None:
@@ -84,6 +140,7 @@ def _decode_mon(raw) -> MonState | None:
         ditto_revealed=_lenient(raw, "ditto_revealed", bool, False),
         hatched_at=raw.get("hatched_at") if isinstance(raw.get("hatched_at"), (int, float)) else None,
         has_growth_boost=_lenient(raw, "has_growth_boost", bool, False),
+        profile=_decode_profile(raw.get("profile")),
     )
 
 
@@ -111,6 +168,7 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         released_at=raw.get("released_at")
         if isinstance(raw.get("released_at"), (int, float))
         else None,
+        profile=_decode_profile(raw.get("profile")),
     )
 
 
@@ -179,6 +237,7 @@ def encode(state: CompanionState) -> dict:
             "ditto_revealed": m.ditto_revealed,
             "hatched_at": m.hatched_at,
             "has_growth_boost": m.has_growth_boost,
+            "profile": _encode_profile(m.profile),
         }
 
     return {
@@ -203,6 +262,7 @@ def encode(state: CompanionState) -> dict:
                 "caught_at": d.caught_at,
                 "raised_seconds": d.raised_seconds,
                 "released_at": d.released_at,
+                "profile": _encode_profile(d.profile),
             }
             for d in state.dex
         ],

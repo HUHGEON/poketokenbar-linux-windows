@@ -117,6 +117,8 @@ class Daemon:
             store.state = transfer.restore_backup(self._save_path())
             message = "save_restored"
 
+        # A save exported before profiles existed gets its individuals now.
+        store.migrate_profiles()
         # The replaced save's pending announcements belong to progress that is
         # no longer there; firing them after the swap would narrate a hatch the
         # incoming save never had.

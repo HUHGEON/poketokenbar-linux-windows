@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from . import balance
+from . import balance, profile as profiles
 from .balance import Rarity
 
 
@@ -45,6 +45,9 @@ class MonState:
     # Fixed at hatch: this line had graduated before, so it grows
     # REPEAT_GROWTH_MULTIPLIER times faster. False on saves from before it.
     has_growth_boost: bool = False
+    # IVs, gender, ability, level and moves. None only on a save from before
+    # profiles, until migrate_profiles gives it one.
+    profile: profiles.PokemonProfile | None = None
 
     @property
     def growth_multiplier(self) -> int:
@@ -94,6 +97,8 @@ class DexEntry:
     # graduated. None is a graduation, which is also what every entry written
     # before this field reads as, so old saves need no migration.
     released_at: float | None = None
+    # The individual as it was when it graduated or was released.
+    profile: profiles.PokemonProfile | None = None
 
     @property
     def is_released(self) -> bool:
@@ -312,6 +317,8 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
         ditto_disguise=line.base_id if roll_ditto(rng, line) else None,
         has_growth_boost=state.has_collected_final(line.base_id),
+        # Drawn last, so every roll above sees the same sequence it always has.
+        profile=profiles.generate(rng.getrandbits(64)),
     )
     state.active = mon
     # The guarantee is consumed by the hatch it paid for.
@@ -352,9 +359,68 @@ def release(state: CompanionState, mon: MonState, now: float | None = None) -> D
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
         released_at=now,
+        profile=mon.profile,
     )
     state.dex.append(entry)
     return entry
+
+
+def reconcile_profile_growth(state: CompanionState) -> None:
+    """Bring the active profile's growth up to the progress it represents.
+
+    Ports upstream's reconcileActiveProfileGrowth. Completed stages count at
+    their default-balance size; the current stage counts its earned fraction
+    of the default size, whatever difficulty and boost made that fraction
+    cost. So the same progress is the same level at every setting, and
+    advance_growth's high-water mark keeps a level already reached.
+    """
+    mon = state.active
+    if mon is None or mon.profile is None:
+        return
+    completed = profiles.reconstructed_growth_tokens(
+        mon.rarity, mon.total_forms, mon.stage_index, 0)
+    standard = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+    fraction = min(1.0, max(0.0, mon.used_at_stage / max(1, state.stage_threshold(mon))))
+    candidate = min(balance.graduation_total(mon.rarity), completed + int(standard * fraction))
+    profiles.advance_growth(mon.profile, candidate, mon.rarity)
+
+
+def migrate_profiles(state: CompanionState) -> bool:
+    """Give every companion and dex entry from an older save a profile.
+
+    Ports upstream's migratePokemonProfilesIfNeeded. No network: gender,
+    ability and moves are filled later by enrichment. Seeds come from
+    upstream's FNV-1a key for the active companion, and from a key built of
+    the entry's own fields for the dex (upstream keys that on a random entry
+    id the fork does not have), so migrating the same save twice, or on two
+    machines, gives the same individuals. Returns whether anything changed.
+    """
+    changed = False
+    mon = state.active
+    if mon is not None and mon.profile is None:
+        reached = ",".join(str(i) for i in mon.path_ids[: mon.stage_index + 1])
+        mon.profile = profiles.generate(
+            profiles.migration_seed(f"active:{mon.base_id}:{reached}:{state.last_date}"))
+        changed = True
+    for index, entry in enumerate(state.dex):
+        if entry.profile is not None:
+            continue
+        if entry.is_released:
+            # Only the reached chain was kept, so its length stands in for the
+            # planned form count: an upper bound when released early.
+            forms = max(1, len(entry.chain_order))
+            growth = profiles.reconstructed_growth_tokens(entry.rarity, forms, forms - 1, 0)
+        else:
+            growth = balance.graduation_total(entry.rarity)
+        caught = "" if entry.caught_at is None else repr(entry.caught_at)
+        entry.profile = profiles.generate(
+            profiles.migration_seed(f"dex:{index}:{entry.base_id}:{entry.final_id}:{caught}"),
+            growth_tokens=growth,
+        )
+        profiles.apply_growth(entry.profile, 0, entry.rarity)
+        changed = True
+    reconcile_profile_growth(state)
+    return changed
 
 
 def set_growth_difficulty(state: CompanionState, value) -> bool:
@@ -392,6 +458,9 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
     import time as _time
 
     now = _time.time() if now is None else now
+    if mon.profile is not None:
+        # A graduate has earned the whole line: level 100 at every difficulty.
+        profiles.advance_growth(mon.profile, balance.graduation_total(mon.rarity), mon.rarity)
     entry = DexEntry(
         base_id=mon.base_id,
         final_id=mon.current_id,
@@ -401,6 +470,7 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
         nature=mon.nature,
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
+        profile=mon.profile,
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}-{mon.current_id}")
@@ -454,6 +524,7 @@ def apply_usage(
     # --- growth ---
     mon = state.active
     mon.used_at_stage += tokens
+    reconcile_profile_growth(state)
     while True:
         threshold = state.stage_threshold(mon)
         if mon.used_at_stage < threshold:
@@ -469,6 +540,10 @@ def apply_usage(
         if mon.ditto_disguise is not None and not mon.ditto_revealed:
             mon.ditto_revealed = True
             events.ditto_revealed = True
+            if mon.profile is not None:
+                # Same individual, new species: keep the IVs, reroll the rest
+                # once Ditto's details are known.
+                profiles.rebase_for_species_identity(mon.profile, mon.rarity, mon.rarity)
         # The pin does not move. It names a species the user chose, and growth
         # is not a reason to overrule that choice — an evolution included.
         #
@@ -479,4 +554,5 @@ def apply_usage(
         # species and offers to release it now, so the panel disagreeing with
         # the companion reads as the choice it is.
 
+    reconcile_profile_growth(state)
     return events
