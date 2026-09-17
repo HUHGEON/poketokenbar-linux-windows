@@ -86,14 +86,29 @@ class CompanionStore:
             return
 
         line = self._line_for_egg() if self.state.active is None else None
-        self.last_events = companion.apply_usage(
+        events = companion.apply_usage(
             self.state, delta, line_for_egg=line, rng=self.rng
         )
-        self._note_celebration(self.last_events)
+        self._record_events(events)
+        self._note_celebration(events)
         self._persist()
 
-    def _note_celebration(self, events) -> None:
+    def _record_events(self, events) -> None:
+        """Queue growth events for the one announcement this poll makes.
+
+        Folded rather than assigned: an item used earlier in the same poll has
+        already left its events here, and overwriting them is how a candy's
+        evolution went unannounced whenever any real usage landed alongside it.
+        """
+        self.last_events = (
+            events if self.last_events is None else self.last_events.merge(events)
+        )
+
+    def _note_celebration(self, events) -> bool:
         """Build the banner the popup shows once, in the user's language.
+
+        Returns whether one was built, so an item use can fall back to
+        announcing itself when nothing hatched, evolved or graduated.
 
         Shares the notification catalogue rather than carrying a second set of
         words: the banner and the toast announce the same event, and two
@@ -102,7 +117,7 @@ class CompanionStore:
         UI that is otherwise fully localized.
         """
         if events is None:
-            return
+            return False
         mon = self.state.active
         language = self.state.language
         name = self.species_name(mon.current_id, language) if mon else ""
@@ -135,6 +150,9 @@ class CompanionStore:
                 "notif_shiny_hatch_title" if shiny else "notif_hatch_title",
                 "notif_shiny_hatch_body" if shiny else "notif_hatch_body",
                 label)
+        else:
+            return False
+        return True
 
     def disguise_name(self) -> str | None:
         """What a Ditto is pretending to be, for the reveal notification.
@@ -185,10 +203,24 @@ class CompanionStore:
                 return names[code]
         return names.get("en", "")
 
+    def _egg_sprite(self) -> str:
+        """The egg's own picture, for every surface that draws the companion.
+
+        There was none: the egg stage rendered an empty box on Home and made
+        the desktop pet disappear altogether between companions, which reads as
+        a UI that has stopped working rather than as an egg warming up.
+        """
+        if self.sprites is None:
+            return ""
+        path = self.sprites.egg_path()
+        return str(path) if path else ""
+
     def sprite_path(self) -> str:
         mon = self.state.active
-        if mon is None or self.sprites is None:
+        if self.sprites is None:
             return ""
+        if mon is None:
+            return self._egg_sprite()
         path = self.sprites.path(mon.current_id, animated=True, shiny=mon.is_shiny)
         return str(path) if path else ""
 
@@ -209,24 +241,39 @@ class CompanionStore:
 
     def panel_sprite_path(self) -> str:
         species_id, shiny = self.panel_species()
-        if species_id is None or self.sprites is None:
+        if self.sprites is None:
             return ""
+        # Nothing pinned and nothing hatched: the panel and the desktop pet
+        # show the egg rather than going blank.
+        if species_id is None:
+            return self._egg_sprite()
         path = self.sprites.path(species_id, animated=True, shiny=shiny)
         return str(path) if path else ""
 
     def set_representative(self, species_id: int | None) -> str:
         """Pin a species to the panel, or clear the pin with None.
 
+        Asking for the species that is already pinned releases it instead. The
+        pin was one-way before: the only thing that sends this is a tap on a
+        Pokedex cell, and a tap that looks like "show me this one" left the
+        panel and the desktop pet frozen on that species through every
+        evolution afterwards, with nothing in the UI to undo it. That is what
+        made an evolution look like it had never happened.
+
         Refuses a species the user does not own rather than storing it and
         letting reconcile silently drop it — the caller gets told why.
         """
+        if species_id is not None and species_id == self.state.representative_species_id:
+            species_id = None
         if species_id is not None and not self.state.owns_species(species_id):
             raise ValueError(f"species {species_id} is not in your Pokedex")
         self.state.representative_species_id = species_id
         self._persist()
+        language = self.state.language
         if species_id is None:
-            return "panel follows your companion again"
-        return f"panel pinned to #{species_id}"
+            return l10n.t("panel_unpinned", language)
+        name = self.species_name(species_id, language) or f"#{species_id}"
+        return l10n.t("panel_pinned", language).replace("%1", name)
 
     def _panel_fields(self) -> dict:
         """Panel and pet sprite, which the pin overrides.
@@ -240,6 +287,13 @@ class CompanionStore:
             "panel_is_shiny": shiny,
             "panel_sprite_path": self.panel_sprite_path(),
             "representative_species_id": self.state.representative_species_id,
+            # Named, not just numbered: the popup has to be able to say which
+            # species is holding the panel, and "#90" explains nothing to
+            # someone wondering why the panel disagrees with Home.
+            "panel_name": (
+                "" if species_id is None
+                else self.species_name(species_id, self.state.language)
+            ),
         }
 
     def _status_message(self, kind: str) -> str:
@@ -278,7 +332,9 @@ class CompanionStore:
                 "egg_usage": self.state.egg_usage,
                 "egg_progress": round(progress, 4),
                 "egg_tier": str(self.state.egg_tier) if self.state.egg_tier else None,
-                "sprite_path": "",
+                # The egg's own picture. This was a hardcoded "", so Home drew
+                # an empty box for the whole egg stage.
+                "sprite_path": self.sprite_path(),
                 "dex_count": len(self.state.dex),
                 "spendable_tokens": self.state.spendable_tokens,
                 "spendable_text": _compact(self.state.spendable_tokens),
@@ -340,16 +396,74 @@ class CompanionStore:
         return granted
 
     def buy(self, key: str) -> str:
-        message = shop.buy(self.state, key)
+        result = shop.buy(self.state, key)
+        # A bought egg discards the companion, so a pin that was following it
+        # names a species nobody owns any more.
+        self.state.reconcile_representative()
         self._persist()
-        return message
+        return self._shop_message(result)
 
     def use_item(self, key: str) -> str:
-        message = shop.use_item(self.state, key, rng=self.rng)
+        result = shop.use_item(self.state, key, rng=self.rng)
         self._persist()
-        return message
+        # An item that evolves or graduates the companion has to announce it
+        # exactly as real usage does. These events used to be discarded here,
+        # so a candy that pushed a Pokemon over the line evolved it in silence:
+        # no toast, no banner, and no level-up mood on the panel — which is
+        # what made the candy look like it had done nothing at all.
+        if result.events is not None:
+            self._record_events(result.events)
+            if self._note_celebration(result.events):
+                return self._shop_message(result)
+        # Nothing grew past a threshold. The use still gets a banner of its
+        # own, because "the count went down and nothing happened" is
+        # indistinguishable from a bug.
+        self.celebration = self._item_banner(result)
+        return self._shop_message(result)
+
+    def _label_for(self, key: str) -> str:
+        """The shop label for one entry key, in the user's language."""
+        if key.startswith("egg"):
+            tier = key.split(":")[1] if ":" in key else None
+            return self._egg_words(tier)[0]
+        return self._item_words(key)[0]
+
+    def _shop_message(self, result: shop.ItemResult) -> str:
+        """The toast for one purchase or item use.
+
+        Resolved here rather than in shop.py: that module stays free of the
+        catalogue, and this is the layer that already knows the language. The
+        message used to be an English literal built in shop.py, which is the
+        one toast a fully-localized UI could still answer a click with in the
+        wrong language.
+        """
+        language = self.state.language
+        if result.nature is not None:
+            return l10n.t("shop_nature_now", language).replace("%1", result.nature)
+        key = "shop_bought" if result.action == "buy" else "shop_used"
+        return l10n.t(key, language).replace("%1", self._label_for(result.key))
+
+    def _item_banner(self, result: shop.ItemResult) -> dict:
+        """The popup banner for an item use that changed no threshold."""
+        language = self.state.language
+        detail = (
+            l10n.t("shop_nature_now", language).replace("%1", result.nature)
+            if result.nature is not None
+            else l10n.t("shop_used_body", language).replace(
+                "%1", self._item_words(result.key)[2])
+        )
+        return {
+            "kind": "item",
+            "title": l10n.t("shop_used", language).replace(
+                "%1", self._label_for(result.key)),
+            "detail": detail,
+        }
 
     def _item_sprite(self, key: str) -> str:
+        # Every egg tier is the same picture; only the guarantee differs, and
+        # that is what the badge beside it says.
+        if key == "egg":
+            return self._egg_sprite()
         name = balance.ITEM_SPRITE.get(key)
         if not name or self.sprites is None:
             return ""
@@ -468,6 +582,12 @@ class CompanionStore:
                 if mon.is_shiny:
                     slot["is_shiny"] = True
 
+        # Which cell is holding the panel. Without this the pin was invisible:
+        # the panel stopped following the companion and nothing anywhere said
+        # why, or which of these cells to tap to give it back.
+        self.state.reconcile_representative()
+        pinned = self.state.representative_species_id
+
         out = []
         for species_id in sorted(acc):
             slot = acc[species_id]
@@ -485,6 +605,7 @@ class CompanionStore:
                     "rarity": slot["rarity"],
                     "is_shiny": slot["is_shiny"],
                     "is_raising": not slot["graduated"],
+                    "is_pinned": species_id == pinned,
                     "sprite_path": sprite,
                 }
             )

@@ -239,3 +239,20 @@ export function ago(seconds, strings) {
 export function badge(text, styleClass = 'poketokenbar-badge') {
     return label(text, styleClass);
 }
+
+/**
+ * Dim and disable a button whose command has been queued.
+ *
+ * The section rebuilds itself from the daemon's answer, so this lasts only
+ * until then — but that window is the one where a click has no visible
+ * effect, which reads as the click having been lost, and a second press in
+ * it queues the command twice. `sent` is what Commands.enqueue returned: a
+ * false means the file never landed, and the button must stay live.
+ */
+export function markSent(widget, sent) {
+    if (!sent)
+        return;
+    widget.reactive = false;
+    widget.can_focus = false;
+    widget.opacity = 120;
+}

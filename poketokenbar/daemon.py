@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from . import commands, config, platform_paths, save, state, transfer
+from . import commands, config, l10n, platform_paths, save, state, transfer
 from .companion_store import CompanionStore
 from .burn import BurnTracker
 from .notify import Notifier
@@ -16,6 +16,16 @@ from .pokeapi import PokeAPI
 from .sprites import SpriteStore
 from .cache import ScanCache
 from .models import DailyUsage
+
+# How long a queued command waits before the daemon notices it. One glob of a
+# near-empty directory, so checking often costs nothing; sleeping two seconds
+# between checks was most of what made a click feel ignored.
+COMMAND_POLL_SECONDS = 0.25
+
+# Commands whose effect is not right until the logs have been read again: a
+# refresh is a request for fresh numbers, and a config change can add scan
+# folders. Everything else changes the save, not the logs.
+RESCAN_COMMANDS = frozenset({"refresh", "reload_config"})
 
 
 class Daemon:
@@ -40,6 +50,14 @@ class Daemon:
         self.status_checker = status_checker
         self.spool: Path | None = None
         self.config_values = config.load(config_path)
+        # What the last full poll found, so a command can be answered from it
+        # without reading the logs again: per-provider daily usage, the
+        # week/month periods, and the errors that scan produced.
+        self._last_scan: tuple[dict, dict, list[str]] | None = None
+        self._limit_status = None
+        self._status_payload: dict | None = None
+        self._status_error: str = ""
+        self._last_full_poll_at: float = 0.0
 
     def custom_scan_roots(self, provider_id: str) -> str | None:
         """This provider's extra scan folders, as configured right now."""
@@ -134,9 +152,40 @@ class Daemon:
         return described
 
     def poll_once(self) -> dict:
+        """One scheduled poll: act on queued commands, read the logs, publish."""
         errors: list[str] = []
+        self._handle_commands(errors)
+        return self._full_poll(errors)
+
+    def react(self) -> dict | None:
+        """Act on queued commands now, ahead of the next scheduled poll.
+
+        A buy, a use or a pin changes the save, not the logs. Answering it
+        used to mean the whole poll — a couple of seconds of Claude history
+        on a large machine, plus whatever the network cost that time — so
+        the popup sat unchanged long enough to look like the click was lost.
+        Here the answer is a rebuild of the last snapshot with the new save,
+        written at once; only a refresh or a config change reads the logs.
+        """
+        errors: list[str] = []
+        handled = self._handle_commands(errors)
+        if not handled:
+            return None
+        if "refresh" in handled or self._last_scan is None:
+            return self._full_poll(errors)
+        payload = self._publish(errors, fresh_limits=False)
+        if handled & RESCAN_COMMANDS:
+            # Published once already so the settings change lands at once;
+            # the rescan is for anything the change did to the scan folders.
+            payload = self._full_poll(list(errors))
+        return payload
+
+    def _handle_commands(self, errors: list[str]) -> set[str]:
+        """Drain the spool. Returns the names of the commands acted on."""
+        handled: set[str] = set()
         for command in commands.drain(spool=self.spool):
             name = command.get("name")
+            handled.add(str(name))
             if name == "refresh":
                 # Manual refresh: drop cached limits so the next fetch is live.
                 if self.limits_source is not None:
@@ -168,13 +217,17 @@ class Daemon:
                         self.notifier._send("PokeTokenBar", message)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
+        return handled
 
+    def _full_poll(self, errors: list[str]) -> dict:
+        """Read the logs, refresh limits and status, then publish."""
+        scan_errors: list[str] = []
         daily_by_provider: dict[str, DailyUsage] = {}
         for provider in self.providers:
             try:
                 daily = provider.fetch_daily()
             except Exception as exc:  # per-provider isolation
-                errors.append(f"{provider.id}: {exc}")
+                scan_errors.append(f"{provider.id}: {exc}")
                 continue
             if daily is not None:
                 daily_by_provider[provider.id] = daily
@@ -187,14 +240,16 @@ class Daemon:
             try:
                 result = fetch_periods()
             except Exception as exc:
-                errors.append(f"{provider.id} periods: {exc}")
+                scan_errors.append(f"{provider.id} periods: {exc}")
                 continue
             for key in ("week", "month"):
                 bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0})
                 bucket["tokens"] += result[key]["tokens"]
                 bucket["cost"] += result[key]["cost"]
+        self._last_scan = (daily_by_provider, periods, scan_errors)
+        self._last_full_poll_at = time.monotonic()
 
-        limit_status = None
+        self._limit_status = None
         if self.limits_source is not None:
             # Best effort: limits failing hides that section but must never
             # affect the token counts, which come from local logs.
@@ -209,8 +264,47 @@ class Daemon:
                     self.limits_source.invalidate()
                     limit_status = self.limits_source.get()
                 self._account_uuid = uuid
-            if self.limits_source.last_error:
-                errors.append(f"limits: {self.limits_source.last_error}")
+            self._limit_status = limit_status
+
+        self._status_payload = None
+        self._status_error = ""
+        if self.status_checker is not None and self.config_values.get(
+            "status_checks_enabled", True
+        ):
+            try:
+                self._status_payload = self.status_checker.get()
+            except Exception as exc:
+                self._status_error = f"status: {exc}"
+
+        return self._publish(errors, fresh_limits=True)
+
+    def _limits_error(self, language: str) -> str:
+        source = self.limits_source
+        if source is None or not source.last_error:
+            return ""
+        if getattr(source, "offline", False):
+            # The socket library's wording ("Name or service not known") is
+            # what used to land in the footer, right after every login,
+            # while the network was still coming up.
+            return l10n.t("limits_offline", language)
+        return f"limits: {source.last_error}"
+
+    def _publish(self, command_errors: list[str], *, fresh_limits: bool) -> dict:
+        """Build state.json from the last scan and the save as it is now.
+
+        `fresh_limits` says the limits were just fetched, so candy, the burn
+        history and the threshold notifications may act on them. A publish
+        that only re-reads the save must not: it would record the same
+        utilization sample twice and hand out candy for progress it has
+        already paid for.
+        """
+        daily_by_provider, periods, scan_errors = self._last_scan or ({}, {}, [])
+        errors = list(command_errors) + list(scan_errors)
+        language = str(self.config_values.get("language", "en"))
+        limit_status = self._limit_status
+        limits_error = self._limits_error(language)
+        if limits_error:
+            errors.append(limits_error)
 
         companion_payload = None
         if self.companion_store is not None:
@@ -218,7 +312,6 @@ class Daemon:
                 # One language, not two. The catalogue reads config while the
                 # companion reads the save, so they must be kept in step or the
                 # popup renders half-translated.
-                language = str(self.config_values.get("language", "en"))
                 self.companion_store.state.language = language
                 self.companion_store.update(
                     {pid: d.total_tokens for pid, d in daily_by_provider.items()}
@@ -232,7 +325,7 @@ class Daemon:
                     today_tokens=today_total, limit_warning=limit_warning
                 )
                 # Candy and notifications ride on fresh limits.
-                if limit_status is not None:
+                if fresh_limits and limit_status is not None:
                     windows = {}
                     if limit_status.session is not None:
                         windows["session"] = limit_status.session.utilization
@@ -261,19 +354,18 @@ class Daemon:
                         shiny=bool(companion_payload.get("is_shiny")),
                         disguise=self.companion_store.disguise_name(),
                     )
-                    self.companion_store.last_events = None
+                # Cleared whether or not it was announced. These events are
+                # also what puts the companion in its level-up mood for exactly
+                # one poll, and with companion notifications switched off
+                # nothing else ever cleared them — the mood stuck until the
+                # next thing grew.
+                self.companion_store.last_events = None
             except Exception as exc:
                 # The companion is cosmetic; never let it break the numbers.
                 errors.append(f"companion: {exc}")
 
-        status_payload = None
-        if self.status_checker is not None and self.config_values.get(
-            "status_checks_enabled", True
-        ):
-            try:
-                status_payload = self.status_checker.get()
-            except Exception as exc:
-                errors.append(f"status: {exc}")
+        if self._status_error:
+            errors.append(self._status_error)
 
         payload = state.build(
             daily_by_provider,
@@ -289,7 +381,7 @@ class Daemon:
             catch_counts=self.companion_store.catch_rarity_counts() if self.companion_store else None,
             periods=periods,
             burn=self.burn.payload() if self.burn is not None else None,
-            provider_status=status_payload,
+            provider_status=self._status_payload,
             celebration=self.companion_store.celebration if self.companion_store else None,
             settings=self.settings_payload(),
             transfer=self.transfer_payload(),
@@ -304,15 +396,17 @@ class Daemon:
     def run(self) -> None:
         while True:
             self.poll_once()
-            interval = int(self.config_values.get("refresh_interval", 120))
-            # Sleep in short slices so a queued command is picked up promptly
-            # without re-scanning the logs every second.
-            waited = 0
-            while waited < interval:
-                time.sleep(min(2, interval - waited))
-                waited += 2
-                if self._has_commands():
+            # Between polls, watch the spool and answer commands as they land.
+            # The deadline is measured from the last full poll rather than
+            # from here, so a refresh command (which is a full poll) restarts
+            # the interval instead of being followed by a second scan.
+            while True:
+                interval = int(self.config_values.get("refresh_interval", 120))
+                if time.monotonic() - self._last_full_poll_at >= interval:
                     break
+                time.sleep(COMMAND_POLL_SECONDS)
+                if self._has_commands():
+                    self.react()
 
     def _has_commands(self) -> bool:
         spool = self.spool or commands.spool_dir()

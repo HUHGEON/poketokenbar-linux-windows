@@ -434,7 +434,7 @@ class SettingsPanel(Panel):
     )
     CHOICES = (
         ("limit_display_mode", "Limits shown", ("both", "session", "weekly")),
-        ("animation_quality", "Animation", ("saver", "balanced", "smooth")),
+        ("animation_quality", "Animation", ("off", "saver", "balanced", "smooth")),
         ("language", "Language", tuple(l10n.LANGUAGES)),
     )
 

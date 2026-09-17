@@ -7,6 +7,8 @@ files and it does the rest.
 
 from __future__ import annotations
 
+import math
+
 from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QMovie, QPixmap
 from PySide6.QtWidgets import (
@@ -37,8 +39,17 @@ def level_colour(level: str | None) -> str:
 FRAME_FLOORS = {"saver": 0.4, "balanced": 0.2, "smooth": 0.1}
 DEFAULT_QUALITY = "saver"
 
+# Animation switched off entirely. Deliberately not a fourth entry in the table
+# above: those are frame rates, and this is the absence of one. An infinite
+# floor says exactly that — `decimate` collapses a loop into its first frame,
+# and a one-frame schedule starts no timer, so a still sprite costs no redraws.
+# Mirrors ANIMATION_OFF in the GNOME front end's framecap.js.
+ANIMATION_OFF = "off"
+
 
 def frame_floor(quality: str | None) -> float:
+    if quality == ANIMATION_OFF:
+        return math.inf
     return FRAME_FLOORS.get(quality or "", FRAME_FLOORS[DEFAULT_QUALITY])
 
 
@@ -189,7 +200,11 @@ class Sprite(QLabel):
             return
         index, hold = self._schedule[self._step]
         self._movie.jumpToFrame(index)
-        self._timer.start(max(20, round(hold * 1000)))
+        # One frame is a still sprite — with animation off, or a single-frame
+        # file. Timing it would wake the process once a loop to redraw the
+        # picture it is already showing.
+        if len(self._schedule) > 1:
+            self._timer.start(max(20, round(hold * 1000)))
 
     def _advance(self) -> None:
         if not self._schedule:

@@ -11,6 +11,7 @@ before the daemon has ever written a file, and a front end that raises on
 `None` is one that never gets as far as showing anything.
 """
 
+import math
 import os
 import sys
 
@@ -450,7 +451,6 @@ def test_no_quality_preset_disables_the_cap(qt_app):
 def test_the_two_front_ends_agree_on_the_presets():
     """A frame costs a redraw wherever it is drawn, and both front ends offer
     the same three names — they must mean the same rates."""
-    import json
     import re
     from pathlib import Path
 
@@ -466,6 +466,69 @@ def test_the_two_front_ends_agree_on_the_presets():
         for name, value in re.findall(r"(\w+):\s*([\d.]+)", block)
     )
     assert js == FRAME_FLOORS
+
+
+def test_the_two_front_ends_agree_on_the_name_for_off():
+    """Both read the same `animation_quality` out of the same config file, so a
+    front end spelling it differently would silently animate anyway."""
+    import re
+    from pathlib import Path
+
+    from poketokenbar.ui.widgets import ANIMATION_OFF
+
+    source = (
+        Path(__file__).resolve().parent.parent
+        / "gnome-extension" / "poketokenbar@huhgeon.github.io" / "lib" / "framecap.js"
+    ).read_text(encoding="utf-8")
+    js = re.search(r"ANIMATION_OFF = '([^']+)'", source).group(1)
+    assert js == ANIMATION_OFF
+
+
+def test_switching_animation_off_collapses_a_loop_into_one_frame():
+    """One frame is what makes it free: `_show_step` only arms the timer when
+    the schedule has more than one, so a still sprite costs no redraws."""
+    from poketokenbar.ui.widgets import ANIMATION_OFF, decimate, frame_floor
+
+    schedule = decimate([0.05] * 4, frame_floor(ANIMATION_OFF))
+    assert len(schedule) == 1
+    index, hold = schedule[0]
+    assert index == 0, "the still is the frame the sprite opens on"
+    assert abs(hold - 0.2) < 1e-9, "one loop still lasts as long as the source"
+
+
+def test_off_is_not_one_of_the_presets():
+    """It is the absence of a frame rate, not a slower one. Folding it into the
+    table would quietly break "the default is the cheapest preset"."""
+    from poketokenbar.ui.widgets import ANIMATION_OFF, FRAME_FLOORS, frame_floor
+
+    assert ANIMATION_OFF not in FRAME_FLOORS
+    assert frame_floor(ANIMATION_OFF) == math.inf
+
+
+def test_a_still_sprite_arms_no_timer(qt_app):
+    """The whole point of the setting: not the movement it hides but the
+    redraws it stops."""
+    from poketokenbar.ui.widgets import ANIMATION_OFF, Sprite
+
+    sprite = Sprite(size=48)
+    sprite._schedule = [(0, 2.5)]
+    sprite._step = 0
+    sprite._quality = ANIMATION_OFF
+    sprite._movie = _StubMovie()
+
+    sprite._show_step()
+
+    assert not sprite._timer.isActive()
+
+
+class _StubMovie:
+    """Just enough QMovie for `_show_step`; the real one needs a decoded file."""
+
+    def __init__(self):
+        self.jumped = []
+
+    def jumpToFrame(self, index):
+        self.jumped.append(index)
 
 
 # MARK: save transfer

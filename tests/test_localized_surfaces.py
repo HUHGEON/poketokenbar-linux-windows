@@ -225,3 +225,51 @@ def test_the_companion_display_states_all_have_a_line():
     subject = store()
     for kind in companion.STATUS_MESSAGE:
         assert not subject._status_message(kind).startswith("status_"), kind
+
+
+# MARK: the toast a shop action answers with
+
+
+def _with_candy(language="ko"):
+    subject = store(language=language, active=raising())
+    subject.state.inventory["rareCandy"] = 1
+    subject.state.used_since_install = balance.RARE_CANDY_PRICE
+    return subject
+
+
+def test_using_an_item_answers_in_the_chosen_language():
+    """shop.py built "used Rare Candy" as an English literal, which made it the
+    one toast a fully-localized UI could still answer a click with in English."""
+    subject = _with_candy()
+    assert subject.use_item("rareCandy") == l10n.t("shop_used", "ko").replace(
+        "%1", l10n.t("item_rare_candy", "ko"))
+
+
+def test_buying_answers_in_the_chosen_language():
+    subject = _with_candy()
+    assert subject.buy("rareCandy") == l10n.t("shop_bought", "ko").replace(
+        "%1", l10n.t("item_rare_candy", "ko"))
+
+
+def test_buying_an_egg_names_the_tier_it_guarantees():
+    subject = store(language="ko")
+    subject.state.used_since_install = balance.egg_price(balance.Rarity.RARE)
+    assert l10n.t("egg_rare", "ko") in subject.buy(f"egg:{balance.Rarity.RARE}")
+
+
+def test_a_mint_reports_the_nature_it_rolled():
+    subject = store(language="ko", active=raising())
+    subject.state.inventory["mint"] = 1
+    message = subject.use_item("mint")
+    assert message == l10n.t("shop_nature_now", "ko").replace(
+        "%1", subject.state.active.nature)
+
+
+def test_an_item_that_crosses_no_threshold_still_gets_a_banner():
+    """"The count went down and nothing happened" is indistinguishable from a
+    bug, so the use announces itself even when nothing grew past a stage."""
+    subject = _with_candy()
+    subject.use_item("rareCandy")
+    assert subject.celebration["kind"] == "item"
+    assert l10n.t("item_rare_candy", "ko") in subject.celebration["title"]
+    assert subject.celebration["detail"]

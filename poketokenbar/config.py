@@ -33,9 +33,10 @@ DEFAULTS: dict[str, object] = {
     "floating_pet_y": 80,
     "floating_pet_bubble_alerts": True,
     "language": "en",
-    # How smoothly the panel sprite and the desktop pet animate: "saver",
-    # "balanced" or "smooth". A frame costs a recomposite, so this is a real
-    # power setting, and the default matches upstream's.
+    # How smoothly the panel sprite and the desktop pet animate: "off",
+    # "saver", "balanced" or "smooth". A frame costs a recomposite, so this is
+    # a real power setting, and the default matches upstream's. "off" holds the
+    # sprite on its first frame and schedules no frames at all.
     "animation_quality": "saver",
     # Extra scan folders, one raw string per provider id (comma/newline
     # separated). A dict rather than one field per provider: the readers are

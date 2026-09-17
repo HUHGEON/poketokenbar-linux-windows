@@ -192,7 +192,7 @@ def test_a_non_integer_pin_in_a_save_is_ignored():
     assert save.decode({"representative_species_id": "3"}).representative_species_id is None
 
 
-# MARK: a pin that grows with what it names
+# MARK: a pin stays where it was put
 
 
 def evolve(state):
@@ -204,25 +204,27 @@ def evolve(state):
     return companion.apply_usage(state, threshold - mon.used_at_stage)
 
 
-def test_a_pin_on_the_current_form_follows_the_evolution():
-    """The ordinary reason to pin is "show me what I am raising, as it is now".
+def test_an_evolution_does_not_move_the_pin():
+    """The pin names a species the user chose, and growth is not a reason to
+    overrule that choice.
 
-    Leaving the panel on the outgrown form made the evolution look like it had
-    not happened at all — the notification arrived and the picture did not move.
+    A pin on the form being outgrown used to be dragged along with the
+    evolution, on the grounds that a panel left on the old form made the
+    evolution look like it had not happened. What made it look that way was
+    that nothing said the panel was pinned at all — Home names the pinned
+    species and offers to release it now.
     """
     state = CompanionState(active=raising(path=(4, 5, 6), stage=0))
     state.representative_species_id = 4
 
     events = evolve(state)
 
-    assert events.evolved_to == 5
-    assert state.representative_species_id == 5
-    assert store(state).panel_species() == (5, False)
+    assert events.evolved_to == 5, "the companion still evolves"
+    assert state.representative_species_id == 4
+    assert store(state).panel_species() == (4, False)
 
 
 def test_a_pin_on_another_form_is_left_alone():
-    """A pin on anything else names a species someone chose over the companion,
-    and the companion growing is no reason to overrule it."""
     state = CompanionState(dex=[graduated(chain=(1, 2, 3))], active=raising(stage=0))
     state.representative_species_id = 2
 
@@ -232,9 +234,9 @@ def test_a_pin_on_another_form_is_left_alone():
     assert state.representative_species_id == 2
 
 
-def test_a_pin_follows_every_stage_of_a_run():
-    """Overflow can carry a companion through more than one stage at a time; the
-    pin has to arrive where the companion does, not one form behind it."""
+def test_a_run_through_several_stages_does_not_move_the_pin():
+    """Overflow can carry a companion through more than one stage at a time.
+    None of them is a reason to repoint the panel."""
     from poketokenbar import balance, companion
 
     state = CompanionState(active=raising(path=(4, 5, 6), stage=0))
@@ -246,25 +248,24 @@ def test_a_pin_follows_every_stage_of_a_run():
     events = companion.apply_usage(state, two_stages)
 
     assert events.evolved_to == 6
-    assert state.representative_species_id == state.active.current_id == 6
+    assert state.active.current_id == 6
+    assert state.representative_species_id == 4
 
 
-def test_a_pinned_ditto_lands_on_ditto_not_on_the_form_it_faked():
-    """A Ditto's first evolution is a reveal, so the form it was pretending to
-    grow into is one nobody owns. Pinning that would put a species on the panel
-    that is not in anyone's Pokedex."""
-    from poketokenbar import balance
-
+def test_a_ditto_reveal_does_not_move_the_pin_either():
+    """The reveal replaces an evolution, and it is still growth. What the pin
+    names — the ordinary species the user picked out of the Pokedex — is
+    unaffected, and it does not spoil the reveal by naming Ditto."""
     state = CompanionState(active=raising(path=(4, 5, 6), stage=0, ditto_disguise=4))
     state.representative_species_id = 4
 
     events = evolve(state)
 
     assert events.ditto_revealed
-    assert state.representative_species_id == balance.DITTO_SPECIES_ID
+    assert state.representative_species_id == 4
 
 
-# MARK: the pin lets go when the companion does
+# MARK: a pin outlives the companion, on purpose
 
 
 def graduate_now(state):
@@ -276,11 +277,14 @@ def graduate_now(state):
     return companion.apply_usage(state, threshold - mon.used_at_stage)
 
 
-def test_a_pin_following_the_companion_is_released_when_it_graduates():
-    """Otherwise the panel keeps the graduated Pokemon through the next egg.
+def test_a_graduation_does_not_release_the_pin():
+    """Keeping a favourite on the panel through the egg stage is what pinning
+    is for.
 
-    The species is in the dex by then, so reconcile has no reason to drop it,
-    and the pin outlives the thing it was following.
+    It used to be released here, because a pin nobody could see or clear kept
+    the graduated Pokemon on the panel through the next egg and looked like a
+    stuck panel. The pin is badged in the Pokedex and has a release button on
+    Home now, so there is no longer a reason to overrule the user.
     """
     state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
     state.representative_species_id = 6
@@ -288,14 +292,14 @@ def test_a_pin_following_the_companion_is_released_when_it_graduates():
     events = graduate_now(state)
 
     assert events.graduated is not None
-    assert state.representative_species_id is None
-    # Nothing on the panel but the egg, which is the point.
-    assert store(state).panel_species() == (None, False)
+    assert state.active is None, "the companion still graduates"
+    assert state.representative_species_id == 6
+    assert store(state).panel_species() == (6, False)
 
 
-def test_the_panel_shows_the_next_companion_once_the_egg_hatches():
-    """The complaint in full: pin, graduate, hatch — and the panel was still
-    showing the Pokemon from two companions ago."""
+def test_a_pin_held_through_a_graduation_survives_the_next_hatch():
+    """The panel keeps showing the chosen species while the next one grows;
+    Home shows the newcomer, as it always does."""
     import random
 
     from poketokenbar import companion
@@ -311,22 +315,34 @@ def test_the_panel_shows_the_next_companion_once_the_egg_hatches():
         random.Random(1),
     )
 
-    assert store(state).panel_species()[0] == 270
-    # And it keeps following: the released pin means "follow", not "empty".
-    from poketokenbar import balance
+    subject = store(state)
+    assert subject.panel_species()[0] == 6
+    assert subject.payload()["species_id"] == 270, "Home follows the new companion"
 
-    mon = state.active
-    companion.apply_usage(
+
+def test_releasing_the_pin_hands_the_panel_to_the_new_companion():
+    """The way out of the above, and the only one needed: one tap on the
+    release button."""
+    import random
+
+    from poketokenbar import companion
+    from poketokenbar.companion import EvoLine
+
+    state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
+    state.representative_species_id = 6
+    graduate_now(state)
+    companion.hatch(
         state,
-        balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
-        - mon.used_at_stage,
+        EvoLine(base_id=270, path_ids=[270, 271, 272], rarity=Rarity.COMMON),
+        random.Random(1),
     )
-    assert store(state).panel_species()[0] == 271
+
+    subject = store(state)
+    subject.set_representative(None)
+    assert subject.panel_species()[0] == 270
 
 
 def test_a_pin_on_a_different_species_survives_a_graduation():
-    """Same rule as the evolution handoff: a pin on anything but the current
-    form names a species chosen over the companion, and stays chosen."""
     state = CompanionState(
         dex=[graduated(chain=(1, 2, 3))], active=raising(path=(4, 5, 6), stage=2)
     )
@@ -339,11 +355,144 @@ def test_a_pin_on_a_different_species_survives_a_graduation():
 
 
 def test_a_pin_on_an_outgrown_form_of_the_same_companion_survives():
-    """Pinning 4 while raising its final form can only be a deliberate choice —
-    the handoff would have moved a following pin along with the evolutions."""
     state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
     state.representative_species_id = 4
 
     graduate_now(state)
 
     assert state.representative_species_id == 4
+
+
+# MARK: letting the pin go again
+
+
+def test_tapping_the_pinned_species_again_releases_it():
+    """The pin was one-way: nothing in the UI could give the panel back.
+
+    A Pokedex tap is the only thing that sends `represent`, and a tap on a grid
+    of sprites reads as "show me this one". So the panel and the desktop pet
+    froze on whatever was tapped, through every evolution after it, and the
+    growth looked like it had stopped.
+    """
+    subject = store(CompanionState(dex=[graduated()]))
+    subject.set_representative(2)
+    assert subject.state.representative_species_id == 2
+
+    subject.set_representative(2)
+    assert subject.state.representative_species_id is None
+
+
+def test_releasing_a_pin_on_an_outgrown_form_hands_the_panel_back():
+    """The case that was reported: pinned to a form the companion has left.
+
+    That pin keeps overriding the companion by design — it names a species
+    someone chose. What was missing is the way out.
+    """
+    state = CompanionState(active=raising(path=(4, 5, 6), stage=1))
+    state.representative_species_id = 4
+    subject = store(state)
+    assert subject.panel_species() == (4, False)
+
+    subject.set_representative(4)
+    assert subject.panel_species() == (5, False)
+
+
+def test_the_pokedex_says_which_cell_holds_the_panel():
+    """The pin was invisible, so a panel that had stopped following the
+    companion looked stuck rather than pinned, with no clue which cell to tap
+    to undo it."""
+    state = CompanionState(dex=[graduated()], representative_species_id=2)
+    rows = {row["species_id"]: row["is_pinned"] for row in store(state).dex_payload()}
+    assert rows[2] is True
+    assert all(pinned is False for species, pinned in rows.items() if species != 2)
+
+
+def test_the_payload_names_the_species_holding_the_panel():
+    """The popup has to be able to say *which* one is pinned. "#90" explains
+    nothing to someone wondering why the panel disagrees with Home, and the
+    number is all the payload carried."""
+    state = CompanionState(dex=[graduated()], representative_species_id=2)
+    fields = store(state).payload()
+    assert fields["representative_species_id"] == 2
+    assert "panel_name" in fields
+
+
+def test_an_unpinned_panel_names_the_companion_it_follows():
+    state = CompanionState(active=raising(path=(4, 5, 6), stage=1))
+    fields = store(state).payload()
+    assert fields["representative_species_id"] is None
+    assert fields["panel_species_id"] == 5
+
+
+def test_an_egg_with_no_pin_names_nothing():
+    fields = store(CompanionState()).payload()
+    assert fields["panel_species_id"] is None
+    assert fields["panel_name"] == ""
+
+
+def test_pin_messages_are_in_the_users_language():
+    state = CompanionState(dex=[graduated()], language="ko")
+    subject = store(state)
+    from poketokenbar import l10n
+
+    assert subject.set_representative(2) == l10n.t("panel_pinned", "ko").replace(
+        "%1", "#2")
+    assert subject.set_representative(2) == l10n.t("panel_unpinned", "ko")
+
+
+# MARK: the egg has a picture of its own
+
+
+class _StubSprites:
+    """Enough of SpriteStore to tell which file each surface asked for."""
+
+    def path(self, species_id, animated=True, shiny=False):
+        from pathlib import Path
+
+        return Path(f"/cache/{species_id}.gif")
+
+    def item_path(self, item_name):
+        from pathlib import Path
+
+        return Path(f"/cache/item-{item_name}.png")
+
+    def egg_path(self):
+        from pathlib import Path
+
+        return Path("/cache/egg.png")
+
+
+def _egg_store():
+    subject = CompanionStore(api=None, sprite_store=_StubSprites())
+    subject.state = CompanionState()
+    return subject
+
+
+def test_the_egg_has_a_sprite_on_home():
+    """It had none. Home drew an empty box where the picture goes, which reads
+    as a UI that has stopped working rather than as an egg warming up."""
+    payload = _egg_store().payload()
+    assert payload["stage"] == "egg"
+    assert payload["sprite_path"] == "/cache/egg.png"
+
+
+def test_an_unpinned_panel_shows_the_egg_rather_than_nothing():
+    """Same gap on the panel and the desktop pet: between a graduation and the
+    next hatch the pet simply disappeared."""
+    payload = _egg_store().payload()
+    assert payload["panel_species_id"] is None
+    assert payload["panel_sprite_path"] == "/cache/egg.png"
+
+
+def test_a_pin_still_wins_over_the_egg_sprite():
+    subject = _egg_store()
+    subject.state = CompanionState(dex=[graduated()], representative_species_id=3)
+    subject.sprites = _StubSprites()
+    assert subject.payload()["panel_sprite_path"] == "/cache/3.gif"
+
+
+def test_the_shop_shows_a_picture_for_its_eggs():
+    """Every tier is the same picture; the guarantee is what the badge says."""
+    rows = {row["key"]: row for row in _egg_store().shop_payload()}
+    for key in ("egg", "egg:uncommon", "egg:rare"):
+        assert rows[key]["sprite_path"] == "/cache/egg.png", key

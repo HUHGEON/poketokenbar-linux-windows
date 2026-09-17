@@ -32,6 +32,9 @@ class _StubSprites:
     def item_path(self, item_name):
         return Path(f"/cache/item-{item_name}.png")
 
+    def egg_path(self):
+        return Path("/cache/egg.png")
+
 
 EXTENSION_DIR = (
     Path(__file__).resolve().parent.parent
@@ -321,7 +324,7 @@ LIST_ROW_FIELDS = {
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
-            "sprite_path"},
+            "is_pinned", "sprite_path"},
 }
 
 

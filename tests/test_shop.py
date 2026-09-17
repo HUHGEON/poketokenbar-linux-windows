@@ -107,6 +107,30 @@ def test_using_an_item_you_lack_is_rejected():
         shop.use_item(_with_mon(), "rareCandy")
 
 
+def test_candy_hands_back_what_it_grew():
+    """The events are the whole point of routing through apply_usage.
+
+    They used to be dropped here, so an evolution or a graduation paid for
+    with a candy reached neither the notifier nor the celebration banner.
+    """
+    s = _with_mon()
+    s.inventory["rareCandy"] = 1
+    mon = s.active
+    mon.used_at_stage = balance.phase_threshold(
+        mon.rarity, mon.total_forms, mon.stage_index) - balance.RARE_CANDY_XP
+
+    result = shop.use_item(s, "rareCandy")
+    assert result.events is not None
+    assert result.events.evolved_to == s.active.current_id
+
+
+def test_mint_reports_the_nature_it_rolled():
+    s = _with_mon()
+    s.inventory["mint"] = 1
+    result = shop.use_item(s, "mint", rng=random.Random(5))
+    assert result.nature == s.active.nature
+
+
 def test_mint_rerolls_the_nature():
     s = _with_mon()
     s.inventory["mint"] = 1

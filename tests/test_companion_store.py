@@ -117,3 +117,78 @@ def test_mon_payload_reports_stage_progress(tmp_path):
     assert payload["stage_index"] == 0
     assert payload["stage_threshold"] > 0
     assert payload["species_id"] >= 1
+
+
+# MARK: using an item
+
+
+def _hatched(tmp_path):
+    s = _store(tmp_path)
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD}, today="2026-08-18")
+    return s
+
+
+def test_candy_that_evolves_announces_it(tmp_path):
+    """The events from an item use were dropped, so a candy that pushed a
+    Pokemon over the line evolved it with no toast, no banner and no
+    level-up mood."""
+    s = _hatched(tmp_path)
+    mon = s.state.active
+    threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+    mon.used_at_stage = threshold - balance.RARE_CANDY_XP
+    s.state.inventory["rareCandy"] = 1
+
+    s.use_item("rareCandy")
+
+    assert s.state.active.stage_index == 1
+    assert s.last_events is not None and s.last_events.evolved_to is not None
+    assert s.celebration["kind"] == "evolved"
+    assert s.payload()["display_state"] == "levelUp"
+
+
+def test_candy_that_only_adds_progress_still_says_so(tmp_path):
+    """"The count went down and nothing happened" is indistinguishable from a
+    bug, so the use gets a banner even when nothing crossed a threshold."""
+    s = _hatched(tmp_path)
+    s.state.inventory["rareCandy"] = 1
+    before = s.state.active.used_at_stage
+
+    s.use_item("rareCandy")
+
+    assert s.state.active.used_at_stage == before + balance.RARE_CANDY_XP
+    assert s.celebration["kind"] == "item"
+    assert s.celebration["detail"]
+
+
+def test_a_candys_evolution_survives_usage_in_the_same_poll(tmp_path):
+    """Commands drain before the poll credits usage, so the candy's events
+    were assigned and then immediately overwritten — silently, and only when
+    the user happened to be working, which is most of the time."""
+    s = _hatched(tmp_path)
+    mon = s.state.active
+    threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+    mon.used_at_stage = threshold - balance.RARE_CANDY_XP
+    s.state.inventory["rareCandy"] = 1
+
+    s.use_item("rareCandy")
+    evolved_to = s.last_events.evolved_to
+    assert evolved_to is not None
+
+    # Ordinary usage lands in the same poll, well short of the next threshold.
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 1}, today="2026-08-18")
+    assert s.last_events.evolved_to == evolved_to
+
+
+def test_an_item_use_is_saved_immediately(tmp_path):
+    """The daemon writes state.json from a store it keeps in memory, so a use
+    that only lived there would survive right up until a restart."""
+    from poketokenbar.companion_store import CompanionStore
+
+    s = _hatched(tmp_path)
+    s.state.inventory["rareCandy"] = 1
+    s.use_item("rareCandy")
+    grown = s.state.active.used_at_stage
+
+    reopened = CompanionStore(save_path=tmp_path / "companion.json", api=FakeAPI())
+    assert reopened.state.inventory["rareCandy"] == 0
+    assert reopened.state.active.used_at_stage == grown

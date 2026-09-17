@@ -19,6 +19,26 @@ class ShopError(Exception):
 
 
 @dataclass(slots=True)
+class ItemResult:
+    """What one purchase or item use did.
+
+    Carries the growth events rather than a finished sentence: a rare candy can
+    evolve or graduate a companion, and those have to reach the notifier and
+    the celebration banner exactly as the events from real usage do. Returning
+    only a message is what dropped them on the floor, so a candy that pushed a
+    Pokemon over the line did it in silence.
+
+    The wording is left to the caller, which is the layer that knows the
+    language; this module stays free of the catalogue.
+    """
+
+    key: str
+    action: str  # "buy" | "use"
+    events: companion.GrowthEvents | None = None
+    nature: str | None = None
+
+
+@dataclass(slots=True)
 class ShopEntry:
     key: str
     kind: str  # "item" | "egg"
@@ -60,8 +80,8 @@ def _debit(state: CompanionState, price: int) -> None:
     state.spent_tokens += price
 
 
-def buy(state: CompanionState, key: str) -> str:
-    """Purchase one shop entry. Returns a short description of what happened."""
+def buy(state: CompanionState, key: str) -> ItemResult:
+    """Purchase one shop entry."""
     entry = next((e for e in entries(state) if e.key == key), None)
     if entry is None:
         raise ShopError(f"unknown shop item: {key}")
@@ -71,7 +91,7 @@ def buy(state: CompanionState, key: str) -> str:
             raise ShopError("shiny charm is already held")
         _debit(state, entry.price)
         state.inventory[entry.key] = state.inventory.get(entry.key, 0) + 1
-        return f"bought {entry.label}"
+        return ItemResult(entry.key, "buy")
 
     # Eggs replace the current companion outright.
     tier = {"egg": None, f"egg:{Rarity.UNCOMMON}": Rarity.UNCOMMON,
@@ -83,10 +103,10 @@ def buy(state: CompanionState, key: str) -> str:
     state.egg_usage = 0
     state.egg_tier = tier
     state.pending_hatch_id = None
-    return f"bought {entry.label}"
+    return ItemResult(entry.key, "buy")
 
 
-def use_item(state: CompanionState, key: str, rng=None) -> str:
+def use_item(state: CompanionState, key: str, rng=None) -> ItemResult:
     """Consume one held item."""
     held = state.inventory.get(key, 0)
     if held <= 0:
@@ -97,9 +117,10 @@ def use_item(state: CompanionState, key: str, rng=None) -> str:
             raise ShopError("candy needs a hatched companion")
         state.inventory[key] = held - 1
         # Routed through apply_usage so carry-over, evolution, and graduation
-        # all behave exactly as they do for real usage.
-        companion.apply_usage(state, balance.RARE_CANDY_XP, rng=rng)
-        return "used Rare Candy"
+        # all behave exactly as they do for real usage — and the events it
+        # reports are handed back for the same reason.
+        events = companion.apply_usage(state, balance.RARE_CANDY_XP, rng=rng)
+        return ItemResult(key, "use", events=events)
 
     if key == "mint":
         if state.active is None:
@@ -109,7 +130,7 @@ def use_item(state: CompanionState, key: str, rng=None) -> str:
         rng = rng or random.Random()
         state.inventory[key] = held - 1
         state.active.nature = companion.roll_nature(rng)
-        return f"nature is now {state.active.nature}"
+        return ItemResult(key, "use", nature=state.active.nature)
 
     raise ShopError(f"{key} cannot be used")
 

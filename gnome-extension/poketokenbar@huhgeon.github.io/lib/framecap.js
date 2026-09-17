@@ -29,7 +29,21 @@ export const FRAME_FLOORS = {
 
 export const DEFAULT_QUALITY = 'saver';
 
+// Animation switched off entirely. Deliberately not a fourth entry in the
+// table above: those are frame rates, and this is the absence of one — keeping
+// it out is also what lets a test still say "the default is the slowest
+// preset" and mean something.
+//
+// An infinite floor expresses it exactly. capFrameRate collapses the whole
+// loop into its first frame held for the loop's own length, and a one-frame
+// sprite never schedules a timer, so a still sprite costs no wakeups at all.
+// That is the point of the setting: not only the movement it hides but the
+// recomposites it stops.
+export const ANIMATION_OFF = 'off';
+
 export function frameFloor(quality) {
+    if (quality === ANIMATION_OFF)
+        return Infinity;
     return FRAME_FLOORS[quality] ?? FRAME_FLOORS[DEFAULT_QUALITY];
 }
 

@@ -217,20 +217,47 @@
 }
 
 .poketokenbar-dexcell {
-  spacing: 0;
+  spacing: 1px;
 }
 
+/* One Pokedex cell. Filled and rounded rather than a bare sprite on the popup
+   background: at 48px the sprites have enough presence to read as tiles, and a
+   tile with a surface of its own is what says "this is something to tap". Six
+   of these at 54px plus five 4px gaps is 344px, inside the 364px the popup has
+   once its own padding is taken off. */
 .poketokenbar-dexbutton {
-  padding: 2px;
-  border-radius: 4px;
+  padding: 3px;
+  border-radius: 6px;
+  background-color: rgba(255, 255, 255, 0.06);
 }
 
 .poketokenbar-dexbutton:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.poketokenbar-pager {
+  spacing: 6px;
+  padding-top: 4px;
+}
+
+/* The pin's own row on Home. Set apart from the companion above it: it
+   describes the panel, not the Pokemon being raised. */
+.poketokenbar-pinrow {
+  spacing: 6px;
+  padding: 4px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* The cell holding the panel. Outlined as well as tinted: the sprite is the
+   thing being identified, and a fill alone is lost among the other tiles. */
+.poketokenbar-dexbutton-pinned {
+  border: 1px solid rgba(120, 200, 255, 0.9);
+  background-color: rgba(120, 200, 255, 0.12);
+  padding: 2px;
 }
 
 .poketokenbar-dexnum {
-  font-size: 0.7em;
+  font-size: 0.75em;
   opacity: 150;
 }
 
@@ -257,6 +284,13 @@
 
 .poketokenbar-badge-small {
   background-color: rgba(255, 255, 255, 0.15);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-size: 0.6em;
+}
+
+.poketokenbar-badge-pinned {
+  background-color: rgba(120, 200, 255, 0.35);
   border-radius: 3px;
   padding: 0 4px;
   font-size: 0.6em;

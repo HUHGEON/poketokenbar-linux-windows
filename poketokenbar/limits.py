@@ -37,6 +37,15 @@ class AuthExpiredError(LimitsError):
     """The endpoint rejected the token (401/403)."""
 
 
+class NetworkError(LimitsError):
+    """The endpoint could not be reached at all: no DNS, no route, a timeout.
+
+    Kept apart from the other failures because it is the one that fixes
+    itself — most often it is the daemon starting before the network has,
+    right after login — so it is worth retrying soon and not worth quoting.
+    """
+
+
 class RateLimitedError(LimitsError):
     def __init__(self, retry_after: float | None) -> None:
         super().__init__("rate limited")
@@ -246,7 +255,9 @@ def fetch(credential: Credential, timeout: float = 15.0) -> dict:
         if exc.code in (401, 403):
             raise AuthExpiredError(f"HTTP {exc.code}") from exc
         raise LimitsError(f"HTTP {exc.code}") from exc
-    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise NetworkError(str(exc)) from exc
+    except ValueError as exc:
         raise LimitsError(str(exc)) from exc
 
 

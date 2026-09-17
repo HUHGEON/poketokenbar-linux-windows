@@ -157,3 +157,17 @@ def test_rate_limit_retry_after_ignores_http_date():
 
 def test_rate_limit_retry_after_parses_seconds():
     assert limits.retry_after_seconds({"Retry-After": "30"}) == 30
+
+
+def test_an_unreachable_endpoint_is_a_network_error(monkeypatch):
+    """DNS down, no route, a timeout: the failures that fix themselves, and
+    that the cache treats differently from a bad answer."""
+    import urllib.error
+    import urllib.request
+
+    def unreachable(request, timeout=0):
+        raise urllib.error.URLError(OSError(-2, "Name or service not known"))
+
+    monkeypatch.setattr(urllib.request, "urlopen", unreachable)
+    with pytest.raises(limits.NetworkError):
+        limits.fetch(limits.Credential(access_token="t"))

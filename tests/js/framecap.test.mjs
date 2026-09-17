@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
-    DEFAULT_QUALITY, FRAME_FLOORS, capFrameRate, frameFloor,
+    ANIMATION_OFF, DEFAULT_QUALITY, FRAME_FLOORS, capFrameRate, frameFloor,
 } from '../../gnome-extension/poketokenbar@huhgeon.github.io/lib/framecap.js';
 
 const gen5 = () =>
@@ -110,4 +110,33 @@ test('the default is the cheapest preset', () => {
 test('an unknown quality falls back to the default rather than to no cap', () => {
     assert.equal(frameFloor('nonsense'), FRAME_FLOORS[DEFAULT_QUALITY]);
     assert.equal(frameFloor(undefined), FRAME_FLOORS[DEFAULT_QUALITY]);
+});
+
+test('switching animation off collapses a loop into one frame', () => {
+    // One frame is what makes it free: the actor only ever schedules a timer
+    // when it has more than one, so a still sprite costs no recomposites.
+    const frames = [
+        {delay: 0.05, id: 'a'},
+        {delay: 0.05, id: 'b'},
+        {delay: 0.05, id: 'c'},
+        {delay: 0.05, id: 'd'},
+    ];
+    const capped = capFrameRate(frames, frameFloor(ANIMATION_OFF));
+    assert.equal(capped.length, 1);
+    assert.equal(capped[0].id, 'a', 'the still is the frame the sprite opens on');
+    // The hold is the whole loop, which is what keeps every other length
+    // calculation in this file true for the off case too.
+    assert.ok(Math.abs(capped[0].delay - 0.2) < 1e-9);
+});
+
+test('off is not one of the presets', () => {
+    // It is the absence of a frame rate, not a slower one. Folding it into the
+    // table would quietly break "the default is the cheapest preset".
+    assert.ok(!(ANIMATION_OFF in FRAME_FLOORS));
+    assert.equal(frameFloor(ANIMATION_OFF), Infinity);
+});
+
+test('a single-frame sprite is unchanged by switching animation off', () => {
+    const still = [{delay: 0, id: 'only'}];
+    assert.deepEqual(capFrameRate(still, frameFloor(ANIMATION_OFF)), still);
 });

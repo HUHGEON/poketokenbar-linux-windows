@@ -139,3 +139,54 @@ def test_success_clears_a_previous_error():
     clock.advance(61)
     src.get()
     assert src.last_error == ""
+
+
+# MARK: no network
+
+
+def test_no_network_retries_soon_rather_than_after_the_ttl():
+    """The daemon comes up before the connection does after login, and the
+    section stayed blank for the full TTL after the network was back."""
+    from poketokenbar.limits_source import NETWORK_RETRY
+
+    calls = []
+    clock = FakeClock()
+    state = {"down": True}
+
+    def fetch():
+        calls.append(1)
+        if state["down"]:
+            raise limits.NetworkError("<urlopen error [Errno -2] Name or service not known>")
+        return _status(42.0)
+
+    src = LimitsSource(fetch=fetch, clock=clock, ttl=300)
+    assert src.get() is None
+    assert src.offline is True
+    assert "Name or service" in src.last_error
+
+    clock.advance(NETWORK_RETRY - 1)
+    src.get()
+    assert len(calls) == 1, "not every poll either; DNS failure is not free"
+
+    state["down"] = False
+    clock.advance(2)
+    assert src.get().session.utilization == 42.0
+    assert src.offline is False
+    assert src.last_error == ""
+
+
+def test_no_network_keeps_the_last_good_value():
+    clock = FakeClock()
+    state = {"down": False}
+
+    def fetch():
+        if state["down"]:
+            raise limits.NetworkError("no route")
+        return _status(42.0)
+
+    src = LimitsSource(fetch=fetch, clock=clock, ttl=60)
+    src.get()
+    state["down"] = True
+    clock.advance(61)
+    assert src.get().session.utilization == 42.0
+    assert src.offline is True

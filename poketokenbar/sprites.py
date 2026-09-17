@@ -19,6 +19,9 @@ ITEM_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/it
 USER_AGENT = "poketokenbar/0.1"
 # Animated Black/White sprites exist for Gen I-V only.
 MAX_ANIMATED_ID = 649
+# The egg is filed under the Pokemon sprites but is not a species, so it has no
+# id and cannot go through `sprite_url`.
+EGG_SPRITE_URL = f"{SPRITE_BASE}/egg.png"
 
 
 def cache_key(species_id: int, animated: bool, shiny: bool) -> str:
@@ -62,6 +65,23 @@ class SpriteStore:
         tmp.replace(target)
         return target
 
+    def egg_path(self) -> Path | None:
+        """Local path to the egg sprite, downloading it once if needed.
+
+        Its own method rather than a species id: the egg is not a species, so
+        anything routed through `path()` would need an id invented for it, and
+        that id would be asked of PokeAPI on the next lookup.
+
+        Without this the egg stage had no picture anywhere. Home drew an empty
+        box where the sprite goes, the desktop pet vanished between companions,
+        and only the panel had a text fallback — which read as a UI that had
+        stopped working rather than as an egg.
+        """
+        target = self.dir / "egg.png"
+        if target.is_file() and target.stat().st_size > 0:
+            return target
+        return self._download(EGG_SPRITE_URL, target)
+
     def path(self, species_id: int, animated: bool = True, shiny: bool = False) -> Path | None:
         """Local path to the sprite, downloading it once if needed.
 
@@ -76,7 +96,11 @@ class SpriteStore:
         if target.is_file() and target.stat().st_size > 0:
             return target
 
-        request = urllib.request.Request(sprite_url(species_id, animated, shiny))
+        return self._download(sprite_url(species_id, animated, shiny), target)
+
+    def _download(self, url: str, target: Path) -> Path | None:
+        """Fetch one sprite to `target`, or None when it cannot be had."""
+        request = urllib.request.Request(url)
         request.add_header("User-Agent", USER_AGENT)
         try:
             with urllib.request.urlopen(request, timeout=20) as response:

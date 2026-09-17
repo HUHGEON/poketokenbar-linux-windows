@@ -13,12 +13,20 @@ import St from 'gi://St';
 
 import * as Commands from './commands.js';
 import * as Config from './config.js';
+import {ANIMATION_OFF, DEFAULT_QUALITY} from './framecap.js';
 import {LANGUAGES} from './languages.js';
 import {Sprite} from './sprite.js';
 import {
-    Meter, badge, button, column, heading, label, levelClass, paragraph,
-    placeholder, resetsIn, row, statLine, toggleRow,
+    Meter, badge, button, column, heading, label, levelClass, markSent,
+    paragraph, placeholder, resetsIn, row, statLine, toggleRow,
 } from './widgets.js';
+
+// The Pokedex grid. Six across is what the popup's fixed width holds at this
+// sprite size; three rows down keeps a page inside the popup without a scroll,
+// so browsing is page by page rather than page and then scroll.
+const DEX_COLUMNS = 6;
+const DEX_ROWS = 3;
+const DEX_SPRITE_SIZE = 48;
 
 /** Base: a vertical box that empties itself before each update. */
 const Section = GObject.registerClass(
@@ -100,6 +108,11 @@ class HomeSection extends Section {
         // Without a companion the holder stays out of the tree, and a sprite
         // nobody can see must not keep asking for frames.
         this._sprite.setPaused(!companion);
+        // The animation setting reached the panel and the desktop pet but
+        // never this one, which is the largest sprite the extension draws — so
+        // turning the animation down, or off, left the companion on Home
+        // moving exactly as before.
+        this._sprite.setQuality(state?.config?.animation_quality ?? DEFAULT_QUALITY);
 
         // The daemon holds a celebration for exactly one poll, so it shows
         // once rather than staying up until the next hatch.
@@ -145,6 +158,14 @@ class HomeSection extends Section {
             this.add_child(label(companion.status_message ?? '', 'poketokenbar-status'));
         }
 
+        // --- the pin --------------------------------------------------------
+        // The pin only changes the panel and the desktop pet, never Home, so
+        // when one is set this is the one screen that can explain why those
+        // two disagree with what is shown above. It used to be explained
+        // nowhere: the panel simply stopped following the companion, said
+        // nothing about it, and offered no way back.
+        this._addPinRow(companion, t);
+
         // --- today ---------------------------------------------------------
         this.add_child(heading(t('todays_tokens')));
         const today = state?.today;
@@ -188,6 +209,27 @@ class HomeSection extends Section {
 
         // --- official limits -------------------------------------------------
         this._addLimits(state);
+    }
+
+    /** Which species is holding the panel, and the button that releases it.
+     *
+     * Shown whenever a pin is set, including one on the companion's own
+     * current form: "the panel happens to agree right now" is not the same as
+     * "nothing is pinned", and the difference is exactly what surprises
+     * someone at the next evolution.
+     */
+    _addPinRow(companion, t) {
+        const pinned = companion?.representative_species_id;
+        if (!pinned)
+            return;
+        const name = companion.panel_name || `#${pinned}`;
+        const spacer = new St.Widget({x_expand: true});
+        const unpin = button(t('unpin'), () => markSent(unpin, Commands.represent(null)));
+        this.add_child(row([
+            label(`\u{1F4CC} ${t('pinned_to_panel')}: ${name}`, 'poketokenbar-subtle'),
+            spacer,
+            unpin,
+        ], 'poketokenbar-pinrow'));
     }
 
     _evolutionLine(companion) {
@@ -333,7 +375,7 @@ class ShopSection extends Section {
                 // would offer a purchase the daemon refuses.
                 children.push(label(t('owned'), 'poketokenbar-value'));
             } else {
-                const buy = button(t('buy'), () => Commands.buy(shopItem.key));
+                const buy = button(t('buy'), () => markSent(buy, Commands.buy(shopItem.key)));
                 // Disabled rather than hidden while unaffordable: a card that
                 // vanishes reads as a bug, and the price is the point of the row.
                 buy.reactive = Boolean(shopItem.affordable);
@@ -370,8 +412,10 @@ class BagSection extends Section {
             ]);
             left.x_expand = true;
             const children = [icon, left];
-            if (bagItem.usable)
-                children.push(button(t('use'), () => Commands.use(bagItem.key)));
+            if (bagItem.usable) {
+                const use = button(t('use'), () => markSent(use, Commands.use(bagItem.key)));
+                children.push(use);
+            }
             else if (bagItem.passive)
                 children.push(label(t('active'), 'poketokenbar-value'));
             this.add_child(row(children, 'poketokenbar-card'));
@@ -388,7 +432,7 @@ class CollectionSection extends Section {
         this._reader = reader;
         this._showingCatchLog = false;
         this._page = 0;
-        this._perPage = 24;
+        this._perPage = DEX_COLUMNS * DEX_ROWS;
         this._state = null;
     }
 
@@ -424,6 +468,10 @@ class CollectionSection extends Section {
         }
 
         this.add_child(label(`${entries.length} species`, 'poketokenbar-subtle'));
+        // What a tap on a cell does. It pins to the panel, which is not a
+        // thing a grid of sprites looks like it would do, and the tap that
+        // releases it is the same one — neither was written down anywhere.
+        this.add_child(paragraph(t('dex_pin_hint'), 'poketokenbar-subtle'));
         const counts = state?.rarity_counts ?? {};
         const summary = ['legendary', 'rare', 'uncommon', 'common']
             .filter(key => counts[key])
@@ -441,7 +489,7 @@ class CollectionSection extends Section {
         // available space would only ever change how ragged the last row is.
         let currentRow = null;
         page.forEach((dexEntry, index) => {
-            if (index % 6 === 0) {
+            if (index % DEX_COLUMNS === 0) {
                 currentRow = row([], 'poketokenbar-dexrow');
                 this.add_child(currentRow);
             }
@@ -450,25 +498,33 @@ class CollectionSection extends Section {
 
         if (pages > 1) {
             const spacer = new St.Widget({x_expand: true});
+            const previous = button('‹', () => {
+                this._page = Math.max(0, this._page - 1);
+                this.update(this._state);
+            });
+            const next = button('›', () => {
+                this._page = Math.min(pages - 1, this._page + 1);
+                this.update(this._state);
+            });
+            // Dimmed at the ends rather than hidden, so the row keeps its
+            // shape and the count stays centred while paging.
+            previous.reactive = this._page > 0;
+            previous.opacity = this._page > 0 ? 255 : 120;
+            next.reactive = this._page < pages - 1;
+            next.opacity = this._page < pages - 1 ? 255 : 120;
             this.add_child(row([
-                button('‹', () => {
-                    this._page = Math.max(0, this._page - 1);
-                    this.update(this._state);
-                }),
+                previous,
                 spacer,
                 label(`${this._page + 1} / ${pages}`, 'poketokenbar-subtle'),
                 new St.Widget({x_expand: true}),
-                button('›', () => {
-                    this._page = Math.min(pages - 1, this._page + 1);
-                    this.update(this._state);
-                }),
-            ]));
+                next,
+            ], 'poketokenbar-pager'));
         }
     }
 
     _dexCell(dexEntry) {
         const t = key => this._reader.text(key);
-        const sprite = new Sprite({size: 40});
+        const sprite = new Sprite({size: DEX_SPRITE_SIZE});
         sprite.setPath(dexEntry.sprite_path || null);
         const caption = label(
             dexEntry.is_shiny ? `✨${dexEntry.species_id}` : `#${dexEntry.species_id}`,
@@ -479,16 +535,27 @@ class CollectionSection extends Section {
         // finished catch.
         if (dexEntry.is_raising)
             parts.push(badge(t('raising'), 'poketokenbar-badge-small'));
+        // The species currently holding the panel. The pin used to be
+        // invisible, so a panel that had stopped following the companion —
+        // and stopped showing its evolutions — looked like a stuck panel
+        // rather than a choice anyone had made.
+        if (dexEntry.is_pinned)
+            parts.push(badge(t('pinned'), 'poketokenbar-badge-pinned'));
         const cell = column(parts, 'poketokenbar-dexcell');
 
-        // Tapping a cell pins that species to the panel. The daemon refuses a
-        // species the save does not own, so this cannot pin a ghost.
+        // Tapping a cell pins that species to the panel; tapping the pinned
+        // one again releases it, which is the only way back to a panel that
+        // follows the companion. The daemon refuses a species the save does
+        // not own, so this cannot pin a ghost.
         const clickable = new St.Button({
-            style_class: 'poketokenbar-dexbutton',
+            style_class: dexEntry.is_pinned
+                ? 'poketokenbar-dexbutton poketokenbar-dexbutton-pinned'
+                : 'poketokenbar-dexbutton',
             can_focus: true,
             child: cell,
         });
-        clickable.connect('clicked', () => Commands.represent(dexEntry.species_id));
+        clickable.connect('clicked', () =>
+            markSent(clickable, Commands.represent(dexEntry.species_id)));
         return clickable;
     }
 
@@ -594,12 +661,15 @@ const CHOICES = [
             {value: 'weekly', string: 'weekly'},
         ],
     },
-    // Frame-rate presets. The values live in framecap.js next to the algorithm;
-    // these are only their names.
+    // Frame-rate presets, plus switching the animation off. The values live in
+    // framecap.js next to the algorithm; these are only their names. "Off"
+    // leads because it is the one choice that is not a rate, and because a
+    // still sprite is what someone comes to this row looking for.
     {
         key: 'animation_quality',
         string: 'setting_animation',
         options: [
+            {value: ANIMATION_OFF, string: 'quality_off'},
             {value: 'saver', string: 'quality_saver'},
             {value: 'balanced', string: 'quality_balanced'},
             {value: 'smooth', string: 'quality_smooth'},

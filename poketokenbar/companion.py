@@ -163,6 +163,23 @@ class GrowthEvents:
     graduated: DexEntry | None = None
     ditto_revealed: bool = False
 
+    def merge(self, other: "GrowthEvents") -> "GrowthEvents":
+        """Fold a later set of events into this one.
+
+        One poll can grow the companion twice — a rare candy taken out of the
+        bag, and then the usage since the last poll — but the notifier is told
+        once, at the end. Replacing dropped whichever happened first, which in
+        practice was always the candy.
+        """
+        return GrowthEvents(
+            hatched=self.hatched if other.hatched is None else other.hatched,
+            evolved_to=(
+                self.evolved_to if other.evolved_to is None else other.evolved_to
+            ),
+            graduated=self.graduated if other.graduated is None else other.graduated,
+            ditto_revealed=self.ditto_revealed or other.ditto_revealed,
+        )
+
 
 def display_state(
     state: CompanionState,
@@ -268,18 +285,14 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}-{mon.current_id}")
-    # A pin that had been following this companion has nothing left to follow,
-    # so it is released rather than left standing on the panel. Without this it
-    # stayed: the species is in the dex now, so reconcile keeps it, and the
-    # panel showed the graduated Pokemon through the whole next egg and past
-    # the hatch after it — the egg never appeared, the new companion never
-    # appeared, and its evolutions looked like they had not happened.
+    # The pin is left exactly where the user put it, graduation included.
     #
-    # Only the form that is graduating. A pin on any other form names a species
-    # someone chose over the companion, which is the same rule the evolution
-    # handoff follows.
-    if state.representative_species_id == mon.current_id:
-        state.representative_species_id = None
+    # It used to be released here, because a pin nobody could see or clear kept
+    # the graduated Pokemon on the panel through the next egg and the hatch
+    # after it, and that was indistinguishable from a stuck panel. The pin is
+    # now badged in the Pokedex and carries its own release button on Home, so
+    # the reason for overruling the user is gone — and keeping a favourite on
+    # the panel through the egg stage is what pinning is for.
     state.active = None
     state.egg_usage = 0
     return entry
@@ -330,7 +343,6 @@ def apply_usage(
         if mon.is_final_form:
             events.graduated = graduate(state, mon)
             break
-        was_showing = mon.current_id
         mon.stage_index += 1
         events.evolved_to = mon.current_id
         # A disguised Ditto reveals itself on its first evolution — the moment
@@ -338,17 +350,14 @@ def apply_usage(
         if mon.ditto_disguise is not None and not mon.ditto_revealed:
             mon.ditto_revealed = True
             events.ditto_revealed = True
-        # A pin on the form that just evolved moves up with it. Pinning the
-        # companion as it is now is the ordinary reason to pin at all, and
-        # leaving the panel on the outgrown form made the evolution look like it
-        # had not happened. A pin on any *other* form stays exactly where it is:
-        # that one names a species someone chose over the companion, and the
-        # companion growing is no reason to overrule it.
+        # The pin does not move. It names a species the user chose, and growth
+        # is not a reason to overrule that choice — an evolution included.
         #
-        # Read after the reveal, not before: a Ditto's evolution is into Ditto,
-        # and pinning the form it was only pretending to become would put a
-        # species on the panel that nobody owns.
-        if state.representative_species_id == was_showing:
-            state.representative_species_id = mon.current_id
+        # A pin on the form being outgrown used to be dragged up with it, on
+        # the grounds that a panel left on the old form made the evolution look
+        # like it had not happened. What actually made it look that way was
+        # that nothing said the panel was pinned at all. Home names the pinned
+        # species and offers to release it now, so the panel disagreeing with
+        # the companion reads as the choice it is.
 
     return events

@@ -22,6 +22,10 @@ from . import limits
 DEFAULT_RATE_LIMIT_BACKOFF = 300.0
 # An expired or missing login needs human action; probing it is pure waste.
 AUTH_BACKOFF = 900.0
+# No network at all. Typically the daemon came up before the connection did,
+# right after login, and the full TTL would leave the section blank for five
+# minutes after the network is back.
+NETWORK_RETRY = 30.0
 
 
 class LimitsSource:
@@ -38,6 +42,10 @@ class LimitsSource:
         self._fetched_at: float | None = None
         self._blocked_until: float = 0.0
         self.last_error: str = ""
+        # True while the last failure was the network itself rather than the
+        # endpoint, so the UI can say "offline" instead of quoting a socket
+        # error nobody can act on.
+        self.offline: bool = False
 
     def invalidate(self) -> None:
         """Force the next get() to refetch — used by a manual refresh.
@@ -56,10 +64,17 @@ class LimitsSource:
         if self._fetched_at is not None and (now - self._fetched_at) < self._ttl:
             return self._cached
 
+        self.offline = False
         try:
             self._cached = self._fetch()
             self._fetched_at = now
             self.last_error = ""
+        except limits.NetworkError as exc:
+            # Keep the stale value and try again soon, not after the TTL.
+            self._fetched_at = None
+            self._blocked_until = now + NETWORK_RETRY
+            self.offline = True
+            self.last_error = str(exc)
         except limits.RateLimitedError as exc:
             wait = exc.retry_after or DEFAULT_RATE_LIMIT_BACKOFF
             self._blocked_until = now + wait

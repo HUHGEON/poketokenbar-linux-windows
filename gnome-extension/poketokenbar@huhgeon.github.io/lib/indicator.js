@@ -313,9 +313,20 @@ class Indicator extends PanelMenu.Button {
         }
         const companion = state?.companion;
 
-        // The egg has no sprite of its own, so its percentage stands in —
-        // leaving the slot blank until the first hatch reads as broken.
-        const eggText = !panel?.sprite_path && companion?.label ? companion.label : '';
+        // How close the egg is to hatching, beside the egg itself. Only while
+        // the panel is actually showing the egg: under a pinned species it
+        // would be a number belonging to nothing on screen.
+        //
+        // The daemon's label carries an egg glyph of its own, which is the
+        // fallback for the run where the sprite could not be fetched. With the
+        // sprite there it would be a second egg, so the percentage goes alone.
+        const isEgg = companion?.stage === 'egg' && !companion?.representative_species_id;
+        let eggText = '';
+        if (isEgg) {
+            eggText = panel?.sprite_path
+                ? `${Math.round((companion.egg_progress ?? 0) * 100)}%`
+                : (companion.label ?? '');
+        }
         this._eggLabel.text = eggText;
         this._eggLabel.visible = eggText !== '';
 
