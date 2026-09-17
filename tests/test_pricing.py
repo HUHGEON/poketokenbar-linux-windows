@@ -47,4 +47,47 @@ def test_cost_sums_all_four_token_kinds():
 
 
 def test_cost_of_an_unpriced_model_is_zero():
-    assert pricing.cost("claude-fable-5", 10**9, 10**9, 10**9, 10**9) == 0.0
+    assert pricing.cost("totally-unknown-model", 10**9, 10**9, 10**9, 10**9) == 0.0
+
+
+def per_token(*rates):
+    return pricing.per_million(*rates)
+
+
+@pytest.mark.parametrize("model,rates", [
+    # Fable 5 was a $0 placeholder; upstream priced it from the LiteLLM snapshot.
+    ("claude-fable-5", (10, 50, 12.5, 1.0)),
+    # Fable 5.1 keeps Fable 5's base rates but reads cache at 0.025x input.
+    ("claude-fable-5-1", (10, 50, 12.5, 0.25)),
+    ("claude-opus-4-20250514", (15, 75, 18.75, 1.5)),
+    ("claude-sonnet-4-5-20250929", (3, 15, 3.75, 0.3)),
+    ("gpt-6-astra", (10, 50, 12.5, 1)),
+    ("gpt-5.6-luna", (0.2, 1.2, 0.25, 0.02)),
+    # Real gpt-5 turns were priced by the family fallback at $5/$30.
+    ("gpt-5", (1.25, 10, 0, 0.125)),
+    ("gpt-5.3-codex", (1.75, 14, 0, 0.175)),
+    ("gpt-5.4", (2.5, 15, 0, 0.25)),
+    ("gemini-2.5-pro", (1.25, 10, 0, 0.125)),
+    ("gemini-2.5-flash", (0.30, 2.5, 0, 0.03)),
+])
+def test_table_matches_upstream_v2_5_4(model, rates):
+    assert pricing.rate(model) == per_token(*rates)
+
+
+@pytest.mark.parametrize("model,key", [
+    ("gpt-5.6", "gpt-5.6-sol"),
+    ("claude-sonnet-4-5", "claude-sonnet-4-5-20250929"),
+    ("gpt-5.2-2025-12-11", "gpt-5.2"),
+    ("openai/gpt-5", "gpt-5"),
+    ("anthropic/claude-fable-5-1", "claude-fable-5-1"),
+    ("models/gemini-2.5-pro", "gemini-2.5-pro"),
+    ("  GPT-5.4 ", "gpt-5.4"),
+])
+def test_documented_aliases_and_namespaces_reach_the_table(model, key):
+    assert pricing.model_key(model) == key
+    assert pricing.rate(model) == pricing.TABLE[key]
+
+
+def test_antigravity_prefix_is_not_a_namespace():
+    assert pricing.model_key("antigravity/gpt-5") == "antigravity/gpt-5"
+    assert pricing.rate("antigravity/gpt-5") == pricing.ZERO
