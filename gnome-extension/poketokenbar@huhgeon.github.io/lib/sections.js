@@ -27,6 +27,7 @@ import {
 const DEX_COLUMNS = 6;
 const DEX_ROWS = 3;
 const DEX_SPRITE_SIZE = 48;
+const DETAIL_SPRITE_SIZE = 80;
 
 /** Base: a vertical box that empties itself before each update. */
 const Section = GObject.registerClass(
@@ -141,8 +142,9 @@ class HomeSection extends Section {
                 const name = companion.name || `#${companion.species_id}`;
                 this.add_child(label(
                     companion.is_shiny ? `✨ ${name}` : name, 'poketokenbar-title'));
+                const level = companion.level ? `Lv. ${companion.level} · ` : '';
                 const traits = row([label(
-                    `${t(companion.rarity ?? 'common')} · ${companion.nature ?? ''}`,
+                    `${level}${t(companion.rarity ?? 'common')} · ${companion.nature ?? ''}`,
                     'poketokenbar-subtle')]);
                 // A repeat hatch grows faster. Said next to the stage, or the
                 // meter filling twice as fast looks like a counting bug.
@@ -446,6 +448,21 @@ class CollectionSection extends Section {
         this._page = 0;
         this._perPage = DEX_COLUMNS * DEX_ROWS;
         this._state = null;
+        // The species whose page is open, and what the page is showing. Kept
+        // here as well as in the daemon so the page opens on the tap, before
+        // the daemon has answered.
+        this._inspecting = null;
+        this._individualIndex = 0;
+        this._showingMoves = false;
+    }
+
+    /** Closing the popup or leaving the tab closes the page too. */
+    release() {
+        if (this._inspecting !== null) {
+            this._inspecting = null;
+            Commands.inspect(null);
+        }
+        super.release();
     }
 
     update(state) {
@@ -465,10 +482,158 @@ class CollectionSection extends Section {
         ]);
         this.add_child(toggle);
 
-        if (this._showingCatchLog)
+        if (this._inspecting !== null)
+            this._buildDetail(state);
+        else if (this._showingCatchLog)
             this._buildCatchLog(state);
         else
             this._buildPokedex(state);
+    }
+
+    _open(speciesId) {
+        this._inspecting = speciesId;
+        this._individualIndex = 0;
+        this._showingMoves = false;
+        Commands.inspect(speciesId);
+        this.update(this._state);
+    }
+
+    _close() {
+        this._inspecting = null;
+        Commands.inspect(null);
+        this.update(this._state);
+    }
+
+    // MARK: the detail page (upstream b6bf676)
+
+    _buildDetail(state) {
+        const t = key => this._reader.text(key);
+        const detail = state?.detail ?? {};
+        const ready = detail.species_id === this._inspecting;
+        const dexRow = (state?.dex ?? []).find(cell => cell.species_id === this._inspecting) ?? {};
+
+        this.add_child(row([
+            button(`‹ ${t('detail_back')}`, () => this._close()),
+            new St.Widget({x_expand: true}),
+            label(`#${this._inspecting}`, 'poketokenbar-subtle'),
+        ]));
+
+        // Identity: drawn from the grid's own row until the daemon answers,
+        // so the page is never blank on the tap.
+        const sprite = new Sprite({size: DETAIL_SPRITE_SIZE});
+        sprite.setPath((ready ? detail.sprite_path : dexRow.sprite_path) || null);
+        const pinned = ready ? detail.is_pinned : dexRow.is_pinned;
+        const pin = button(pinned ? t('unpin') : t('pin_to_panel'), () =>
+            markSent(pin, Commands.represent(pinned ? null : this._inspecting)));
+        const identity = [
+            label(ready ? detail.name : (dexRow.name || `#${this._inspecting}`), 'poketokenbar-title'),
+            label(t((ready ? detail.rarity : dexRow.rarity) || 'common'), 'poketokenbar-subtle'),
+        ];
+        const marks = row([]);
+        if (ready ? detail.is_shiny : dexRow.is_shiny)
+            marks.add_child(badge('✨', 'poketokenbar-badge-small'));
+        if (ready ? detail.is_raising : dexRow.is_raising)
+            marks.add_child(badge(t('raising'), 'poketokenbar-badge-small'));
+        identity.push(marks, pin);
+        this.add_child(row([sprite, column(identity)]));
+
+        if (!ready || detail.status === 'loading') {
+            this.add_child(placeholder(t('loading_pokemon_details')));
+            return;
+        }
+        if (detail.status === 'failed') {
+            this.add_child(placeholder(t('pokemon_details_unavailable')));
+            const retry = button(t('retry'), () =>
+                markSent(retry, Commands.inspect(this._inspecting, true)));
+            this.add_child(retry);
+            return;
+        }
+
+        const individuals = detail.individuals ?? [];
+        if (individuals.length > 1) {
+            this.add_child(row(individuals.map((individual, index) => {
+                const choice = button(individual.label, () => {
+                    this._individualIndex = index;
+                    this.update(this._state);
+                });
+                choice.opacity = index === this._individualIndex ? 255 : 130;
+                return choice;
+            })));
+        }
+        const individual = individuals[Math.min(this._individualIndex, individuals.length - 1)];
+        if (individual)
+            this._addIndividual(individual, t);
+        else
+            this._addBaseStats(detail.species?.base_stats ?? [], t);
+        this._addSpecies(detail, t);
+    }
+
+    _addIndividual(individual, t) {
+        this.add_child(heading(t('pokemon_individual')));
+        this.add_child(statLine(t('level'), String(individual.level)));
+        this.add_child(statLine(t('gender'), individual.gender_text));
+        this.add_child(statLine(t('nature'), individual.nature_text));
+        this.add_child(statLine(t('ability'), individual.ability_text));
+
+        this.add_child(heading(t('actual_stats')));
+        for (const statRow of individual.stats ?? []) {
+            const meter = new Meter();
+            meter.setFraction(statRow.fraction);
+            this.add_child(row([
+                label(statRow.label, 'poketokenbar-statname'),
+                meter,
+                label(String(statRow.value), 'poketokenbar-value'),
+                label(`IV ${statRow.iv}`, 'poketokenbar-subtle'),
+            ]));
+        }
+
+        this.add_child(heading(t('known_moves')));
+        const moves = individual.moves ?? [];
+        if (moves.length === 0)
+            this.add_child(paragraph(t('no_level_moves'), 'poketokenbar-subtle'));
+        for (const knownMove of moves)
+            this.add_child(statLine(knownMove.name, `Lv. ${knownMove.level}`));
+    }
+
+    _addBaseStats(stats, t) {
+        this.add_child(heading(t('base_stats')));
+        for (const baseStat of stats) {
+            const meter = new Meter();
+            meter.setFraction(baseStat.fraction);
+            this.add_child(row([
+                label(baseStat.label, 'poketokenbar-statname'),
+                meter,
+                label(String(baseStat.value), 'poketokenbar-value'),
+            ]));
+        }
+    }
+
+    _addSpecies(detail, t) {
+        const species = detail.species;
+        if (!species)
+            return;
+        this.add_child(heading(t('species_data')));
+        this.add_child(row((species.types ?? []).map(name => badge(name, 'poketokenbar-badge-small'))));
+        this.add_child(statLine(t('height'), species.height_text));
+        this.add_child(statLine(t('weight'), species.weight_text));
+        this.add_child(statLine(t('base_stat_total'), String(species.base_total)));
+        this.add_child(heading(t('possible_abilities')));
+        this.add_child(paragraph((species.abilities ?? []).join(', '), 'poketokenbar-subtle'));
+
+        // A hundred rows is most of a Pokémon's page, so the full list waits
+        // to be asked for.
+        const toggle = button(
+            `${this._showingMoves ? '▾' : '▸'} ${
+                t('complete_move_list').replace('%1', String(detail.move_count ?? 0))}`,
+            () => {
+                this._showingMoves = !this._showingMoves;
+                this.update(this._state);
+            });
+        this.add_child(toggle);
+        if (this._showingMoves) {
+            for (const speciesMove of species.moves ?? [])
+                this.add_child(statLine(speciesMove.name, speciesMove.methods));
+        }
     }
 
     _buildPokedex(state) {
@@ -480,10 +645,9 @@ class CollectionSection extends Section {
         }
 
         this.add_child(label(`${entries.length} species`, 'poketokenbar-subtle'));
-        // What a tap on a cell does. It pins to the panel, which is not a
-        // thing a grid of sprites looks like it would do, and the tap that
-        // releases it is the same one — neither was written down anywhere.
-        this.add_child(paragraph(t('dex_pin_hint'), 'poketokenbar-subtle'));
+        // What a tap on a cell does: it opens the species' page, where the pin
+        // now lives, as upstream moved it there.
+        this.add_child(paragraph(t('dex_detail_hint'), 'poketokenbar-subtle'));
         const counts = state?.rarity_counts ?? {};
         const summary = ['legendary', 'rare', 'uncommon', 'common']
             .filter(key => counts[key])
@@ -555,10 +719,9 @@ class CollectionSection extends Section {
             parts.push(badge(t('pinned'), 'poketokenbar-badge-pinned'));
         const cell = column(parts, 'poketokenbar-dexcell');
 
-        // Tapping a cell pins that species to the panel; tapping the pinned
-        // one again releases it, which is the only way back to a panel that
-        // follows the companion. The daemon refuses a species the save does
-        // not own, so this cannot pin a ghost.
+        // Tapping a cell opens its page, which carries the pin and the way to
+        // release it. The daemon refuses a species the save does not own, so
+        // neither can reach a ghost.
         const clickable = new St.Button({
             style_class: dexEntry.is_pinned
                 ? 'poketokenbar-dexbutton poketokenbar-dexbutton-pinned'
@@ -566,8 +729,7 @@ class CollectionSection extends Section {
             can_focus: true,
             child: cell,
         });
-        clickable.connect('clicked', () =>
-            markSent(clickable, Commands.represent(dexEntry.species_id)));
+        clickable.connect('clicked', () => this._open(dexEntry.species_id));
         return clickable;
     }
 

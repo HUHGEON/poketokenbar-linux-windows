@@ -227,6 +227,14 @@ class Daemon:
                         self.notifier._send("PokeTokenBar", message)
                 except (TypeError, ValueError) as exc:
                     errors.append(f"represent: {exc}")
+            elif name == "inspect" and self.companion_store is not None:
+                args = command.get("args") or {}
+                raw = args.get("species_id")
+                try:
+                    species_id = None if raw in (None, "", "none") else int(raw)
+                    self.companion_store.inspect(species_id, retry=bool(args.get("retry")))
+                except (TypeError, ValueError) as exc:
+                    errors.append(f"inspect: {exc}")
             elif name in ("buy", "use") and self.companion_store is not None:
                 key = (command.get("args") or {}).get("key", "")
                 try:
@@ -389,6 +397,7 @@ class Daemon:
         if self._status_error:
             errors.append(self._status_error)
 
+        dex_rows = self.companion_store.dex_payload() if self.companion_store else None
         payload = state.build(
             daily_by_provider,
             self.config_values,
@@ -397,7 +406,7 @@ class Daemon:
             companion_payload=companion_payload,
             shop_payload=self.companion_store.shop_payload() if self.companion_store else None,
             bag_payload=self.companion_store.bag_payload() if self.companion_store else None,
-            dex_payload=self.companion_store.dex_payload() if self.companion_store else None,
+            dex_payload=dex_rows,
             catch_log=self.companion_store.catch_log_payload() if self.companion_store else None,
             rarity_counts=self.companion_store.rarity_counts() if self.companion_store else None,
             catch_counts=self.companion_store.catch_rarity_counts() if self.companion_store else None,
@@ -407,6 +416,7 @@ class Daemon:
             celebration=self.companion_store.celebration if self.companion_store else None,
             settings=self.settings_payload(),
             transfer=self.transfer_payload(),
+            detail=self.companion_store.detail_payload(dex_rows) if self.companion_store else None,
         )
         state.write(self.state_path, payload)
         # Cleared after publishing so the banner shows once rather than

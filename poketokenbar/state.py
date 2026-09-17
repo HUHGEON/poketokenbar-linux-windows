@@ -162,6 +162,7 @@ def build(
     celebration: dict | None = None,
     settings: dict | None = None,
     transfer: dict | None = None,
+    detail: dict | None = None,
 ) -> dict:
     total_tokens = sum(d.total_tokens for d in daily_by_provider.values())
     total_cost = sum(d.total_cost for d in daily_by_provider.values())
@@ -212,6 +213,8 @@ def build(
         "periods": _period_rows(periods),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
+        # The Pokédex page the popup has open, or {} for none.
+        "detail": detail or {},
         "burn": burn or {},
         "provider_status": provider_status or {},
         # What the settings page needs that only the daemon can answer: which

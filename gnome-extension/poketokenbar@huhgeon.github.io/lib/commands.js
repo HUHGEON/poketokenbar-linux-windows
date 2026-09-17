@@ -69,6 +69,10 @@ export const refresh = () => enqueue('refresh', {});
 export const reloadConfig = () => enqueue('reload_config', {});
 export const buy = key => enqueue('buy', {key});
 export const use = key => enqueue('use', {key});
+// Open a species' Pokédex page, or close it with null. `retry` asks again for
+// details that failed to load.
+export const inspect = (speciesId, retry = false) =>
+    enqueue('inspect', {species_id: speciesId === null ? 'none' : String(speciesId), retry});
 export const represent = speciesId =>
     enqueue('represent', {species_id: speciesId === null ? 'none' : String(speciesId)});
 export const exportSave = path => enqueue('export', {path});

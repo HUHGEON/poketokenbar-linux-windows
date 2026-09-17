@@ -238,3 +238,97 @@ def test_the_daemon_publishes_again_when_details_arrive(tmp_path, network):
     assert daemon._details_arrived()
     daemon._publish([], fresh_limits=False)
     assert mon.profile.ability_name == "oblivious"
+
+
+# MARK: the detail page
+
+
+def _page_store(tmp_path, network, **state):
+    api = _api(tmp_path, network)
+    loader = DetailLoader(api, start=False)
+    return _store(tmp_path, api, loader, **state), api, loader
+
+
+def test_only_an_owned_species_opens_a_page(tmp_path, network):
+    store, _, _ = _page_store(tmp_path, network)
+    store.inspect(79)
+    assert store.inspected_species_id is None
+    assert store.detail_payload() is None
+
+
+def test_the_page_loads_then_names_its_individuals_newest_first(tmp_path, network):
+    older = DexEntry(base_id=79, final_id=79, chain_order=[79], rarity=Rarity.COMMON,
+                     caught_at=1.0, profile=P.generate(1))
+    newer = DexEntry(base_id=79, final_id=79, chain_order=[79], rarity=Rarity.COMMON,
+                     caught_at=2.0, released_at=2.0, profile=P.generate(2))
+    mon = MonState(base_id=79, path_ids=[79], planned_path_ids=[79], nature="adamant",
+                   profile=P.generate(3))
+    store, _, loader = _page_store(tmp_path, network, active=mon, dex=[older, newer],
+                                   language="ko")
+    store.inspect(79)
+    assert store.detail_payload()["status"] == "loading"
+
+    loader.drain()
+    store.enrich_profiles()
+    page = store.detail_payload()
+    assert page["status"] == "ready"
+    labels = [(one["is_active"], one["is_released"]) for one in page["individuals"]]
+    assert labels == [(True, False), (False, True), (False, False)]
+    first = page["individuals"][0]
+    assert first["nature_text"] == "고집"
+    assert first["label"] == "#1 · Lv. 5"
+    assert [s["label"] for s in first["stats"]] == ["HP", "스피드"]
+    # Names are on their way: an ellipsis, never an English flash.
+    assert first["ability_text"] == "…"
+    assert page["species"]["types"] == ["…", "…"]
+
+    loader.drain()  # every names request fails: this fixture is offline for them
+    page = store.detail_payload()
+    assert page["individuals"][0]["ability_text"] == "Oblivious"
+    assert page["species"]["abilities"] == ["Oblivious", "Regenerator (숨김)"]
+    assert page["species"]["moves"] == [{"name": "Tackle", "methods": "Lv. 1"}]
+
+
+def test_a_failed_page_can_be_retried(tmp_path, network):
+    responses, _ = network
+    entry = DexEntry(base_id=80, final_id=80, chain_order=[80], rarity=Rarity.COMMON,
+                     profile=P.generate(1))
+    store, _, loader = _page_store(tmp_path, network, dex=[entry])
+    store.inspect(80)
+    loader.drain()
+    assert store.detail_payload()["status"] == "failed"
+
+    responses[f"{pokeapi.REST_BASE}/pokemon/80"] = RAW_POKEMON
+    responses[f"{pokeapi.REST_BASE}/pokemon-species/80"] = {"gender_rate": -1}
+    store.inspect(80, retry=True)
+    loader.drain()
+    assert store.detail_payload()["status"] == "ready"
+
+
+def test_an_earlier_stage_is_a_species_page_without_individuals(tmp_path, network):
+    entry = DexEntry(base_id=79, final_id=80, chain_order=[79, 80], rarity=Rarity.COMMON,
+                     profile=P.generate(1))
+    store, api, _ = _page_store(tmp_path, network, dex=[entry])
+    api.details(79)
+    store.inspect(79)
+    page = store.detail_payload()
+    assert page["individuals"] == []
+    assert [s["value"] for s in page["species"]["base_stats"]] == [90, 15]
+
+
+def test_the_inspect_command_opens_and_closes_the_page(tmp_path, network):
+    from poketokenbar import commands
+    from poketokenbar.daemon import Daemon
+
+    entry = DexEntry(base_id=79, final_id=79, chain_order=[79], rarity=Rarity.COMMON,
+                     profile=P.generate(1))
+    store, _, _ = _page_store(tmp_path, network, dex=[entry])
+    daemon = Daemon(state_path=tmp_path / "state.json", config_path=tmp_path / "config.json",
+                    cache=None, providers=[], companion_store=store)
+    daemon.spool = tmp_path / "spool"
+    daemon.poll_once()
+
+    commands.enqueue("inspect", {"species_id": "79"}, spool=daemon.spool)
+    assert daemon.react()["detail"]["species_id"] == 79
+    commands.enqueue("inspect", {"species_id": "none"}, spool=daemon.spool)
+    assert daemon.react()["detail"] == {}

@@ -50,6 +50,9 @@ class CompanionStore:
         # notification fires immediately but the banner needs a render pass.
         self.celebration: dict | None = None
         self.last_events: companion.GrowthEvents | None = None
+        # The species whose Pokédex page is open. Not saved: it is where the
+        # popup is looking, not progress.
+        self.inspected_species_id: int | None = None
 
     def migrate_profiles(self) -> None:
         """Give an older save's Pokémon their profiles, once.
@@ -110,6 +113,178 @@ class CompanionStore:
         if changed:
             self._persist()
         return changed
+
+    # --- the Pokédex detail page (upstream b6bf676) ----------------------------
+
+    def inspect(self, species_id: int | None, retry: bool = False) -> None:
+        """Open a species' page, or close it with None.
+
+        Only an owned species opens: the page is built from the save, and a
+        species nobody has would be a page of nothing.
+        """
+        if species_id is None or not self.state.owns_species(species_id):
+            self.inspected_species_id = None
+            return
+        self.inspected_species_id = species_id
+        if self.detail_loader is not None:
+            self.detail_loader.request_details(species_id, retry=retry)
+
+    def individuals(self, species_id: int) -> list[tuple[companion.DexEntry | None, object, bool]]:
+        """(dex entry or None for the companion, profile, is_shiny) for a species.
+
+        Ports pokemonIndividuals: the companion first when it is this species
+        now, then graduated and released individuals that ended as it, newest
+        first. An earlier stage of a line has no individual of its own; its
+        page is a species reference.
+        """
+        out = []
+        mon = self.state.active
+        if mon is not None and mon.profile is not None and mon.current_id == species_id:
+            shiny = mon.is_shiny and (mon.ditto_disguise is None or mon.ditto_revealed)
+            out.append((None, mon.profile, shiny))
+        stored = [e for e in self.state.dex if e.final_id == species_id and e.profile is not None]
+        stored.sort(key=lambda e: e.caught_at or 0, reverse=True)
+        out.extend((e, e.profile, e.is_shiny) for e in stored)
+        return out
+
+    def _resource_name(self, kind: str, slug: str) -> str:
+        """A type, ability or move in the UI language.
+
+        "…" while its name is on the way, as upstream 1a8a725 does, so the
+        page never flashes English first; the slug made readable when no
+        name will come.
+        """
+        language = self.state.language
+        lookup = getattr(self.api, "cached_resource_names", None)
+        names = lookup(kind, slug) if lookup is not None else None
+        if names:
+            resolved = l10n.resolve_name(names, language)
+            if resolved:
+                return resolved
+        elif self.detail_loader is not None:
+            self.detail_loader.request_names(kind, [slug])
+            if not self.detail_loader.names_failed(kind, slug):
+                return "\N{HORIZONTAL ELLIPSIS}"
+        return slug.replace("-", " ").title()
+
+    def _move_methods(self, move) -> str:
+        language = self.state.language
+        words = []
+        for method in move.learn_methods:
+            if method.method == "level-up":
+                word = f"Lv. {method.level}" if method.level > 0 else l10n.t("move_method_start", language)
+            elif method.method == "machine":
+                word = "TM"
+            elif method.method in ("egg", "tutor"):
+                word = l10n.t(f"move_method_{method.method}", language)
+            else:
+                word = method.method.replace("-", " ")
+            if word not in words:
+                words.append(word)
+        return " · ".join(words)
+
+    def detail_payload(self, dex_rows: list[dict] | None = None) -> dict | None:
+        """The open page, every label already in the UI language."""
+        species_id = self.inspected_species_id
+        if species_id is None:
+            return None
+        if not self.state.owns_species(species_id):
+            # Released by an import or a reveal while the page was open.
+            self.inspected_species_id = None
+            return None
+        language = self.state.language
+        t = lambda key: l10n.t(key, language)  # noqa: E731
+        row = next((r for r in dex_rows or [] if r.get("species_id") == species_id), {})
+        details = self.cached_details(species_id)
+        loader = self.detail_loader
+        if details is not None:
+            status = "ready"
+        elif loader is not None and loader.has_failed(species_id):
+            status = "failed"
+        else:
+            status = "loading"
+            if loader is not None:
+                loader.request_details(species_id)
+
+        individuals = []
+        found = self.individuals(species_id)
+        for index, (entry, individual, shiny) in enumerate(found):
+            nature = entry.nature if entry is not None else self.state.active.nature
+            # Enrichment already ran this publish (enrich_profiles), on the
+            # one path that saves what it changes.
+            ability = "—"
+            if individual.ability_name:
+                ability = self._resource_name("ability", individual.ability_name)
+                if individual.ability_is_hidden:
+                    ability = f"{ability} · {t('hidden_ability')}"
+            stats = []
+            if details is not None:
+                computed = profile.compute_stats(details, individual, nature)
+                scale = profile.display_scale_maximum([s.value for s in computed])
+                stats = [
+                    {"label": t("stat_" + s.name.replace("-", "_")), "value": s.value,
+                     "iv": s.iv, "fraction": round(s.value / scale, 4)}
+                    for s in computed
+                ]
+            individuals.append({
+                "instance_id": individual.instance_id,
+                "label": f"#{index + 1} · Lv. {individual.level}",
+                "is_active": entry is None,
+                "is_released": entry is not None and entry.is_released,
+                "is_shiny": shiny,
+                "level": individual.level,
+                "gender_text": t(f"gender_{individual.gender}") if individual.gender else "—",
+                "nature_text": l10n.nature_name(nature, language) or "—",
+                "ability_text": ability,
+                "stats": stats,
+                "moves": [
+                    {"name": self._resource_name("move", m.name), "level": m.learned_at_level}
+                    for m in individual.moves
+                ],
+            })
+
+        species = None
+        if details is not None:
+            species = {
+                "types": [self._resource_name("type", name) for name in details.types],
+                "height_text": f"{details.height / 10:.1f} m",
+                "weight_text": f"{details.weight / 10:.1f} kg",
+                "base_total": details.base_stat_total,
+                "base_stats": [
+                    {"label": t("stat_" + name.replace("-", "_")),
+                     "value": details.base_stats[name],
+                     "fraction": round(min(1.0, details.base_stats[name] / 300), 4)}
+                    for name in profile.STAT_ORDER if name in details.base_stats
+                ],
+                "abilities": [
+                    self._resource_name("ability", a.name)
+                    + (f" ({t('hidden')})" if a.is_hidden else "")
+                    for a in details.abilities
+                ],
+                "moves": [
+                    {"name": self._resource_name("move", m.name), "methods": self._move_methods(m)}
+                    for m in details.moves
+                ],
+            }
+
+        sprite = ""
+        if self.sprites is not None:
+            shiny = found[0][2] if found else bool(row.get("is_shiny"))
+            path = self.sprites.path(species_id, animated=True, shiny=shiny)
+            sprite = str(path) if path else ""
+        return {
+            "species_id": species_id,
+            "name": self.species_name(species_id, language) or f"#{species_id}",
+            "rarity": row.get("rarity", ""),
+            "is_shiny": bool(row.get("is_shiny")),
+            "is_raising": bool(row.get("is_raising")),
+            "is_pinned": self.state.representative_species_id == species_id,
+            "sprite_path": sprite,
+            "status": status,
+            "individuals": individuals,
+            "species": species,
+            "move_count": len(details.moves) if details is not None else 0,
+        }
 
     # --- usage -------------------------------------------------------------
 
@@ -434,6 +609,7 @@ class CompanionStore:
             "stage_threshold": threshold,
             # 2 on a repeat hatch, else None. Home badges it next to the stage.
             "growth_multiplier": mon.growth_multiplier if mon.has_growth_boost else None,
+            "level": mon.profile.level if mon.profile is not None else None,
             "stage_progress": round(min(1.0, mon.used_at_stage / threshold), 4)
             if threshold
             else 0.0,

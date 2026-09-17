@@ -86,6 +86,13 @@
   opacity: 200;
 }
 
+/* The stat name beside a bar on the Pokédex page: a fixed width, so the six
+   bars start at the same x and read as a chart rather than a list. */
+.poketokenbar-statname {
+  min-width: 64px;
+  font-size: 0.9em;
+}
+
 .poketokenbar-title {
   font-size: 1.2em;
   font-weight: bold;

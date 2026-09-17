@@ -300,6 +300,10 @@ class CollectionPanel(Panel):
         self._showing_log = False
         self._page = 0
         self._state: dict | None = None
+        # The species whose Pokédex page is open, and which individual.
+        self._inspecting: int | None = None
+        self._individual = 0
+        self._showing_moves = False
 
     def update(self, state: dict | None) -> None:
         self._state = state
@@ -308,14 +312,113 @@ class CollectionPanel(Panel):
             button(self.t("pokedex"), lambda: self._show(False)),
             button(self.t("catch_log"), lambda: self._show(True)),
         ))
-        if self._showing_log:
+        if self._inspecting is not None:
+            self._build_detail(state)
+        elif self._showing_log:
             self._build_log(state)
         else:
             self._build_dex(state)
 
     def _show(self, log: bool) -> None:
         self._showing_log = log
+        self._close(refresh=False)
         self.update(self._state)
+
+    def _open(self, species_id: int) -> None:
+        self._inspecting = species_id
+        self._individual = 0
+        self._showing_moves = False
+        commands.enqueue("inspect", {"species_id": str(species_id)})
+        self.update(self._state)
+
+    def _close(self, refresh: bool = True) -> None:
+        if self._inspecting is not None:
+            self._inspecting = None
+            commands.enqueue("inspect", {"species_id": "none"})
+        if refresh:
+            self.update(self._state)
+
+    def _pick(self, index: int) -> None:
+        self._individual = index
+        self.update(self._state)
+
+    def _toggle_moves(self) -> None:
+        self._showing_moves = not self._showing_moves
+        self.update(self._state)
+
+    def _build_detail(self, state: dict | None) -> None:
+        """The Pokédex page, as text: the same blocks the GNOME page shows."""
+        detail = (state or {}).get("detail") or {}
+        species_id = self._inspecting
+        self.add(row(button(f"‹ {self.t('detail_back')}", self._close),
+                     label(f"#{species_id}", dim=True)))
+        if detail.get("species_id") != species_id or detail.get("status") == "loading":
+            self.add(label(self.t("loading_pokemon_details"), dim=True))
+            return
+
+        sprite = Sprite(80)
+        sprite.set_path(detail.get("sprite_path") or None)
+        pinned = detail.get("is_pinned")
+        marks = " ".join(
+            word for word, on in (("✨", detail.get("is_shiny")),
+                                  (self.t("raising"), detail.get("is_raising"))) if on)
+        self.add(row(sprite, column(
+            label(detail.get("name", ""), bold=True, size=16),
+            label(f"{self.t(detail.get('rarity') or 'common')} {marks}".strip(), dim=True),
+            button(self.t("unpin") if pinned else self.t("pin_to_panel"),
+                   lambda _=False: commands.enqueue(
+                       "represent", {"species_id": "none" if pinned else str(species_id)})),
+        )))
+
+        if detail.get("status") == "failed":
+            self.add(label(self.t("pokemon_details_unavailable"), dim=True))
+            self.add(button(self.t("retry"), lambda _=False: commands.enqueue(
+                "inspect", {"species_id": str(species_id), "retry": True})))
+            return
+
+        individuals = detail.get("individuals") or []
+        if len(individuals) > 1:
+            self.add(row(*(
+                button(one["label"], lambda _=False, i=index: self._pick(i))
+                for index, one in enumerate(individuals))))
+        species = detail.get("species") or {}
+        if individuals:
+            one = individuals[min(self._individual, len(individuals) - 1)]
+            self.add(heading(self.t("pokemon_individual")))
+            for key, value in (("level", one.get("level")), ("gender", one.get("gender_text")),
+                               ("nature", one.get("nature_text")),
+                               ("ability", one.get("ability_text"))):
+                self.add(row(label(self.t(key), dim=True), label(str(value))))
+            self.add(heading(self.t("actual_stats")))
+            for stat in one.get("stats") or []:
+                self.add(row(label(stat["label"]), meter(stat["fraction"]),
+                             label(str(stat["value"])), label(f"IV {stat['iv']}", dim=True)))
+            self.add(heading(self.t("known_moves")))
+            if not one.get("moves"):
+                self.add(label(self.t("no_level_moves"), dim=True))
+            for move in one.get("moves") or []:
+                self.add(row(label(move["name"]), label(f"Lv. {move['level']}", dim=True)))
+        else:
+            self.add(heading(self.t("base_stats")))
+            for stat in species.get("base_stats") or []:
+                self.add(row(label(stat["label"]), meter(stat["fraction"]),
+                             label(str(stat["value"]))))
+        if not species:
+            return
+        self.add(heading(self.t("species_data")))
+        self.add(label(" · ".join(species.get("types") or [])))
+        for key, value in (("height", species.get("height_text")),
+                           ("weight", species.get("weight_text")),
+                           ("base_stat_total", species.get("base_total"))):
+            self.add(row(label(self.t(key), dim=True), label(str(value))))
+        self.add(heading(self.t("possible_abilities")))
+        self.add(label(", ".join(species.get("abilities") or []), dim=True))
+        self.add(button(
+            self.t("complete_move_list").replace("%1", str(detail.get("move_count", 0))),
+            self._toggle_moves))
+        if self._showing_moves:
+            for move in species.get("moves") or []:
+                self.add(row(label(move["name"]), label(move["methods"], dim=True)))
 
     def _build_dex(self, state: dict | None) -> None:
         entries = (state or {}).get("dex") or []
@@ -365,13 +468,9 @@ class CollectionPanel(Panel):
         # without the badge it is indistinguishable from a finished catch.
         if entry.get("is_raising"):
             parts.append(label(self.t("raising"), dim=True, size=9))
-        # Clicking pins it to the tray. The daemon refuses a species the save
-        # does not own, so this cannot pin a ghost.
-        parts.append(button(
-            "📌",
-            lambda _=False, sid=species: commands.enqueue(
-                "represent", {"species_id": str(sid)}),
-        ))
+        # Opens the species' page, which carries the pin. The daemon refuses a
+        # species the save does not own, so this cannot reach a ghost.
+        parts.append(button("ℹ", lambda _=False, sid=species: self._open(sid)))
         return column(*parts)
 
     def _build_log(self, state: dict | None) -> None:

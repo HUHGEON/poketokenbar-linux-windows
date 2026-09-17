@@ -17,9 +17,9 @@ from pathlib import Path
 
 import pytest
 
-from poketokenbar import limits, providers, state
+from poketokenbar import limits, profile, providers, state
 from poketokenbar.balance import Rarity
-from poketokenbar.companion import CompanionState, DexEntry, MonState
+from poketokenbar.companion import CompanionState, DexEntry, MonState, migrate_profiles
 from poketokenbar.companion_store import CompanionStore
 from poketokenbar.models import DailyUsage
 
@@ -34,6 +34,22 @@ class _StubSprites:
 
     def egg_path(self):
         return Path("/cache/egg.png")
+
+
+class _StubDetails:
+    """Cached details and names, so the Pokédex page fills every section."""
+
+    def cached_details(self, species_id):
+        return profile.PokemonDetails(
+            species_id, "stub", 10, 100, None, 4, ["water"],
+            {"hp": 50, "attack": 60}, [profile.AbilityOption("torrent", 1, False)],
+            [profile.MoveOption("tackle", [profile.LearnMethod("level-up", 1)])])
+
+    def cached_resource_names(self, kind, name):
+        return {"en": name}
+
+    def species(self, species_id):
+        return {"names": []}
 
 
 EXTENSION_DIR = (
@@ -65,6 +81,11 @@ def full_payload() -> dict:
         ),
         inventory={"rareCandy": 2, "shinyCharm": 1},
     )
+    migrate_profiles(store.state)
+    store.api = _StubDetails()
+    store.enrich_profiles()
+    store.inspect(5)
+    dex_rows = store.dex_payload()
     return state.build(
         {"claude_code": DailyUsage(date="2026-09-03", total_tokens=10, models={"m": 10})},
         {"show_tokens_in_menu": True, "show_cost_in_menu": True, "show_limit_in_menu": True},
@@ -72,7 +93,8 @@ def full_payload() -> dict:
         companion_payload=store.payload(),
         shop_payload=store.shop_payload(),
         bag_payload=store.bag_payload(),
-        dex_payload=store.dex_payload(),
+        dex_payload=dex_rows,
+        detail=store.detail_payload(dex_rows),
         catch_log=store.catch_log_payload(),
         rarity_counts=store.rarity_counts(),
         catch_counts=store.catch_rarity_counts(),
@@ -215,6 +237,7 @@ BLOCK_ACCESSORS = {
     "panel": r"panel(?:\?)?\.(\w+)",
     "limits": r"limits(?:\?)?\.(\w+)",
     "transfer": r"transfer(?:\?)?\.(\w+)",
+    "detail": r"detail(?:\?)?\.(\w+)",
 }
 
 
@@ -260,6 +283,13 @@ ROW_ACCESSORS = {
     "burnRow": "burn_window",
     "providerStatus": "provider_status",
     "config": "config",
+    "dexRow": "dex",
+    "individual": "detail_individual",
+    "statRow": "detail_stat",
+    "knownMove": "detail_known_move",
+    "baseStat": "detail_base_stat",
+    "species": "detail_species",
+    "speciesMove": "detail_species_move",
 }
 
 
@@ -302,6 +332,17 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name.startswith("detail_"):
+        detail = payload["detail"]
+        individual = detail["individuals"][0]
+        return set({
+            "detail_individual": individual,
+            "detail_stat": individual["stats"][0],
+            "detail_known_move": individual["moves"][0],
+            "detail_base_stat": detail["species"]["base_stats"][0],
+            "detail_species": detail["species"],
+            "detail_species_move": detail["species"]["moves"][0],
+        }[name])
     return set(payload[name][0])
 
 
