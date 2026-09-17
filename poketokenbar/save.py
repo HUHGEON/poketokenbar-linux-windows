@@ -107,6 +107,9 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         raised_seconds=raw.get("raised_seconds")
         if isinstance(raw.get("raised_seconds"), (int, float))
         else None,
+        released_at=raw.get("released_at")
+        if isinstance(raw.get("released_at"), (int, float))
+        else None,
     )
 
 
@@ -190,6 +193,7 @@ def encode(state: CompanionState) -> dict:
                 "nature": d.nature,
                 "caught_at": d.caught_at,
                 "raised_seconds": d.raised_seconds,
+                "released_at": d.released_at,
             }
             for d in state.dex
         ],

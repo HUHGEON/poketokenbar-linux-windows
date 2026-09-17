@@ -36,6 +36,25 @@ def test_roundtrip_preserves_everything(tmp_path):
     assert loaded.inventory == {"rareCandy": 2}
 
 
+def test_a_release_record_survives_a_roundtrip(tmp_path):
+    p = tmp_path / "companion.json"
+    state = _full_state()
+    state.dex[0].released_at = 1_789_000_000.0
+    save.save(state, p)
+    assert save.load(p).dex[0].released_at == 1_789_000_000.0
+
+
+def test_entries_saved_before_releases_read_as_graduations(tmp_path):
+    # No migration: an entry without released_at is a graduation.
+    p = tmp_path / "companion.json"
+    p.write_text(json.dumps({"dex": [
+        {"base_id": 1, "final_id": 3, "chain_order": [1, 2, 3], "rarity": "common"},
+    ]}), encoding="utf-8")
+    entry = save.load(p).dex[0]
+    assert entry.released_at is None
+    assert not entry.is_released
+
+
 def test_missing_file_yields_a_fresh_state(tmp_path):
     assert save.load(tmp_path / "nope.json").used_since_install == 0
 

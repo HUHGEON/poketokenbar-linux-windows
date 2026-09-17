@@ -601,6 +601,10 @@ class CollectionSection extends Section {
             ]);
             if (catchRecord.raising)
                 nameRow.add_child(badge(t('raising'), 'poketokenbar-badge-small'));
+            else if (catchRecord.released)
+                // Its species stay in the Pokedex; only this record says it
+                // was released before graduating.
+                nameRow.add_child(badge(t('dex_released'), 'poketokenbar-badge-small'));
             const details = column([
                 nameRow,
                 label(`${t(catchRecord.rarity ?? 'common')} · ${catchRecord.nature ?? ''} · ${

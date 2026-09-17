@@ -648,6 +648,7 @@ class CompanionStore:
                 "caught_at": e.caught_at,
                 "raised_text": _duration(e.raised_seconds),
                 "raising": False,
+                "released": e.is_released,
             }
             for e in self.state.dex
         ]
@@ -666,6 +667,7 @@ class CompanionStore:
                     "caught_at": mon.hatched_at,
                     "raised_text": "",
                     "raising": True,
+                    "released": False,
                 },
             )
         return out

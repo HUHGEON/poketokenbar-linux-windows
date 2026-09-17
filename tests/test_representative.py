@@ -96,13 +96,29 @@ def test_a_pin_on_an_owned_species_survives():
 
 
 def test_a_pin_on_a_species_no_longer_owned_is_dropped():
-    """Buying a fresh egg would otherwise strand a ghost species on the panel."""
+    """A companion that vanishes without a record (a hand-edited save) would
+    otherwise strand a ghost species on the panel."""
     state = CompanionState(active=raising(), representative_species_id=5)
     assert state.owns_species(5)
 
-    state.active = None  # released the companion for a fresh egg
+    state.active = None
     state.reconcile_representative()
     assert state.representative_species_id is None
+
+
+def test_a_pin_on_a_released_species_survives_the_egg():
+    """A shop egg now keeps the released companion in the dex, so the species
+    is still owned and the user's pin stays (upstream 60808c5)."""
+    subject = CompanionStore(api=None, sprite_store=None)
+    subject.state = CompanionState(active=raising(), representative_species_id=5)
+    subject.state.used_since_install = 10**12
+    subject.buy("egg")
+    assert subject.state.active is None
+    assert subject.state.representative_species_id == 5
+    rows = {r["species_id"]: r for r in subject.dex_payload()}
+    assert 5 in rows
+    assert rows[5]["is_raising"] is False
+    assert subject.catch_log_payload()[0]["released"] is True
 
 
 def test_a_hand_edited_save_cannot_pin_a_species_you_never_had():

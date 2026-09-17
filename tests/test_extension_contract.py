@@ -341,6 +341,7 @@ def test_catch_log_row_shape(payload):
     row = payload["catch_log"][0]
     assert set(row) == {
         "rarity", "nature", "is_shiny", "chain", "caught_at", "raised_text", "raising",
+        "released",
     }
     assert set(row["chain"][0]) == {"species_id", "name", "sprite_path"}
 

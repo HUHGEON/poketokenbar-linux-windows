@@ -401,6 +401,8 @@ class CollectionPanel(Panel):
             title = f"✨ {name}" if record.get("is_shiny") else name
             if record.get("raising"):
                 title = f"{title}  [{self.t('raising')}]"
+            elif record.get("released"):
+                title = f"{title}  [{self.t('dex_released')}]"
             details = column(
                 label(title),
                 label(

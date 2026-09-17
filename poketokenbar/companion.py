@@ -73,6 +73,14 @@ class DexEntry:
     # sort last rather than pretending to be ancient.
     caught_at: float | None = None
     raised_seconds: float | None = None
+    # Epoch seconds when a shop egg released this companion before it
+    # graduated. None is a graduation, which is also what every entry written
+    # before this field reads as, so old saves need no migration.
+    released_at: float | None = None
+
+    @property
+    def is_released(self) -> bool:
+        return self.released_at is not None
 
 
 @dataclass(slots=True)
@@ -266,6 +274,42 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
     state.pending_hatch_id = None
     state.egg_usage = 0
     return mon
+
+
+def release(state: CompanionState, mon: MonState, now: float | None = None) -> DexEntry:
+    """Record a companion a shop egg replaces, so its species stay in the dex.
+
+    Ports upstream's releasedDexEntry (60808c5). Buying an egg used to drop the
+    companion without a trace, which was the one way the Pokedex could shrink.
+
+    - Only reached forms are credited, the same prefix the dex lists while
+      raising. The planned path would make an egg a shortcut to evolutions
+      never reached.
+    - Shiny is recorded as currently shown, so releasing a disguised Ditto
+      does not reveal it.
+    - collected_finals is untouched: the line was not raised to its final
+      form, so it must not count toward completion or branch weighting.
+    """
+    import time as _time
+
+    now = _time.time() if now is None else now
+    # At least one form survives a damaged stage_index, as current_id does.
+    chain = list(mon.path_ids[: max(1, mon.stage_index + 1)]) or [mon.base_id]
+    entry = DexEntry(
+        base_id=mon.base_id,
+        # Named the way graduate names a revealed Ditto.
+        final_id=mon.current_id if mon.ditto_revealed else chain[-1],
+        chain_order=chain,
+        rarity=mon.rarity,
+        is_shiny=mon.is_shiny and (mon.ditto_disguise is None or mon.ditto_revealed),
+        nature=mon.nature,
+        # The catch log sorts on caught_at, so it is when the record was made.
+        caught_at=now,
+        raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
+        released_at=now,
+    )
+    state.dex.append(entry)
+    return entry
 
 
 def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> DexEntry:

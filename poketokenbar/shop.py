@@ -103,8 +103,9 @@ def buy(state: CompanionState, key: str) -> ItemResult:
     if state.active is None:
         raise ShopError("an egg needs a hatched companion to replace")
     _debit(state, entry.price)
-    # The discarded companion is NOT graduated: it never entered the dex and
-    # must not affect collected_finals either — as if it had never hatched.
+    # Released, not graduated: its reached forms stay in the dex, and
+    # collected_finals is left alone.
+    companion.release(state, state.active)
     state.active = None
     state.egg_usage = 0
     state.egg_tier = tier

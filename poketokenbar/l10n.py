@@ -131,6 +131,9 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "owned": ("Owned", "보유 중", "所持中", "En posesión",
         'En possession', 'Em posse', 'Im Besitz',
     ),
+    "dex_released": ("Released", "놓아줌", "逃がした", "Liberado",
+        "Relâché", "Solto", "Freigelassen",
+    ),
     "egg_shop_locked_hint": (
         "Available once your current egg hatches.",
         "지금 품고 있는 알이 부화하면 살 수 있어요.",

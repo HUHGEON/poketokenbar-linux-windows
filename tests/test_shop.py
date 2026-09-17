@@ -66,15 +66,40 @@ def test_shiny_charm_cannot_be_bought_twice():
         shop.buy(s, "shinyCharm")
 
 
-def test_buying_an_egg_discards_the_companion_without_dex_credit():
-    # A discarded companion must vanish as if never hatched — no dex entry and
-    # no collected_finals mark, or it would skew future branch diversity.
+def test_buying_an_egg_releases_the_companion_into_the_dex():
+    # Ports upstream 60808c5: the released companion stays in the dex so its
+    # species do not vanish, but it was not raised to its final form, so
+    # collected_finals (completion and branch weighting) is untouched.
     s = _with_mon(tokens=balance.FRESH_EGG_PRICE)
     shop.buy(s, "egg")
     assert s.active is None
-    assert s.dex == []
-    assert s.collected_finals == set()
     assert s.egg_usage == 0
+    assert len(s.dex) == 1
+    released = s.dex[0]
+    assert released.is_released
+    assert released.chain_order == [1]
+    assert released.caught_at == released.released_at
+    assert s.collected_finals == set()
+
+
+def test_a_release_credits_only_the_forms_reached():
+    # The planned path would make an egg a shortcut to evolutions never seen.
+    s = _with_mon(tokens=balance.FRESH_EGG_PRICE)
+    apply_usage(s, balance.phase_threshold(Rarity.COMMON, 3, 0))
+    assert s.active.stage_index == 1
+    shop.buy(s, "egg")
+    assert s.dex[0].chain_order == [1, 2]
+    assert s.dex[0].final_id == 2
+    assert not s.owns_species(3)
+
+
+def test_releasing_a_disguised_ditto_keeps_its_shininess_hidden():
+    # Recording the raw is_shiny would make releasing a way to see the reveal.
+    s = _with_mon(tokens=balance.FRESH_EGG_PRICE)
+    s.active.is_shiny = True
+    s.active.ditto_disguise = 1
+    shop.buy(s, "egg")
+    assert s.dex[0].is_shiny is False
 
 
 @pytest.mark.parametrize("key", ["egg", f"egg:{Rarity.UNCOMMON}", f"egg:{Rarity.RARE}"])
