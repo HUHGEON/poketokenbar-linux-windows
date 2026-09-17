@@ -13,7 +13,8 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import * as Commands from './commands.js';
-import {DEFAULT_QUALITY} from './framecap.js';
+import {DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
+import {isPowerSaver} from './power.js';
 import {Sprite} from './sprite.js';
 import {
     BagSection, CollectionSection, HomeSection, SettingsSection, ShopSection,
@@ -306,7 +307,8 @@ class Indicator extends PanelMenu.Button {
         // The sprite is decoration; the percentages are the point. Keep one
         // from taking the other with it.
         try {
-            this._sprite.setQuality(state?.config?.animation_quality ?? DEFAULT_QUALITY);
+            this._sprite.setQuality(effectiveQuality(
+                state?.config?.animation_quality ?? DEFAULT_QUALITY, isPowerSaver()));
             this._sprite.setPath(panel?.sprite_path || null);
         } catch (error) {
             logError(error, 'PokeTokenBar: panel sprite');

@@ -47,6 +47,21 @@ export function frameFloor(quality) {
     return FRAME_FLOORS[quality] ?? FRAME_FLOORS[DEFAULT_QUALITY];
 }
 
+/**
+ * The quality to draw at, given the system's power-saver mode (upstream
+ * 37763d3).
+ *
+ * A derived value that never touches the saved choice: power-saver caps a
+ * faster preset at "saver", a slower choice (or "off") is left alone, and
+ * leaving power-saver simply stops capping. There is nothing to restore, so
+ * nothing can be restored wrongly.
+ */
+export function effectiveQuality(quality, powerSaver) {
+    if (!powerSaver || frameFloor(quality) >= FRAME_FLOORS.saver)
+        return quality;
+    return 'saver';
+}
+
 // How many frames in a row have to match before a repeat counts as the loop
 // starting over rather than a pose the sprite strikes twice.
 export const LOOP_SIGNATURE = 3;

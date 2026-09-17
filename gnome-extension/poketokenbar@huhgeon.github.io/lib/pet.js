@@ -17,7 +17,8 @@ import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 
-import {DEFAULT_QUALITY} from './framecap.js';
+import {DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
+import {isPowerSaver} from './power.js';
 import {Sprite} from './sprite.js';
 
 // How far a press may travel and still count as a click rather than a drag.
@@ -84,7 +85,8 @@ class DesktopPet extends St.Widget {
         // The pet follows the panel, so a pinned species shows here too.
         this._sprite.setPath(state?.panel?.sprite_path || null);
         // Both always-visible surfaces share one setting, as they do upstream.
-        this._sprite.setQuality(state?.config?.animation_quality ?? DEFAULT_QUALITY);
+        this._sprite.setQuality(effectiveQuality(
+            state?.config?.animation_quality ?? DEFAULT_QUALITY, isPowerSaver()));
         this._tooltipText = state?.today?.tokens_grouped ?? '';
         if (this._tooltip.visible)
             this._showTooltip();

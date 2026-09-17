@@ -21,6 +21,7 @@ import * as Commands from './lib/commands.js';
 import * as Config from './lib/config.js';
 import {DesktopPet} from './lib/pet.js';
 import {Indicator} from './lib/indicator.js';
+import {PowerSaverWatch} from './lib/power.js';
 import {ReconnectWatch} from './lib/reconnect.js';
 import {clearFrameCache} from './lib/sprite.js';
 import {StateReader, bindTranslations} from './lib/state.js';
@@ -52,9 +53,16 @@ export default class PokeTokenBarExtension extends Extension {
         this._reconnect.report(this._network.network_available);
         this._networkHandler = this._network.connect('network-changed',
             (_monitor, available) => this._reconnect.report(available));
+
+        // Power-saver mode caps the sprites at the saver frame rate. Re-render
+        // on a flip so every sprite picks the new cap up at once.
+        this._power = new PowerSaverWatch(() => this._reader?.emit('changed'));
+        this._power.start();
     }
 
     disable() {
+        this._power?.stop();
+        this._power = null;
         if (this._networkHandler) {
             this._network.disconnect(this._networkHandler);
             this._networkHandler = 0;

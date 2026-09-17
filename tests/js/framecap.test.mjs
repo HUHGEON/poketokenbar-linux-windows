@@ -140,3 +140,13 @@ test('a single-frame sprite is unchanged by switching animation off', () => {
     const still = [{delay: 0, id: 'only'}];
     assert.deepEqual(capFrameRate(still, frameFloor(ANIMATION_OFF)), still);
 });
+
+test('power-saver caps a faster preset at saver and leaves slower ones alone', async () => {
+    const {effectiveQuality} = await import(
+        '../../gnome-extension/poketokenbar@huhgeon.github.io/lib/framecap.js');
+    assert.equal(effectiveQuality('smooth', true), 'saver');
+    assert.equal(effectiveQuality('balanced', true), 'saver');
+    assert.equal(effectiveQuality('saver', true), 'saver');
+    assert.equal(effectiveQuality(ANIMATION_OFF, true), ANIMATION_OFF);
+    assert.equal(effectiveQuality('smooth', false), 'smooth', 'the saved choice is untouched');
+});

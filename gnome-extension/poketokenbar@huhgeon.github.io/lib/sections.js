@@ -13,7 +13,8 @@ import St from 'gi://St';
 
 import * as Commands from './commands.js';
 import * as Config from './config.js';
-import {ANIMATION_OFF, DEFAULT_QUALITY} from './framecap.js';
+import {ANIMATION_OFF, DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
+import {isPowerSaver} from './power.js';
 import {LANGUAGES} from './languages.js';
 import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
@@ -124,7 +125,8 @@ class HomeSection extends Section {
         // never this one, which is the largest sprite the extension draws — so
         // turning the animation down, or off, left the companion on Home
         // moving exactly as before.
-        this._sprite.setQuality(state?.config?.animation_quality ?? DEFAULT_QUALITY);
+        this._sprite.setQuality(effectiveQuality(
+            state?.config?.animation_quality ?? DEFAULT_QUALITY, isPowerSaver()));
 
         // The daemon holds a celebration for exactly one poll, so it shows
         // once rather than staying up until the next hatch.
