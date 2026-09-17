@@ -12,12 +12,16 @@
  *     watching and the frames still cost a redraw.
  */
 
+import Gio from 'gi://Gio';
+
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import {Extension, gettext as _} from 'resource:///org/gnome/shell/extensions/extension.js';
 
+import * as Commands from './lib/commands.js';
 import * as Config from './lib/config.js';
 import {DesktopPet} from './lib/pet.js';
 import {Indicator} from './lib/indicator.js';
+import {ReconnectWatch} from './lib/reconnect.js';
 import {clearFrameCache} from './lib/sprite.js';
 import {StateReader, bindTranslations} from './lib/state.js';
 
@@ -40,9 +44,23 @@ export default class PokeTokenBarExtension extends Extension {
         // screen, where it is both invisible and a redraw per frame.
         this._lockHandler = Main.sessionMode.connect('updated', () => this._syncPaused());
         this._syncPaused();
+
+        // Back online after a suspend, a Wi-Fi switch or an outage: refresh at
+        // once instead of showing stale limits until the next poll.
+        this._network = Gio.NetworkMonitor.get_default();
+        this._reconnect = new ReconnectWatch(() => Commands.refresh());
+        this._reconnect.report(this._network.network_available);
+        this._networkHandler = this._network.connect('network-changed',
+            (_monitor, available) => this._reconnect.report(available));
     }
 
     disable() {
+        if (this._networkHandler) {
+            this._network.disconnect(this._networkHandler);
+            this._networkHandler = 0;
+        }
+        this._network = null;
+        this._reconnect = null;
         if (this._lockHandler) {
             Main.sessionMode.disconnect(this._lockHandler);
             this._lockHandler = 0;
