@@ -12,6 +12,7 @@ Windows a closed tray app that is still running is the normal shape.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
@@ -473,11 +474,22 @@ class TrayApp:
 
 
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform == "win32":
+        # Give this application its own taskbar identity instead of Python's.
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("PokeTokenBar.Desktop")
     app = QApplication(argv if argv is not None else sys.argv)
     # Closing the window leaves the tray icon behind rather than ending the
     # process, which is what a tray application is for.
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("PokeTokenBar")
+    root = Path(__file__).resolve().parents[2]
+    for icon_path in (root.parent / "poketokenbar.ico",
+                      root / "packaging" / "windows" / "poketokenbar.ico"):
+        if icon_path.is_file():
+            app.setWindowIcon(QIcon(str(icon_path)))
+            break
 
     tray = TrayApp(app)
     tray.start()

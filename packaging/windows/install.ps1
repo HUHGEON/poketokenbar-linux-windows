@@ -75,7 +75,7 @@ foreach ($name in $launchers.Keys) {
   Write-Host "    wrote $target"
 }
 
-# The icon the shortcuts wear — the companion's own egg, built by
+# The icon the shortcuts wear — the selected pixel Pokeball, built by
 # tools/make_icon.py and committed, so installing needs no network for it.
 if (-not (Test-Path $icon)) { $icon = $pyw }
 
