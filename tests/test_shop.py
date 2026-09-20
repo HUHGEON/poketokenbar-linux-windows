@@ -89,9 +89,12 @@ def test_premium_egg_records_its_guarantee():
 def test_candy_grows_the_companion():
     s = _with_mon()
     s.inventory["rareCandy"] = 1
-    before = s.active.used_at_stage
+    before = s.spendable_tokens
     shop.use_item(s, "rareCandy")
-    assert s.active.used_at_stage == before + balance.RARE_CANDY_XP
+    # 100M crosses the first two Plus stages (25M + 50M).
+    assert s.active.stage_index == 2
+    assert s.active.used_at_stage == 25_000_000
+    assert s.spendable_tokens == before  # candy cannot buy another candy
     assert s.inventory["rareCandy"] == 0
 
 

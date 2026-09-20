@@ -1,7 +1,8 @@
-"""Game balance — ports the constants in CompanionModel.swift verbatim.
+"""Game balance tuned for the lower token throughput of a Plus plan.
 
-These are tuned values with recorded reasoning in the Swift source. Changing
-one changes the game, so they are copied rather than re-derived.
+These are the Go/Plus baseline (one fifth of the original growth and prices).
+Pro uses a per-save multiplier of five, including candy effects. Grants and
+odds are independent of plan; never mutate module constants for an account.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from enum import StrEnum
 
 # Tokens the egg must absorb before it hatches. Overflow carries into the
 # hatchling rather than being discarded.
-EGG_HATCH_THRESHOLD = 5_000_000
+EGG_HATCH_THRESHOLD = 1_000_000
 
 
 class Rarity(StrEnum):
@@ -48,10 +49,10 @@ class Rarity(StrEnum):
 
 
 GRADUATION_TOTAL: dict[Rarity, int] = {
-    Rarity.COMMON: 750_000_000,
-    Rarity.UNCOMMON: 1_875_000_000,
-    Rarity.RARE: 3_000_000_000,
-    Rarity.LEGENDARY: 6_000_000_000,
+    Rarity.COMMON: 150_000_000,
+    Rarity.UNCOMMON: 375_000_000,
+    Rarity.RARE: 600_000_000,
+    Rarity.LEGENDARY: 1_200_000_000,
 }
 
 
@@ -59,7 +60,7 @@ def graduation_total(rarity: Rarity) -> int:
     return GRADUATION_TOTAL[Rarity(rarity)]
 
 
-def phase_threshold(rarity: Rarity, total_forms: int, stage_index: int) -> int:
+def phase_threshold(rarity: Rarity, total_forms: int, stage_index: int, multiplier: int = 1) -> int:
     """Tokens needed at a stage before the next evolution or graduation.
 
     Weighted so later stages cost more while the sum over all stages equals the
@@ -70,22 +71,22 @@ def phase_threshold(rarity: Rarity, total_forms: int, stage_index: int) -> int:
     i = stage_index + 1  # 1-based
     total = float(graduation_total(rarity))
     denom = (k * (k + 1)) / 2.0
-    return round(total * i / denom)
+    return round(total * i / denom) * multiplier
 
 
 # --- items -----------------------------------------------------------------
 
 RARE_CANDY_XP = 100_000_000
-RARE_CANDY_PRICE = 500_000_000
+RARE_CANDY_PRICE = 100_000_000
 RARE_CANDY_WEEKLY_GRANT = 5
 RARE_CANDY_SESSION_GRANT = 1
 
-MINT_PRICE = 100_000_000
+MINT_PRICE = 20_000_000
 
-SHINY_CHARM_PRICE = 3_000_000_000
+SHINY_CHARM_PRICE = 600_000_000
 SHINY_CHARM_DENOMINATOR = 48  # 1/64 -> 1/48 while held
 
-FRESH_EGG_PRICE = 1_000_000_000
+FRESH_EGG_PRICE = 200_000_000
 # Sold tiers: no guarantee, uncommon-or-better, rare-or-better. No legendary
 # egg — the floor cannot be expressed through capture_rate.
 EGG_SHOP_TIERS: list[Rarity | None] = [None, Rarity.UNCOMMON, Rarity.RARE]

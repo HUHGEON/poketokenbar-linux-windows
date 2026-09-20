@@ -10,8 +10,8 @@ from poketokenbar.balance import (
 )
 
 
-def test_egg_threshold_matches_swift():
-    assert EGG_HATCH_THRESHOLD == 5_000_000
+def test_plus_egg_threshold_is_one_fifth_of_swift():
+    assert EGG_HATCH_THRESHOLD == 1_000_000
 
 
 @pytest.mark.parametrize(
@@ -23,8 +23,9 @@ def test_egg_threshold_matches_swift():
         (Rarity.LEGENDARY, 6_000_000_000),
     ],
 )
-def test_graduation_totals_match_swift(rarity, total):
-    assert graduation_total(rarity) == total
+def test_pro_graduation_totals_match_swift(rarity, total):
+    assert graduation_total(rarity) * 5 == total
+    assert phase_threshold(rarity, 1, 0, multiplier=5) == total
 
 
 def test_phase_thresholds_sum_to_the_graduation_total():
@@ -43,7 +44,7 @@ def test_later_stages_cost_more():
 
 
 def test_single_form_line_needs_the_whole_total():
-    assert phase_threshold(Rarity.COMMON, 1, 0) == 750_000_000
+    assert phase_threshold(Rarity.COMMON, 1, 0) == 150_000_000
 
 
 # --- rarity ---------------------------------------------------------------
@@ -83,8 +84,8 @@ def test_plain_egg_price():
 
 
 def test_premium_egg_prices_follow_the_graduation_table():
-    assert egg_price(Rarity.UNCOMMON) == 2_500_000_000
-    assert egg_price(Rarity.RARE) == 4_000_000_000
+    assert egg_price(Rarity.UNCOMMON) == 500_000_000
+    assert egg_price(Rarity.RARE) == 800_000_000
 
 
 def test_higher_tier_egg_is_not_an_inferior_good():

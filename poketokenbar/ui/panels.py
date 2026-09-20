@@ -808,6 +808,9 @@ class SettingsPanel(Panel):
         ]))
         self.add(label(self.t("panel_all_off_hint"), faint=True, size=11, wrap=True))
 
+        self.add(heading(self.t("plan_balance")))
+        self.add(self._plan_row(state))
+
         self.add(heading(self.t("floating_pet")))
         self.add(self._group([
             self._toggle_row(values, "floating_pet_enabled"),
@@ -831,6 +834,28 @@ class SettingsPanel(Panel):
 
         self.add(self._update_row(state))
         self.add(self._about())
+
+    def _plan_row(self, state: dict | None) -> QWidget:
+        info = ((state or {}).get("settings") or {}).get("plan") or {}
+        combo = _combo()
+        combo.setObjectName("detected_plan")
+        combo.setAccessibleName(self.t("plan_balance"))
+        for value, title in (("", self.t("plan_unknown")), ("go", "Go"),
+                             ("plus", "Plus"), ("pro", "Pro (5x / 20x)"),
+                             ("pro_5x", "Pro 5x"), ("pro_20x", "Pro 20x")):
+            combo.addItem(title, value)
+        combo.setCurrentIndex(max(0, combo.findData(info.get("detected") or "")))
+        combo.setEnabled(False)
+        combo.setStyleSheet(combo.styleSheet() + f"QComboBox:disabled {{ color: {theme.SECONDARY}; }}")
+        combo.setCursor(Qt.ArrowCursor)
+        combo.setToolTip(self.t("plan_auto_hint"))
+        details = [self._shell("plan", self.t("plan"), combo),
+                   label(self.t("plan_auto_hint"), dim=True, size=11, wrap=True),
+                   label(self.fill("plan_scale", info.get("multiplier", 1)), dim=True, size=11, wrap=True)]
+        if info.get("status") != "detected":
+            key = "plan_checking" if info.get("status") == "checking" else "plan_unavailable"
+            details.append(label(self.t(key), dim=True, size=11, wrap=True))
+        return card(*details, horizontal=False, padding=12, spacing=8)
 
     def _update_row(self, state: dict | None) -> QWidget:
         """Whether a newer commit is published, and a button to take it.

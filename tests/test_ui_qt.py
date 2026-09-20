@@ -78,6 +78,32 @@ def reader(payload):
 PANEL_NAMES = ("home", "shop", "bag", "collection", "settings")
 
 
+@pytest.mark.parametrize("plan,status,multiplier", [
+    ("plus", "detected", 1), ("go", "detected", 1),
+    ("pro", "detected", 5), (None, "unavailable", 5),
+    (None, "checking", 1),
+])
+def test_plan_display_is_read_only(qt_app, reader, payload, plan, status, multiplier, monkeypatch):
+    from copy import deepcopy
+    from PySide6.QtWidgets import QComboBox
+    from poketokenbar.ui import panels
+
+    data = deepcopy(payload)
+    data.setdefault("settings", {})["plan"] = {
+        "detected": plan, "status": status, "multiplier": multiplier,
+    }
+    written = []
+    monkeypatch.setattr(panels.commands, "enqueue", lambda *args, **kwargs: written.append(args))
+    window = keep(Window(reader))
+    window.settings.update(data)
+    control = window.settings.findChild(QComboBox, "detected_plan")
+    assert control is not None and not control.isEnabled()
+    assert control.currentData() == (plan or "")
+    # Even programmatic selection has no connected write handler.
+    control.setCurrentIndex((control.currentIndex() + 1) % control.count())
+    assert written == []
+
+
 @pytest.mark.parametrize("name", PANEL_NAMES)
 def test_every_panel_renders_a_full_payload(qt_app, reader, payload, name):
     window = keep(Window(reader))

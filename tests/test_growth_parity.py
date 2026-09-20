@@ -1,4 +1,4 @@
-"""Growth, evolution and graduation, against the Swift balance table.
+"""Growth, evolution and graduation, with the Plus baseline and Pro scale.
 
 The constants are copied from CompanionModel.swift and checked here value by
 value, because a number that drifts changes the game silently — nothing fails,
@@ -20,7 +20,7 @@ from poketokenbar.companion import (
 
 
 def test_the_egg_threshold_matches():
-    assert balance.EGG_HATCH_THRESHOLD == 5_000_000
+    assert balance.EGG_HATCH_THRESHOLD * 5 == 5_000_000
 
 
 @pytest.mark.parametrize("rarity,total", [
@@ -30,7 +30,7 @@ def test_the_egg_threshold_matches():
     (Rarity.LEGENDARY, 6_000_000_000),
 ])
 def test_graduation_totals_match(rarity, total):
-    assert balance.graduation_total(rarity) == total
+    assert balance.graduation_total(rarity) * 5 == total
 
 
 @pytest.mark.parametrize("rarity,ceiling", [
@@ -43,28 +43,25 @@ def test_capture_rate_ceilings_match(rarity, ceiling):
 
 def test_the_item_prices_match():
     assert balance.RARE_CANDY_XP == 100_000_000
-    assert balance.RARE_CANDY_PRICE == 500_000_000
+    assert balance.RARE_CANDY_PRICE * 5 == 500_000_000
     assert balance.RARE_CANDY_WEEKLY_GRANT == 5
-    assert balance.MINT_PRICE == 100_000_000
-    assert balance.SHINY_CHARM_PRICE == 3_000_000_000
+    assert balance.MINT_PRICE * 5 == 100_000_000
+    assert balance.SHINY_CHARM_PRICE * 5 == 3_000_000_000
     assert balance.SHINY_CHARM_DENOMINATOR == 48
-    assert balance.FRESH_EGG_PRICE == 1_000_000_000
+    assert balance.FRESH_EGG_PRICE * 5 == 1_000_000_000
     assert balance.SHINY_DENOMINATOR == 64
     assert balance.DITTO_DISGUISE_DENOMINATOR == 128
     assert balance.DITTO_SPECIES_ID == 132
     assert balance.EGG_SHOP_TIERS == [None, Rarity.UNCOMMON, Rarity.RARE]
 
 
-def test_a_candy_can_never_advance_two_stages():
-    """The Swift note on RareCandy.xp: it is below the smallest phase threshold
-    (a one-form common line at 125M... in fact the smallest is a three-form
-    common's first stage) so one candy is at most one evolution — no chain
-    reaction, no runaway graduation."""
-    smallest = min(
-        balance.phase_threshold(rarity, forms, 0)
-        for rarity in Rarity for forms in (1, 2, 3, 4)
-    )
-    assert balance.RARE_CANDY_XP < smallest * 2
+def test_candy_relative_value_is_identical_across_plans():
+    """The existing 100M Plus candy is intentionally stronger than upstream."""
+    for rarity in Rarity:
+        for forms in (1, 2, 3, 4):
+            plus = balance.RARE_CANDY_XP / balance.phase_threshold(rarity, forms, 0)
+            pro = balance.RARE_CANDY_XP * 5 / balance.phase_threshold(rarity, forms, 0, 5)
+            assert plus == pro
 
 
 # MARK: the phase weighting
@@ -88,18 +85,18 @@ def test_later_stages_cost_more(rarity):
 
 def test_the_weighting_matches_the_swift_formula():
     """T·i / (k(k+1)/2), spelled out for the shapes a real line takes."""
-    assert balance.phase_threshold(Rarity.COMMON, 3, 0) == 125_000_000
-    assert balance.phase_threshold(Rarity.COMMON, 3, 1) == 250_000_000
-    assert balance.phase_threshold(Rarity.COMMON, 3, 2) == 375_000_000
-    assert balance.phase_threshold(Rarity.COMMON, 2, 0) == 250_000_000
-    assert balance.phase_threshold(Rarity.COMMON, 2, 1) == 500_000_000
-    assert balance.phase_threshold(Rarity.COMMON, 1, 0) == 750_000_000
-    assert balance.phase_threshold(Rarity.RARE, 3, 1) == 1_000_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 3, 0, 5) == 125_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 3, 1, 5) == 250_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 3, 2, 5) == 375_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 2, 0, 5) == 250_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 2, 1, 5) == 500_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 1, 0, 5) == 750_000_000
+    assert balance.phase_threshold(Rarity.RARE, 3, 1, 5) == 1_000_000_000
 
 
 def test_a_zero_form_line_is_treated_as_one():
     """max(1, k) in the Swift — and a zero here would be a division by zero."""
-    assert balance.phase_threshold(Rarity.COMMON, 0, 0) == 750_000_000
+    assert balance.phase_threshold(Rarity.COMMON, 0, 0, 5) == 750_000_000
 
 
 # MARK: growth

@@ -14,6 +14,12 @@ LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de")
 
 # key: (en, ko, ja, es)
 STRINGS: dict[str, tuple[str, ...]] = {
+    "plan_balance": ("Codex plan & growth", "Codex 요금제·성장 배율", "Codex プランと成長", "Plan Codex y crecimiento", "Forfait Codex et progression", "Plano Codex e crescimento", "Codex-Tarif und Wachstum"),
+    "plan_auto_hint": ("Detected automatically. Manual selection is unavailable.", "자동 감지한 요금제입니다. 직접 선택할 수 없습니다.", "自動検出されます。手動では選択できません。", "Detección automática. No se puede seleccionar manualmente.", "Détection automatique. Sélection manuelle indisponible.", "Detecção automática. Seleção manual indisponível.", "Automatisch erkannt. Keine manuelle Auswahl möglich."),
+    "plan_scale": ("Growth, candy & prices: ×%1 (Plus = 1)", "경험치 통·사탕·가격: ×%1 (Plus 기준)", "成長・アメ・価格：×%1（Plus 基準）", "Crecimiento, caramelos y precios: ×%1 (Plus = 1)", "Progression, bonbons et prix : ×%1 (Plus = 1)", "Crescimento, doces e preços: ×%1 (Plus = 1)", "Wachstum, Bonbons und Preise: ×%1 (Plus = 1)"),
+    "plan_checking": ("Checking Codex account…", "Codex 계정 확인 중…", "Codex アカウントを確認中…", "Comprobando cuenta Codex…", "Vérification du compte Codex…", "Verificando conta Codex…", "Codex-Konto wird geprüft…"),
+    "plan_unavailable": ("Plan unavailable. Keeping the current scale; new saves use Plus scale.", "요금제를 확인하지 못해 기존 배율을 유지합니다. 새 저장은 Plus 배율로 시작합니다.", "プランを確認できません。現在の倍率を維持し、新規データは Plus 倍率を使います。", "Plan no disponible. Se mantiene la escala actual; las partidas nuevas usan Plus.", "Forfait indisponible. Le coefficient actuel est conservé ; les nouvelles parties utilisent Plus.", "Plano indisponível. Mantém a escala atual; novos jogos usam Plus.", "Tarif nicht verfügbar. Bisheriger Faktor bleibt; neue Spielstände nutzen Plus."),
+    "plan_unknown": ("Not detected", "미확인", "未検出", "No detectado", "Non détecté", "Não detectado", "Nicht erkannt"),
     # tabs
     "home": ("Home", "홈", "ホーム", "Inicio",
         'Accueil', 'Início', 'Start',

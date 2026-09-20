@@ -49,6 +49,8 @@ def entries(state: CompanionState) -> list[ShopEntry]:
             Rarity.RARE: "Rare Egg",
         }[tier]
         out.append(ShopEntry(key, "egg", balance.egg_price(tier), label))
+    for entry in out:
+        entry.price *= state.balance_multiplier
     return sorted(out, key=lambda e: e.price)
 
 
@@ -98,7 +100,10 @@ def use_item(state: CompanionState, key: str, rng=None) -> str:
         state.inventory[key] = held - 1
         # Routed through apply_usage so carry-over, evolution, and graduation
         # all behave exactly as they do for real usage.
-        companion.apply_usage(state, balance.RARE_CANDY_XP, rng=rng)
+        companion.apply_usage(
+            state, balance.RARE_CANDY_XP * state.balance_multiplier,
+            rng=rng, credit_wallet=False,
+        )
         return "used Rare Candy"
 
     if key == "mint":

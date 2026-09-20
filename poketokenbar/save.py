@@ -112,6 +112,10 @@ def _decode_dex_entry(raw) -> DexEntry | None:
 
 def decode(raw: dict) -> CompanionState:
     state = CompanionState()
+    multiplier = raw.get("balance_multiplier")
+    state.balance_multiplier = multiplier if type(multiplier) is int and multiplier in (1, 5) else 1
+    plan = raw.get("detected_plan")
+    state.detected_plan = plan if plan in ("go", "plus", "pro", "pro_5x", "pro_20x") else None
     state.install_baseline_set = _lenient(raw, "install_baseline_set", bool, False)
     state.used_since_install = _lenient(raw, "used_since_install", int, 0)
     state.spent_tokens = _lenient(raw, "spent_tokens", int, 0)
@@ -171,6 +175,8 @@ def encode(state: CompanionState) -> dict:
 
     return {
         "install_baseline_set": state.install_baseline_set,
+        "balance_multiplier": state.balance_multiplier,
+        "detected_plan": state.detected_plan,
         "used_since_install": state.used_since_install,
         "spent_tokens": state.spent_tokens,
         "egg_usage": state.egg_usage,

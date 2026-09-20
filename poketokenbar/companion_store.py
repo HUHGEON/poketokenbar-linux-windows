@@ -15,6 +15,7 @@ from pathlib import Path
 from . import balance, companion, l10n, pokeapi, save, shop, sprites
 from .companion import CompanionState
 from .format import compact as _compact
+from .plan import MULTIPLIERS
 
 
 def _duration(seconds: float | None) -> str:
@@ -47,6 +48,36 @@ class CompanionStore:
         self.last_events: companion.GrowthEvents | None = None
 
     # --- usage -------------------------------------------------------------
+
+    def apply_plan(self, detected: str | None) -> bool:
+        """Change progress units once, without manufacturing real usage.
+
+        An unavailable account keeps the saved scale. Raw provider baselines
+        and the earned/spent token ledger are not progress and stay untouched.
+        """
+        if detected not in MULTIPLIERS:
+            return False
+        multiplier = MULTIPLIERS[detected]
+        previous = self.state.balance_multiplier
+        if multiplier == previous and self.state.detected_plan == detected:
+            return False
+
+        from copy import deepcopy
+
+        updated = deepcopy(self.state)
+        if multiplier != previous:
+            # Floor only when converting to smaller units: repeated switches
+            # must never generate XP through rounding. Loss is < one XP.
+            updated.egg_usage = updated.egg_usage * multiplier // previous
+            if updated.active is not None:
+                updated.active.used_at_stage = updated.active.used_at_stage * multiplier // previous
+        updated.balance_multiplier = multiplier
+        updated.detected_plan = detected
+        # Commit to disk before replacing the live state. A failed write must
+        # not leave purchases on a scale that will disappear on restart.
+        save.save(updated, self.save_path)
+        self.state = updated
+        return True
 
     def update(self, totals_by_provider: dict[str, int], today: str | None = None) -> None:
         """Credit the growth of today's usage since the last update."""
@@ -280,7 +311,7 @@ class CompanionStore:
             self.state, today_tokens, limit_warning, just_evolved=just_evolved)
         mon = self.state.active
         if mon is None:
-            progress = min(1.0, self.state.egg_usage / balance.EGG_HATCH_THRESHOLD)
+            progress = min(1.0, self.state.egg_usage / (balance.EGG_HATCH_THRESHOLD * self.state.balance_multiplier))
             return {
                 "stage": "egg",
                 "label": f"\N{EGG}{round(progress * 100)}%",
@@ -300,7 +331,7 @@ class CompanionStore:
                 **self._panel_fields(),
             }
 
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index, self.state.balance_multiplier)
         # Remaining to the NEXT step: an evolution mid-line, graduation at the end.
         remaining = max(0, threshold - mon.used_at_stage)
         evo_line = []
@@ -386,7 +417,7 @@ class CompanionStore:
         names = balance.ITEM_STRINGS.get(key)
         if names is None:
             return balance.ITEM_LABEL.get(key, key), "", ""
-        experience = _compact(balance.RARE_CANDY_XP)
+        experience = _compact(balance.RARE_CANDY_XP * self.state.balance_multiplier)
         resolved = [l10n.t(name, language).replace("%1", experience) for name in names]
         return resolved[0], resolved[1], resolved[2]
 

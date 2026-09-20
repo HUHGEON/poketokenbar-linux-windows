@@ -34,13 +34,14 @@ from .pokeapi import PokeAPI
 from .sprites import SpriteStore
 from .cache import ScanCache
 from .models import DailyUsage
+from .plan import PlanSource
 
 
 class Daemon:
     def __init__(
         self, state_path: Path, config_path: Path, cache, providers,
         limits_source=None, companion_store=None, notifier=None,
-        burn_tracker=None, status_checker=None, updater=None,
+        burn_tracker=None, status_checker=None, updater=None, plan_source=None,
     ) -> None:
         self.state_path = state_path
         self.config_path = config_path
@@ -52,6 +53,7 @@ class Daemon:
         self.notifier = notifier
         self.burn = burn_tracker
         self.updater = updater
+        self.plan_source = plan_source
         # Which account the last limits belonged to. Switching accounts changes
         # what the percentages mean, so cached limits and burn history from the
         # previous account must not carry over.
@@ -134,10 +136,25 @@ class Daemon:
                     else 0,
                 }
             )
-        return {"providers": rows}
+        companion = self.companion_store.state if self.companion_store else None
+        return {"providers": rows, "plan": {
+            "detected": self.plan_source.current if self.plan_source else None,
+            "status": self.plan_source.status if self.plan_source else "unavailable",
+            "multiplier": companion.balance_multiplier if companion else 1,
+        }}
 
     def poll_once(self) -> dict:
         errors: list[str] = []
+        detected_plan = None
+        if self.plan_source is not None:
+            try:
+                detected_plan = self.plan_source.get()
+                if self.companion_store is not None:
+                    self.companion_store.apply_plan(detected_plan)
+            except Exception:
+                # Do not include account/helper errors: they may contain
+                # private account fields. A lookup cannot break the tracker.
+                errors.append("plan: unable to apply detected balance")
         for command in commands.drain(spool=self.spool):
             name = command.get("name")
             if name == "refresh":
@@ -181,7 +198,12 @@ class Daemon:
                         )
                         message = f"exported to {written}"
                     else:
-                        self.companion_store.state = transfer.import_from(Path(target))
+                        self.companion_store.state = transfer.import_from(
+                            Path(target), target=self.companion_store.save_path
+                        )
+                        # An imported save carries its own units. Convert before
+                        # a later buy/use command in the same batch can run.
+                        self.companion_store.apply_plan(detected_plan)
                         message = "save imported"
                     if self.notifier is not None:
                         self.notifier._send("PokeTokenBar", message)
@@ -369,7 +391,7 @@ class Daemon:
             while waited < interval:
                 time.sleep(min(2, interval - waited))
                 waited += 2
-                if self._has_commands():
+                if self._has_commands() or (self.plan_source is not None and self.plan_source.ready):
                     break
 
     def _has_commands(self) -> bool:
@@ -394,6 +416,7 @@ def main() -> int:
         burn_tracker=BurnTracker(),
         status_checker=StatusChecker(),
         updater=updater_module.Updater(),
+        plan_source=PlanSource(),
     )
     # The daemon owns the live config, so it is what answers the providers'
     # extra-folders lookup — reading it per call, not once at startup.

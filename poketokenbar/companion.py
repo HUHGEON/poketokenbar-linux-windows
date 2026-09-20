@@ -174,6 +174,9 @@ class DexEntry:
 
 @dataclass(slots=True)
 class CompanionState:
+    # Persist the scale with progress, so restart/import cannot scale it twice.
+    balance_multiplier: int = 1
+    detected_plan: str | None = None
     # Tokens are only counted from install onward.
     install_baseline_set: bool = False
     used_since_install: int = 0
@@ -384,6 +387,7 @@ def apply_usage(
     tokens: int,
     line_for_egg=None,
     rng: random.Random | None = None,
+    credit_wallet: bool = True,
 ) -> GrowthEvents:
     """Feed tokens to the companion.
 
@@ -395,18 +399,19 @@ def apply_usage(
         return events
     rng = rng or random.Random()
 
-    state.used_since_install += tokens
+    if credit_wallet:
+        state.used_since_install += tokens
 
     # --- egg ---
     if state.active is None:
         state.egg_usage += tokens
-        if state.egg_usage < balance.EGG_HATCH_THRESHOLD:
+        if state.egg_usage < balance.EGG_HATCH_THRESHOLD * state.balance_multiplier:
             return events
         if line_for_egg is None:
             # No species data (offline). Hold the tokens in the egg and hatch
             # once a line is available — never discard progress.
             return events
-        overflow = state.egg_usage - balance.EGG_HATCH_THRESHOLD
+        overflow = state.egg_usage - balance.EGG_HATCH_THRESHOLD * state.balance_multiplier
         mon = hatch(state, line_for_egg, rng)
         events.hatched = mon.current_id
         tokens = overflow
@@ -420,7 +425,7 @@ def apply_usage(
     # nonsensical total_forms drives the threshold towards zero, and a zero
     # threshold is an evolution on every iteration forever.
     for _ in range(MAX_GROWTH_STEPS):
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index, state.balance_multiplier)
         if mon.used_at_stage < threshold:
             break
 

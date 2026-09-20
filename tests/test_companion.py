@@ -39,9 +39,9 @@ def _rng():
 
 def test_egg_absorbs_tokens_without_hatching_early():
     s = _state()
-    apply_usage(s, 1_000_000, line_for_egg=_line(), rng=_rng())
+    apply_usage(s, 500_000, line_for_egg=_line(), rng=_rng())
     assert s.active is None
-    assert s.egg_usage == 1_000_000
+    assert s.egg_usage == 500_000
 
 
 def test_egg_hatches_at_the_threshold():
