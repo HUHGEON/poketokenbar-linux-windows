@@ -17,6 +17,7 @@ import json
 import os
 import shutil
 import subprocess
+from .processes import background_options
 import sys
 import tempfile
 import time
@@ -203,6 +204,7 @@ class Updater:
         result = subprocess.run(
             [sys.executable, "-m", "compileall", "-q", str(tree / "poketokenbar")],
             capture_output=True, text=True,
+            **background_options(),
         )
         if result.returncode != 0:
             raise UpdateError(f"the download does not compile: {result.stdout.strip()}")

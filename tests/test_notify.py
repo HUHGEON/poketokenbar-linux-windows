@@ -77,6 +77,14 @@ def test_windows_are_tracked_independently():
 # MARK: per-platform delivery
 
 
+def test_notification_process_hides_console(monkeypatch):
+    calls = []
+    monkeypatch.setattr(notify, "background_options", lambda: {"creationflags": 0x08000000})
+    monkeypatch.setattr(notify.subprocess, "run", lambda *args, **kwargs: calls.append(kwargs))
+    assert notify._run(["powershell", "-NonInteractive"])
+    assert calls[0]["creationflags"] == 0x08000000
+
+
 def test_each_platform_uses_its_own_route(monkeypatch):
     """A tracker must not stop counting because it could not post a toast, so
     the backend is chosen rather than assumed."""

@@ -22,6 +22,7 @@ import subprocess
 import sys
 
 from . import l10n
+from .processes import background_options
 
 APP_NAME = "PokeTokenBar"
 ICON = "utilities-system-monitor"
@@ -42,6 +43,7 @@ def _run(command: list[str]) -> bool:
             timeout=TIMEOUT_SECONDS,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **background_options(),
         )
         return True
     except (OSError, subprocess.SubprocessError):
