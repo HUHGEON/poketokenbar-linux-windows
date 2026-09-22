@@ -254,7 +254,13 @@ class Window(QWidget):
                 # visible changed and puts the scroll position back when it
                 # does not.
                 panel.refresh(state)
-        self.footer.setText(self._footer_text(state))
+        self.refresh_footer(state)
+
+    def refresh_footer(self, state: dict | None) -> None:
+        """Refresh only the clock/error line when the state file is unchanged."""
+        text = self._footer_text(state)
+        if self.footer.text() != text:
+            self.footer.setText(text)
 
     def _footer_text(self, state: dict | None) -> str:
         if self.reader.error:
@@ -296,6 +302,11 @@ class TrayApp:
         self.window = Window(self.reader)
         self._sprite_path: str | None = None
         self._tooltip_text = ""
+        # StateReader returns the same dict object while the file signature is
+        # unchanged.  Remembering that identity lets the two-second UI tick do
+        # almost no work between the daemon's much slower scans.
+        self._last_polled_state = object()
+        self._last_reader_error: str | None = None
         self._quality = DEFAULT_QUALITY
         # Pre-rendered (icon, hold) pairs and the timer that cycles them.
         self._icon_frames: list = []
@@ -402,11 +413,25 @@ class TrayApp:
 
     def poll(self) -> None:
         state = self.reader.read()
-        self._relabel_menu()
-        self._update_tray(state)
-        self._sync_pet(state)
-        if self.window.isVisible():
-            self.window.refresh(state)
+        changed = (
+            state is not self._last_polled_state
+            or self.reader.error != self._last_reader_error
+        )
+        self._last_polled_state = state
+        self._last_reader_error = self.reader.error
+
+        if changed:
+            self._relabel_menu()
+            self._update_tray(state)
+            self._sync_pet(state)
+            if self.window.isVisible():
+                self.window.refresh(state)
+        else:
+            # Keep the old recovery guarantee without rebuilding sprites,
+            # menus or panel fingerprints when no data has changed.
+            self._reassert_pet()
+            if self.window.isVisible():
+                self.window.refresh_footer(state)
 
     def _sync_pet(self, state: dict | None) -> None:
         """Create, update or remove the pet to match the daemon's settings.

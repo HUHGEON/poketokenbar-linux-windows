@@ -273,6 +273,40 @@ def test_polling_an_absent_state_file_does_not_raise(qt_app, tmp_path):
     assert subject.error
 
 
+def test_an_unchanged_state_skips_expensive_ui_updates(qt_app, payload, monkeypatch):
+    """The UI ticks every two seconds; the daemon normally writes every two minutes."""
+    subject = StateReader()
+    subject.state = payload
+    monkeypatch.setattr(subject, "read", lambda: subject.state)
+    tray = keep(TrayApp(qt_app, subject))
+    calls = {"menu": 0, "tray": 0, "pet": 0, "recover": 0}
+
+    for name, key in (("_relabel_menu", "menu"), ("_update_tray", "tray"),
+                      ("_sync_pet", "pet"), ("_reassert_pet", "recover")):
+        monkeypatch.setattr(
+            tray, name, lambda *args, key=key: calls.__setitem__(key, calls[key] + 1))
+
+    tray.poll()
+    tray.poll()
+
+    assert calls == {"menu": 1, "tray": 1, "pet": 1, "recover": 1}
+
+
+def test_reader_error_change_still_refreshes_the_ui(qt_app, payload, monkeypatch):
+    subject = StateReader()
+    subject.state = payload
+    monkeypatch.setattr(subject, "read", lambda: subject.state)
+    tray = keep(TrayApp(qt_app, subject))
+    updates = []
+    monkeypatch.setattr(tray, "_update_tray", lambda state: updates.append(state))
+
+    tray.poll()
+    subject.error = "state broke"
+    tray.poll()
+
+    assert len(updates) == 2
+
+
 # MARK: widgets
 
 

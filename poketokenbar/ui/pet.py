@@ -105,8 +105,10 @@ class DesktopPet(QWidget):
         self.sprite.set_quality(quality_of(config))
 
         today = (state or {}).get("today") or {}
-        self._tooltip_text = today.get("tokens_grouped", "")
-        self.setToolTip(self._tooltip_text)
+        tooltip = today.get("tokens_grouped", "")
+        if tooltip != self._tooltip_text:
+            self._tooltip_text = tooltip
+            self.setToolTip(tooltip)
 
     def place(self, x: int, y: int) -> None:
         """Move the pet, keeping it reachable on some screen.
