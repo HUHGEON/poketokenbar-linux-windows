@@ -11,7 +11,7 @@ import json
 import time
 from pathlib import Path
 
-from .. import state as state_module
+from .. import l10n, state as state_module
 
 # How stale the file may get before the UI says the daemon looks stopped. The
 # daemon's own default refresh is 120s, so this is several missed polls.
@@ -29,11 +29,16 @@ class StateReader:
         self.path = path or state_module.default_path()
         self._clock = clock
         self._parse_failures = 0
+        self._signature: tuple[int, int, int] | None = None
         self.state: dict | None = None
         self.error: str = ""
 
     def read(self) -> dict | None:
         try:
+            stat = self.path.stat()
+            signature = (stat.st_mtime_ns, stat.st_size, getattr(stat, "st_ino", 0))
+            if signature == self._signature:
+                return self.state
             raw = self.path.read_text(encoding="utf-8")
         except OSError:
             # "Not running yet" is the normal state right after install and
@@ -55,6 +60,7 @@ class StateReader:
             return self.state
 
         self._parse_failures = 0
+        self._signature = signature
         self.state = parsed
         self.error = ""
         return self.state
@@ -70,9 +76,18 @@ class StateReader:
         return age is not None and age > STALE_AFTER_SECONDS
 
     def text(self, key: str) -> str:
-        """One string from the daemon's catalogue, or the key itself.
+        """One string from the daemon's catalogue, then the local catalogue.
 
-        The daemon resolves every string and ships it, so this holds no
-        catalogue and a language change lands on the next poll.
+        Normally the daemon resolves every string and ships it.  During an
+        update, however, the newly installed UI can briefly read state written
+        by the older daemon.  Falling back locally keeps newly added labels
+        translated until the daemon restarts and publishes its new catalogue.
         """
-        return ((self.state or {}).get("strings") or {}).get(key, key)
+        if self.state is None:
+            return key
+        state = self.state
+        translated = (state.get("strings") or {}).get(key)
+        if translated is not None:
+            return translated
+        language = (state.get("config") or {}).get("language", "en")
+        return l10n.t(key, language)

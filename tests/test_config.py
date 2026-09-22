@@ -39,6 +39,15 @@ def test_set_value_coerces_to_the_default_type(tmp_path):
     assert values["show_cost_in_menu"] is True
 
 
+def test_difficulty_is_float_and_clamped(tmp_path):
+    p = tmp_path / "config.json"
+    config.set_value(p, "growth_difficulty", "0.5")
+    config.set_value(p, "shop_difficulty", "99")
+    values = config.load(p)
+    assert values["growth_difficulty"] == 0.5
+    assert values["shop_difficulty"] == 2.0
+
+
 def test_set_value_rejects_unknown_key(tmp_path):
     with pytest.raises(KeyError):
         config.set_value(tmp_path / "config.json", "nonsense", "1")

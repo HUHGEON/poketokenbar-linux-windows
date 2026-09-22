@@ -45,6 +45,10 @@ DEFAULTS: dict[str, object] = {
     # "balanced" or "smooth". A frame costs a recomposite, so this is a real
     # power setting, and the default matches upstream's.
     "animation_quality": "saver",
+    # Independent user preferences. They stay out of companion.json so an
+    # imported save cannot silently bring somebody else's difficulty with it.
+    "growth_difficulty": 1.0,
+    "shop_difficulty": 1.0,
     # Extra scan folders, one raw string per provider id (comma/newline
     # separated). A dict rather than one field per provider: the readers are
     # per-provider on purpose, so a folder added for Gemini is never handed to
@@ -68,6 +72,10 @@ def load(path: Path) -> dict:
     for key, value in raw.items():
         if key in DEFAULTS:
             values[key] = value
+    from . import balance
+
+    for key in ("growth_difficulty", "shop_difficulty"):
+        values[key] = balance.clamp_difficulty(values[key])
     return values
 
 
@@ -89,6 +97,10 @@ def _coerce(key: str, raw: str):
         raise ValueError(f"{key} expects a boolean, got {raw!r}")
     if isinstance(default, int):
         return int(raw)
+    if isinstance(default, float):
+        from . import balance
+
+        return balance.clamp_difficulty(raw)
     return raw
 
 

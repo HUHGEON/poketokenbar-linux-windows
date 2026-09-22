@@ -70,6 +70,14 @@ class Daemon:
         value = configured.get(provider_id)
         return value if isinstance(value, str) and value.strip() else None
 
+    def _apply_difficulty(self) -> None:
+        if self.companion_store is None:
+            return
+        self.companion_store.set_difficulties(
+            self.config_values.get("growth_difficulty", 1.0),
+            self.config_values.get("shop_difficulty", 1.0),
+        )
+
     def _burn_payload(self, limit_status, blocks: dict) -> dict:
         """The forecast rows, from the block rate rather than from sampling.
 
@@ -155,6 +163,7 @@ class Daemon:
                 # Do not include account/helper errors: they may contain
                 # private account fields. A lookup cannot break the tracker.
                 errors.append("plan: unable to apply detected balance")
+        self._apply_difficulty()
         for command in commands.drain(spool=self.spool):
             name = command.get("name")
             if name == "refresh":
@@ -178,6 +187,7 @@ class Daemon:
                         errors.append(f"update: {exc}")
             elif name == "reload_config":
                 self.config_values = config.load(self.config_path)
+                self._apply_difficulty()
                 # The login entry is a file on disk, so the setting only means
                 # anything if something writes it. The daemon does it rather
                 # than the tray: it is the half that is guaranteed to be
@@ -403,14 +413,18 @@ def main() -> int:
     from . import providers as provider_registry
 
     cache = ScanCache(platform_paths.cache_base() / "poketokenbar" / "scan.db")
+    config_path = config.default_path()
+    initial_config = config.load(config_path)
     daemon = Daemon(
         state_path=state.default_path(),
-        config_path=config.default_path(),
+        config_path=config_path,
         cache=cache,
         providers=None,  # replaced below, once the daemon can answer for its config
         limits_source=LimitsSource(),
         companion_store=CompanionStore(
-            api=PokeAPI(), sprite_store=SpriteStore()
+            api=PokeAPI(), sprite_store=SpriteStore(),
+            growth_difficulty=initial_config["growth_difficulty"],
+            shop_difficulty=initial_config["shop_difficulty"],
         ),
         notifier=Notifier(),
         burn_tracker=BurnTracker(),

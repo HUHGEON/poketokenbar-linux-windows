@@ -7,11 +7,62 @@ odds are independent of plan; never mutate module constants for an account.
 
 from __future__ import annotations
 
+import math
 from enum import StrEnum
 
 # Tokens the egg must absorb before it hatches. Overflow carries into the
 # hatchling rather than being discarded.
 EGG_HATCH_THRESHOLD = 1_000_000
+
+# User-selected difficulty is a preference, not progression state.  The range
+# and logarithmic mapping match upstream PokeTokenBar: 100% is the existing
+# balance, lower is faster/cheaper and higher is slower/more expensive.
+DIFFICULTY_MIN = 0.1
+DIFFICULTY_MAX = 2.0
+DEFAULT_DIFFICULTY = 1.0
+_DIFFICULTY_DEFAULT_SNAP_WIDTH = 0.01
+
+
+def clamp_difficulty(value) -> float:
+    """A finite difficulty inside the supported 10%..200% range."""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return DEFAULT_DIFFICULTY
+    if not math.isfinite(parsed):
+        return DEFAULT_DIFFICULTY
+    return min(DIFFICULTY_MAX, max(DIFFICULTY_MIN, parsed))
+
+
+def scale_difficulty(base: int, difficulty: float) -> int:
+    """Scale a consumption-site threshold or price, never the base tables."""
+    return max(1, round(base * clamp_difficulty(difficulty)))
+
+
+def snap_difficulty(value: float) -> float:
+    """Round a logarithmic slider value to two significant figures."""
+    if value <= 0:
+        return DIFFICULTY_MIN
+    magnitude = 10 ** (math.floor(math.log10(value)) - 1)
+    return round(value / magnitude) * magnitude
+
+
+def difficulty_position(value: float) -> float:
+    value = clamp_difficulty(value)
+    return math.log(value / DIFFICULTY_MIN) / math.log(
+        DIFFICULTY_MAX / DIFFICULTY_MIN
+    )
+
+
+def difficulty_at_position(position: float) -> float:
+    position = min(1.0, max(0.0, float(position)))
+    default_position = difficulty_position(DEFAULT_DIFFICULTY)
+    if abs(position - default_position) < _DIFFICULTY_DEFAULT_SNAP_WIDTH:
+        return DEFAULT_DIFFICULTY
+    value = DIFFICULTY_MIN * (
+        DIFFICULTY_MAX / DIFFICULTY_MIN
+    ) ** position
+    return clamp_difficulty(snap_difficulty(value))
 
 
 class Rarity(StrEnum):

@@ -642,6 +642,10 @@ const TOGGLES = [
 // every (s)"): a unit in the label has to be translated seven times to say
 // what the symbol already says everywhere.
 const STEPPERS = [
+    {key: 'growth_difficulty', string: 'difficulty_growth', unit: '%',
+        min: 10, max: 200, step: 10, scale: 100},
+    {key: 'shop_difficulty', string: 'difficulty_shop', unit: '%',
+        min: 10, max: 200, step: 10, scale: 100},
     {key: 'refresh_interval', string: 'setting_refresh_interval', unit: 's',
         min: 60, max: 900, step: 60},
     {key: 'warn_threshold', string: 'setting_warn_threshold', unit: '%',
@@ -766,14 +770,15 @@ class SettingsSection extends Section {
     }
 
     _addStepper(spec, config) {
-        const current = Number(config[spec.key]) || spec.min;
+        const scale = spec.scale ?? 1;
+        const current = Math.round((Number(config[spec.key]) || spec.min / scale) * scale);
         const clamp = value => Math.max(spec.min, Math.min(spec.max, value));
         const name = paragraph(this._reader.text(spec.string), 'poketokenbar-key');
         this.add_child(row([
             name,
-            button('−', () => Config.set(spec.key, clamp(current - spec.step))),
+            button('−', () => Config.set(spec.key, clamp(current - spec.step) / scale)),
             label(`${current}${spec.unit ?? ''}`, 'poketokenbar-value'),
-            button('+', () => Config.set(spec.key, clamp(current + spec.step))),
+            button('+', () => Config.set(spec.key, clamp(current + spec.step) / scale)),
         ]));
     }
 

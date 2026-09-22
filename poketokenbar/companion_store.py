@@ -36,18 +36,90 @@ class CompanionStore:
         api: pokeapi.PokeAPI | None = None,
         sprite_store: sprites.SpriteStore | None = None,
         rng: random.Random | None = None,
+        growth_difficulty: float = balance.DEFAULT_DIFFICULTY,
+        shop_difficulty: float = balance.DEFAULT_DIFFICULTY,
     ) -> None:
         self.save_path = save_path
         self.state: CompanionState = save.load(save_path)
         self.api = api
         self.sprites = sprite_store
         self.rng = rng or random.Random()
+        # Loaded from config alongside the save in production. Starting on the
+        # persisted scale matters: treating every restart as 100% would
+        # repeatedly rescale already-adjusted progress.
+        self.growth_difficulty = balance.clamp_difficulty(growth_difficulty)
+        self.shop_difficulty = balance.clamp_difficulty(shop_difficulty)
         # Held for one poll so the popup can show a celebration banner; the
         # notification fires immediately but the banner needs a render pass.
         self.celebration: dict | None = None
         self.last_events: companion.GrowthEvents | None = None
 
     # --- usage -------------------------------------------------------------
+
+    def set_difficulties(self, growth, prices) -> bool:
+        """Apply preference-only difficulty while preserving earned progress.
+
+        The counters in companion.json are banked progression credits.  When a
+        threshold changes, keep their completed fraction instead of granting a
+        hatch/evolution merely because Settings changed.  Token ledgers and the
+        wallet are deliberately untouched.
+        """
+        new_growth = balance.clamp_difficulty(growth)
+        new_prices = balance.clamp_difficulty(prices)
+        progress_changed = False
+        changed = False
+        if new_growth != self.growth_difficulty:
+            old = self.growth_difficulty
+            if self.state.active is None:
+                base = balance.EGG_HATCH_THRESHOLD * self.state.balance_multiplier
+                self.state.egg_usage = self._rescaled_progress(
+                    self.state.egg_usage, base, old, new_growth
+                )
+            else:
+                mon = self.state.active
+                base = balance.phase_threshold(
+                    mon.rarity, mon.total_forms, mon.stage_index,
+                    self.state.balance_multiplier,
+                )
+                mon.used_at_stage = self._rescaled_progress(
+                    mon.used_at_stage, base, old, new_growth
+                )
+            self.growth_difficulty = new_growth
+            progress_changed = True
+            changed = True
+        if new_prices != self.shop_difficulty:
+            self.shop_difficulty = new_prices
+            changed = True
+        if progress_changed:
+            self._persist()
+        return changed
+
+    @staticmethod
+    def _rescaled_progress(
+        credits: int, base: int, old_difficulty: float, new_difficulty: float
+    ) -> int:
+        old_threshold = balance.scale_difficulty(base, old_difficulty)
+        new_threshold = balance.scale_difficulty(base, new_difficulty)
+        scaled = int(credits / old_threshold * new_threshold)
+        # Rounding cannot turn an incomplete stage into a completed one.
+        if credits < old_threshold:
+            scaled = min(scaled, new_threshold - 1)
+        return max(0, scaled)
+
+    def _egg_threshold(self) -> int:
+        return balance.scale_difficulty(
+            balance.EGG_HATCH_THRESHOLD * self.state.balance_multiplier,
+            self.growth_difficulty,
+        )
+
+    def _stage_threshold(self, mon) -> int:
+        return balance.scale_difficulty(
+            balance.phase_threshold(
+                mon.rarity, mon.total_forms, mon.stage_index,
+                self.state.balance_multiplier,
+            ),
+            self.growth_difficulty,
+        )
 
     def apply_plan(self, detected: str | None) -> bool:
         """Change progress units once, without manufacturing real usage.
@@ -118,7 +190,8 @@ class CompanionStore:
 
         line = self._line_for_egg() if self.state.active is None else None
         self.last_events = companion.apply_usage(
-            self.state, delta, line_for_egg=line, rng=self.rng
+            self.state, delta, line_for_egg=line, rng=self.rng,
+            growth_difficulty=self.growth_difficulty,
         )
         self._note_celebration(self.last_events)
         self._persist()
@@ -311,7 +384,8 @@ class CompanionStore:
             self.state, today_tokens, limit_warning, just_evolved=just_evolved)
         mon = self.state.active
         if mon is None:
-            progress = min(1.0, self.state.egg_usage / (balance.EGG_HATCH_THRESHOLD * self.state.balance_multiplier))
+            threshold = self._egg_threshold()
+            progress = min(1.0, self.state.egg_usage / threshold)
             return {
                 "stage": "egg",
                 "label": f"\N{EGG}{round(progress * 100)}%",
@@ -331,7 +405,7 @@ class CompanionStore:
                 **self._panel_fields(),
             }
 
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index, self.state.balance_multiplier)
+        threshold = self._stage_threshold(mon)
         # Remaining to the NEXT step: an evolution mid-line, graduation at the end.
         remaining = max(0, threshold - mon.used_at_stage)
         evo_line = []
@@ -384,12 +458,15 @@ class CompanionStore:
         return granted
 
     def buy(self, key: str) -> str:
-        message = shop.buy(self.state, key)
+        message = shop.buy(self.state, key, self.shop_difficulty)
         self._persist()
         return message
 
     def use_item(self, key: str) -> str:
-        message = shop.use_item(self.state, key, rng=self.rng)
+        message = shop.use_item(
+            self.state, key, rng=self.rng,
+            growth_difficulty=self.growth_difficulty,
+        )
         self._persist()
         return message
 
@@ -437,7 +514,7 @@ class CompanionStore:
     def shop_payload(self) -> list[dict]:
         spendable = self.state.spendable_tokens
         out = []
-        for e in shop.entries(self.state):
+        for e in shop.entries(self.state, self.shop_difficulty):
             if e.kind == "item":
                 sprite = self._item_sprite(e.key)
                 label, description, _effect = self._item_words(e.key)

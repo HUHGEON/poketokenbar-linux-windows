@@ -1,5 +1,6 @@
 import pytest
 
+from poketokenbar import balance
 from poketokenbar.balance import (
     EGG_HATCH_THRESHOLD,
     FRESH_EGG_PRICE,
@@ -8,6 +9,22 @@ from poketokenbar.balance import (
     graduation_total,
     phase_threshold,
 )
+
+
+def test_difficulty_log_mapping_round_trips_and_reaches_default():
+    for value in (0.1, 0.25, 0.5, 1.0, 1.5, 2.0):
+        back = balance.difficulty_at_position(balance.difficulty_position(value))
+        assert back == pytest.approx(value, rel=0.02)
+    default = balance.difficulty_position(1.0)
+    assert balance.difficulty_at_position(default + 0.009) == 1.0
+
+
+@pytest.mark.parametrize("bad,expected", [
+    (0, 0.1), (-2, 0.1), (99, 2.0), (float("nan"), 1.0),
+    (float("inf"), 1.0),
+])
+def test_difficulty_clamps_untrusted_values(bad, expected):
+    assert balance.clamp_difficulty(bad) == expected
 
 
 def test_plus_egg_threshold_is_one_fifth_of_swift():

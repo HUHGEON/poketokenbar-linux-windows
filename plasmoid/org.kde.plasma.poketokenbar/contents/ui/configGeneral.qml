@@ -83,6 +83,10 @@ KCM.SimpleKCM {
             floatingPet.checked = s.floating_pet_enabled;
         if (s.floating_pet_size !== undefined)
             petSize.value = s.floating_pet_size;
+        if (s.growth_difficulty !== undefined)
+            growthDifficulty.value = Math.round(s.growth_difficulty * 100);
+        if (s.shop_difficulty !== undefined)
+            shopDifficulty.value = Math.round(s.shop_difficulty * 100);
         if (s.floating_pet_bubble_alerts !== undefined)
             petBubbles.checked = s.floating_pet_bubble_alerts;
         if (s.language !== undefined)
@@ -119,6 +123,32 @@ KCM.SimpleKCM {
         readonly property var keys: ["both", "session", "weekly"]
         model: [i18n("Both"), i18n("5-hour only"), i18n("Weekly only")]
         onActivated: page.push("limit_display_mode", keys[currentIndex])
+    }
+
+    // ---------------- Difficulty ----------------
+
+    Item { Kirigami.FormData.isSection: true; Kirigami.FormData.label: i18n("Difficulty") }
+
+    RowLayout {
+        Kirigami.FormData.label: i18n("Growth:")
+        QQC2.Slider {
+            id: growthDifficulty
+            from: 10; to: 200; stepSize: 10; value: 100
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+            onMoved: page.push("growth_difficulty", value / 100)
+        }
+        QQC2.Label { text: Math.round(growthDifficulty.value) + "%" }
+    }
+
+    RowLayout {
+        Kirigami.FormData.label: i18n("Shop prices:")
+        QQC2.Slider {
+            id: shopDifficulty
+            from: 10; to: 200; stepSize: 10; value: 100
+            Layout.preferredWidth: Kirigami.Units.gridUnit * 10
+            onMoved: page.push("shop_difficulty", value / 100)
+        }
+        QQC2.Label { text: Math.round(shopDifficulty.value) + "%" }
     }
 
     // ---------------- Panel ----------------

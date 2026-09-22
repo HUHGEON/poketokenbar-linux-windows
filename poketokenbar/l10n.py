@@ -15,6 +15,11 @@ LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de")
 # key: (en, ko, ja, es)
 STRINGS: dict[str, tuple[str, ...]] = {
     "plan_balance": ("Codex plan & growth", "Codex 요금제·성장 배율", "Codex プランと成長", "Plan Codex y crecimiento", "Forfait Codex et progression", "Plano Codex e crescimento", "Codex-Tarif und Wachstum"),
+    "difficulty": ("Difficulty", "난이도", "難易度", "Dificultad", "Difficulté", "Dificuldade", "Schwierigkeit"),
+    "difficulty_growth": ("Growth", "성장 난이도", "成長", "Crecimiento", "Croissance", "Crescimento", "Wachstum"),
+    "difficulty_shop": ("Shop prices", "상점 가격 난이도", "ショップ価格", "Precios de la tienda", "Prix de la boutique", "Preços da loja", "Shop-Preise"),
+    "difficulty_hint": ("10%–200% of the default balance. Lower grows faster and costs less; higher does the opposite.", "기본 밸런스의 10%–200%예요. 낮추면 빨리 자라고 싸지며, 높이면 그 반대예요.", "標準バランスの10%〜200%です。下げると早く育ち安くなり、上げるとその逆です。", "Del 10 % al 200 % del balance predeterminado. Menos crece más rápido y cuesta menos; más hace lo contrario.", "De 10 % à 200 % de l’équilibrage par défaut. Plus bas accélère la croissance et réduit les prix ; plus haut fait l’inverse.", "De 10% a 200% do balanceamento padrão. Menor cresce mais rápido e custa menos; maior faz o contrário.", "10–200 % der Standardbalance. Niedriger wächst schneller und kostet weniger; höher bewirkt das Gegenteil."),
+    "save": ("Save", "저장", "保存", "Guardar", "Enregistrer", "Salvar", "Speichern"),
     "plan_auto_hint": ("Detected automatically. Manual selection is unavailable.", "자동 감지한 요금제입니다. 직접 선택할 수 없습니다.", "自動検出されます。手動では選択できません。", "Detección automática. No se puede seleccionar manualmente.", "Détection automatique. Sélection manuelle indisponible.", "Detecção automática. Seleção manual indisponível.", "Automatisch erkannt. Keine manuelle Auswahl möglich."),
     "plan_scale": ("Growth, candy & prices: ×%1 (Plus = 1)", "경험치 통·사탕·가격: ×%1 (Plus 기준)", "成長・アメ・価格：×%1（Plus 基準）", "Crecimiento, caramelos y precios: ×%1 (Plus = 1)", "Progression, bonbons et prix : ×%1 (Plus = 1)", "Crescimento, doces e preços: ×%1 (Plus = 1)", "Wachstum, Bonbons und Preise: ×%1 (Plus = 1)"),
     "plan_checking": ("Checking Codex account…", "Codex 계정 확인 중…", "Codex アカウントを確認中…", "Comprobando cuenta Codex…", "Vérification du compte Codex…", "Verificando conta Codex…", "Codex-Konto wird geprüft…"),

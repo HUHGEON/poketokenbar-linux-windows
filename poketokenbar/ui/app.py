@@ -14,8 +14,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Qt
-from PySide6.QtGui import QAction, QIcon, QMovie, QPixmap
+from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt
+from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QMovie, QPixmap
 from PySide6.QtWidgets import (
     QApplication, QHBoxLayout, QMenu, QStackedWidget, QSystemTrayIcon,
     QVBoxLayout, QWidget,
@@ -25,6 +25,7 @@ from .. import commands, config
 from .pet import DesktopPet
 from .panels import (
     BagPanel, CollectionPanel, HomePanel, SettingsPanel, ShopPanel, ago,
+    restart_tray,
 )
 from .reader import StateReader
 from . import theme
@@ -43,6 +44,60 @@ TRAY_ICON_SIZE = 22
 # Frames past this are dropped, matching the GNOME front end: Gen-V sprites run
 # to a few hundred at most, and anything far beyond that is not one of ours.
 MAX_TRAY_FRAMES = 240
+# A visible breathing space from the work-area edge.  Eight logical pixels
+# looked glued to the Windows taskbar, especially at 125–150% display scale.
+POPOVER_GAP = 16
+POPOVER_RADIUS = 18
+
+
+def apply_windows_rounded_corners(window: QWidget) -> bool:
+    """Ask Windows 11 to round the native frame; CSS remains the fallback."""
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        # DWMWA_WINDOW_CORNER_PREFERENCE / DWMWCP_ROUND. Older Windows builds
+        # reject the attribute harmlessly and keep the translucent CSS shape.
+        preference = ctypes.c_int(2)
+        result = ctypes.windll.dwmapi.DwmSetWindowAttribute(
+            ctypes.c_void_p(int(window.winId())),
+            ctypes.c_uint(33),
+            ctypes.byref(preference),
+            ctypes.sizeof(preference),
+        )
+        return result == 0
+    except (AttributeError, OSError, TypeError, ValueError):
+        return False
+
+
+def popover_position(anchor: QRect, available: QRect, size: QSize) -> QPoint:
+    """Place a popup against its tray icon and clamp it to the work area.
+
+    The anchor can sit outside ``available`` because that rectangle excludes
+    the taskbar.  Its nearest edge tells us whether the bar is at the bottom,
+    top, left or right; the common bottom-right case opens above and right
+    aligned with the icon.
+    """
+    width, height = size.width(), size.height()
+    if not anchor.isValid() or anchor.isEmpty():
+        x = available.right() - width + 1 - POPOVER_GAP
+        y = available.bottom() - height + 1 - POPOVER_GAP
+    elif anchor.center().y() > available.bottom():       # bottom taskbar
+        x = anchor.right() - width + 1
+        y = available.bottom() - height + 1 - POPOVER_GAP
+    elif anchor.center().y() < available.top():          # top taskbar
+        x = anchor.right() - width + 1
+        y = available.top() + POPOVER_GAP
+    elif anchor.center().x() > available.right():        # right taskbar
+        x = available.right() - width + 1 - POPOVER_GAP
+        y = anchor.bottom() - height + 1
+    else:                                                # left taskbar
+        x = available.left() + POPOVER_GAP
+        y = anchor.bottom() - height + 1
+    x = max(available.left(), min(x, available.right() - width + 1))
+    y = max(available.top(), min(y, available.bottom() - height + 1))
+    return QPoint(x, y)
 
 
 class Window(QWidget):
@@ -59,6 +114,20 @@ class Window(QWidget):
         self.setWindowTitle("PokeTokenBar")
         self.resize(*WINDOW_SIZE)
         self.setStyleSheet(theme.STYLESHEET)
+        if sys.platform == "win32":
+            # A notification-area popover, not another taskbar application.
+            # Fix both dimensions: rebuilding a page changes its size hint,
+            # which otherwise makes the popup visibly jump between tabs.
+            self.setFixedSize(*WINDOW_SIZE)
+            self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint)
+            self.setAttribute(Qt.WA_TranslucentBackground)
+            self.setObjectName("popover")
+            self.setStyleSheet(
+                theme.STYLESHEET
+                + f"#popover {{ background: {theme.WINDOW};"
+                  f" border: 1px solid {theme.DIVIDER};"
+                  f" border-radius: {POPOVER_RADIUS}px; }}"
+            )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -119,17 +188,23 @@ class Window(QWidget):
         footer_layout = QHBoxLayout(footer_bar)
         footer_layout.setContentsMargins(12, 6, 10, 8)
         footer_layout.setSpacing(6)
-        footer_layout.addWidget(icon_button(
+        self.refresh_button = icon_button(
             "\u21bb", lambda: commands.enqueue("refresh", {}),
-            reader.text("refresh")))
+            reader.text("refresh"))
+        footer_layout.addWidget(self.refresh_button)
         footer_layout.addWidget(self.footer)
         footer_layout.addStretch(1)
         self.gear = icon_button("\u2699", self.show_settings, reader.text("settings"))
         footer_layout.addWidget(self.gear)
+        self.restart_button = icon_button(
+            "\u27f3", lambda: restart_tray(), reader.text("restart"))
+        self.restart_button.setObjectName("restart_app")
+        footer_layout.addWidget(self.restart_button)
         # Quits this window only. The daemon is a separate process and keeps
         # counting — closing the view must not lose someone's progress.
-        footer_layout.addWidget(icon_button(
-            "\u23fb", lambda: QApplication.instance().quit(), reader.text("quit")))
+        self.quit_button = icon_button(
+            "\u23fb", lambda: QApplication.instance().quit(), reader.text("quit"))
+        footer_layout.addWidget(self.quit_button)
         layout.addWidget(footer_bar)
 
     # --- navigation --------------------------------------------------------
@@ -162,6 +237,10 @@ class Window(QWidget):
         self.tabs.set_active(self._current)
         self.settings_title.setText(self.reader.text("settings"))
         self.back_label.setText(self.reader.text("back"))
+        self.refresh_button.setToolTip(self.reader.text("refresh"))
+        self.gear.setToolTip(self.reader.text("settings"))
+        self.restart_button.setToolTip(self.reader.text("restart"))
+        self.quit_button.setToolTip(self.reader.text("quit"))
 
     def refresh(self, state: dict | None) -> None:
         self._relabel()
@@ -189,6 +268,23 @@ class Window(QWidget):
         age = self.reader.age_seconds()
         return "" if age is None else ago(age, self.reader.text)
 
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if (sys.platform == "win32" and event.type() == QEvent.ActivationChange
+                and self.isVisible() and not self.isActiveWindow()):
+            # Defer until Qt has finished transferring focus. Child popups such
+            # as combo boxes keep this window active; a click in another app
+            # does not, giving the native popover outside-click behaviour.
+            QTimer.singleShot(0, self._hide_if_inactive)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        apply_windows_rounded_corners(self)
+
+    def _hide_if_inactive(self) -> None:
+        if self.isVisible() and not self.isActiveWindow():
+            self.hide()
+
 
 class TrayApp:
     """Wires the reader, the tray icon and the window together."""
@@ -198,6 +294,7 @@ class TrayApp:
         self.reader = reader or StateReader()
         self.window = Window(self.reader)
         self._sprite_path: str | None = None
+        self._tooltip_text = ""
         self._quality = DEFAULT_QUALITY
         # Pre-rendered (icon, hold) pairs and the timer that cycles them.
         self._icon_frames: list = []
@@ -252,6 +349,11 @@ class TrayApp:
         menu.addAction(import_action)
 
         menu.addSeparator()
+        restart = QAction(self.reader.text("restart"), menu)
+        restart.triggered.connect(lambda: restart_tray())
+        self._menu_actions["restart"] = restart
+        menu.addAction(restart)
+
         quit_action = QAction(self.reader.text("quit"), menu)
         # Quits this window only. The daemon is a separate process and keeps
         # counting — closing the view must not lose someone's progress.
@@ -356,7 +458,10 @@ class TrayApp:
             self._sprite_path = path
             self._set_icon(path)
         self._apply_quality(state)
-        self.tray.setToolTip(self._tooltip(state))
+        tooltip = self._tooltip(state)
+        if tooltip != self._tooltip_text:
+            self._tooltip_text = tooltip
+            self.tray.setToolTip(tooltip)
 
     def _apply_quality(self, state: dict | None) -> None:
         """Re-time every animated surface from one setting.
@@ -455,10 +560,22 @@ class TrayApp:
             self.window.hide()
         else:
             self.window.refresh(self.reader.state)
+            self._place_window()
             self.window.show()
             self.window.raise_()
             self.window.activateWindow()
         self._reassert_pet()
+
+    def _place_window(self) -> None:
+        """Anchor the window to the notification icon on its current screen."""
+        anchor = self.tray.geometry()
+        point = anchor.center() if anchor.isValid() else QCursor.pos()
+        screen = QGuiApplication.screenAt(point) or QGuiApplication.primaryScreen()
+        if screen is None:
+            return
+        self.window.move(popover_position(
+            anchor, screen.availableGeometry(), self.window.size()
+        ))
 
     def _reassert_pet(self) -> None:
         """Put the pet back on top after the popup has come or gone.

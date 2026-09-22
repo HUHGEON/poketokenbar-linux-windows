@@ -27,7 +27,10 @@ class ShopEntry:
     owned: bool = False
 
 
-def entries(state: CompanionState) -> list[ShopEntry]:
+def entries(
+    state: CompanionState,
+    shop_difficulty: float = balance.DEFAULT_DIFFICULTY,
+) -> list[ShopEntry]:
     """Everything on sale, cheapest first."""
     out = [
         ShopEntry("rareCandy", "item", balance.RARE_CANDY_PRICE, "Rare Candy"),
@@ -50,7 +53,9 @@ def entries(state: CompanionState) -> list[ShopEntry]:
         }[tier]
         out.append(ShopEntry(key, "egg", balance.egg_price(tier), label))
     for entry in out:
-        entry.price *= state.balance_multiplier
+        entry.price = balance.scale_difficulty(
+            entry.price * state.balance_multiplier, shop_difficulty
+        )
     return sorted(out, key=lambda e: e.price)
 
 
@@ -62,9 +67,15 @@ def _debit(state: CompanionState, price: int) -> None:
     state.spent_tokens += price
 
 
-def buy(state: CompanionState, key: str) -> str:
+def buy(
+    state: CompanionState,
+    key: str,
+    shop_difficulty: float = balance.DEFAULT_DIFFICULTY,
+) -> str:
     """Purchase one shop entry. Returns a short description of what happened."""
-    entry = next((e for e in entries(state) if e.key == key), None)
+    entry = next(
+        (e for e in entries(state, shop_difficulty) if e.key == key), None
+    )
     if entry is None:
         raise ShopError(f"unknown shop item: {key}")
 
@@ -88,7 +99,12 @@ def buy(state: CompanionState, key: str) -> str:
     return f"bought {entry.label}"
 
 
-def use_item(state: CompanionState, key: str, rng=None) -> str:
+def use_item(
+    state: CompanionState,
+    key: str,
+    rng=None,
+    growth_difficulty: float = balance.DEFAULT_DIFFICULTY,
+) -> str:
     """Consume one held item."""
     held = state.inventory.get(key, 0)
     if held <= 0:
@@ -103,6 +119,7 @@ def use_item(state: CompanionState, key: str, rng=None) -> str:
         companion.apply_usage(
             state, balance.RARE_CANDY_XP * state.balance_multiplier,
             rng=rng, credit_wallet=False,
+            growth_difficulty=growth_difficulty,
         )
         return "used Rare Candy"
 

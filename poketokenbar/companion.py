@@ -388,6 +388,7 @@ def apply_usage(
     line_for_egg=None,
     rng: random.Random | None = None,
     credit_wallet: bool = True,
+    growth_difficulty: float = balance.DEFAULT_DIFFICULTY,
 ) -> GrowthEvents:
     """Feed tokens to the companion.
 
@@ -405,13 +406,17 @@ def apply_usage(
     # --- egg ---
     if state.active is None:
         state.egg_usage += tokens
-        if state.egg_usage < balance.EGG_HATCH_THRESHOLD * state.balance_multiplier:
+        egg_threshold = balance.scale_difficulty(
+            balance.EGG_HATCH_THRESHOLD * state.balance_multiplier,
+            growth_difficulty,
+        )
+        if state.egg_usage < egg_threshold:
             return events
         if line_for_egg is None:
             # No species data (offline). Hold the tokens in the egg and hatch
             # once a line is available — never discard progress.
             return events
-        overflow = state.egg_usage - balance.EGG_HATCH_THRESHOLD * state.balance_multiplier
+        overflow = state.egg_usage - egg_threshold
         mon = hatch(state, line_for_egg, rng)
         events.hatched = mon.current_id
         tokens = overflow
@@ -425,7 +430,13 @@ def apply_usage(
     # nonsensical total_forms drives the threshold towards zero, and a zero
     # threshold is an evolution on every iteration forever.
     for _ in range(MAX_GROWTH_STEPS):
-        threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index, state.balance_multiplier)
+        threshold = balance.scale_difficulty(
+            balance.phase_threshold(
+                mon.rarity, mon.total_forms, mon.stage_index,
+                state.balance_multiplier,
+            ),
+            growth_difficulty,
+        )
         if mon.used_at_stage < threshold:
             break
 

@@ -23,6 +23,10 @@ evolution line, graduate it into your Pokédex, and start again. Underneath the
 companion is a precise usage tracker — today's spend and cost, and the official
 5-hour and weekly limits, read straight from your local logs.
 
+Growth and shop-price difficulty can be tuned independently from 10% to 200%
+of the default balance. On Windows, clicking the notification-area icon opens
+the full panel as an anchored popover instead of a separate taskbar window.
+
 > Usage is read directly from local files (`totalTokens` = input + output +
 > cache, local date). No external usage CLI, no account, no network needed for
 > the numbers. Unofficial, non-commercial Pokémon fan project — see

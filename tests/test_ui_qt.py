@@ -21,7 +21,7 @@ pytest.importorskip("PySide6", reason="the Qt front end is optional")
 # Must be set before QApplication exists, and QApplication is process-wide.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QRect, QSize, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 # Parked on `sys`, not in a module global or a fixture.
@@ -53,7 +53,7 @@ def keep(widget):
     return widget
 
 from poketokenbar.ui import panels  # noqa: E402
-from poketokenbar.ui.app import TrayApp, Window  # noqa: E402
+from poketokenbar.ui.app import TrayApp, Window, popover_position  # noqa: E402
 from poketokenbar.ui.reader import StateReader  # noqa: E402
 from poketokenbar.ui.widgets import Sprite, level_colour, meter  # noqa: E402
 
@@ -102,6 +102,30 @@ def test_plan_display_is_read_only(qt_app, reader, payload, plan, status, multip
     # Even programmatic selection has no connected write handler.
     control.setCurrentIndex((control.currentIndex() + 1) % control.count())
     assert written == []
+
+
+def test_difficulty_sliders_are_saved_together(qt_app, reader, payload, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QPushButton, QSlider
+    from poketokenbar import config
+
+    path = tmp_path / "config.json"
+    monkeypatch.setattr(config, "default_path", lambda: path)
+    queued = []
+    monkeypatch.setattr(panels.commands, "enqueue", lambda *args: queued.append(args))
+    window = keep(Window(reader))
+    window.settings.update(payload)
+    growth = window.settings.findChild(QSlider, "growth_difficulty")
+    save = window.settings.findChild(QPushButton, "save_difficulty")
+    assert growth is not None and save is not None and save.isHidden()
+
+    growth.setValue(0)
+    assert not save.isHidden()
+    save.click()
+
+    values = config.load(path)
+    assert values["growth_difficulty"] == 0.1
+    assert values["shop_difficulty"] == 1.0
+    assert queued == [("reload_config", {})]
 
 
 @pytest.mark.parametrize("name", PANEL_NAMES)
@@ -223,6 +247,7 @@ def test_the_tray_menu_offers_open_refresh_and_quit(qt_app, payload):
     labels = [action.text() for action in tray.tray.contextMenu().actions()]
     assert labels[0] == payload["strings"]["open"]
     assert payload["strings"]["refresh"] in labels
+    assert payload["strings"]["restart"] in labels
     assert payload["strings"]["quit"] in labels
 
 
@@ -343,6 +368,7 @@ def test_the_settings_panel_offers_every_daemon_setting():
     offered = {key for key, *_ in panels.SettingsPanel.TOGGLES}
     offered |= {key for key, *_ in panels.SettingsPanel.SPINS}
     offered |= {key for key, *_ in panels.SettingsPanel.CHOICES}
+    offered |= {key for key, *_ in panels.SettingsPanel.DIFFICULTIES}
     not_for_a_form = {
         "floating_pet_x",       # set by dragging the pet
         "floating_pet_y",
@@ -360,6 +386,7 @@ def test_every_settings_key_has_a_daemon_default():
     offered = {key for key, *_ in panels.SettingsPanel.TOGGLES}
     offered |= {key for key, *_ in panels.SettingsPanel.SPINS}
     offered |= {key for key, *_ in panels.SettingsPanel.CHOICES}
+    offered |= {key for key, *_ in panels.SettingsPanel.DIFFICULTIES}
     assert not offered - set(config.DEFAULTS)
 
 
@@ -377,6 +404,7 @@ def test_every_settings_label_is_a_catalogue_key():
 
     keys = {label for _key, label in panels.SettingsPanel.TOGGLES}
     keys |= {label for _key, label, *_ in panels.SettingsPanel.SPINS}
+    keys |= {label for _key, label in panels.SettingsPanel.DIFFICULTIES}
     keys |= {label for _key, label, *_ in panels.SettingsPanel.CHOICES}
     for _key, _label, _options, shown in panels.SettingsPanel.CHOICES:
         if shown:
@@ -415,6 +443,23 @@ def test_tab_labels_follow_a_language_change(qt_app, payload):
     window.refresh(subject.state)
     assert _tab_text(window, "home") != english
     assert _tab_text(window, "home") == l10n.catalogue("ko")["home"]
+
+
+def test_new_labels_fall_back_to_the_local_korean_catalogue(payload):
+    """A newly installed UI may briefly read state from the old daemon."""
+    from copy import deepcopy
+
+    data = deepcopy(payload)
+    data["config"]["language"] = "ko"
+    data["strings"].pop("difficulty", None)
+    data["strings"].pop("difficulty_growth", None)
+    data["strings"].pop("difficulty_shop", None)
+    subject = StateReader()
+    subject.state = data
+
+    assert subject.text("difficulty") == "난이도"
+    assert subject.text("difficulty_growth") == "성장 난이도"
+    assert subject.text("difficulty_shop") == "상점 가격 난이도"
 
 
 def test_settings_is_a_page_not_a_fifth_tab(qt_app, payload):
@@ -644,6 +689,40 @@ def test_toggling_the_popup_puts_the_pet_back(qt_app, payload):
         tray.pet.hide()
         tray.toggle_window()
         assert tray.pet.isVisible(), "closing or opening the popup lost the pet"
+
+
+def test_bottom_right_tray_icon_anchors_popup_above_it():
+    available = QRect(0, 0, 1920, 1040)
+    tray_icon = QRect(1830, 1048, 24, 24)
+    point = popover_position(tray_icon, available, QSize(400, 640))
+    assert point.x() == 1454
+    assert point.y() == 384
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Windows popover behavior")
+def test_windows_popover_size_does_not_follow_page_content(payload):
+    subject = StateReader()
+    subject.state = payload
+    window = keep(Window(subject))
+
+    assert window.minimumSize() == QSize(400, 640)
+    assert window.maximumSize() == QSize(400, 640)
+    assert "border-radius: 18px" in window.styleSheet()
+
+
+def test_footer_has_a_restart_button(reader):
+    window = keep(Window(reader))
+    restart = window.findChild(type(window.gear), "restart_app")
+
+    assert restart is not None
+    assert restart.toolTip() == reader.text("restart")
+
+
+def test_popover_position_stays_inside_small_screen():
+    available = QRect(100, 50, 800, 600)
+    point = popover_position(QRect(), available, QSize(400, 640))
+    assert point.x() >= available.left()
+    assert point.y() == available.top()
 
 
 def test_the_reassert_does_not_ask_whether_it_is_needed(qt_app, payload):

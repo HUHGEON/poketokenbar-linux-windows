@@ -27,7 +27,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
-from .. import commands, config, l10n
+from .. import balance, commands, config, l10n
 from . import theme
 from .widgets import (
     Segmented, Sprite, badge, big, button, card, chip, clear_layout, column,
@@ -767,6 +767,10 @@ class SettingsPanel(Panel):
         ("warn_threshold", "warn_at", 50, 95, 5, "%1%"),
         ("crit_threshold", "crit_at", 60, 99, 1, "%1%"),
     )
+    DIFFICULTIES = (
+        ("growth_difficulty", "difficulty_growth"),
+        ("shop_difficulty", "difficulty_shop"),
+    )
     CHOICES = (
         # Language names stay in their own language: someone who has landed on
         # the wrong one needs to recognise theirs, not read it translated.
@@ -810,6 +814,10 @@ class SettingsPanel(Panel):
 
         self.add(heading(self.t("plan_balance")))
         self.add(self._plan_row(state))
+
+        self.add(heading(self.t("difficulty")))
+        self.add(self._difficulty_group(values))
+        self.add(label(self.t("difficulty_hint"), faint=True, size=11, wrap=True))
 
         self.add(heading(self.t("floating_pet")))
         self.add(self._group([
@@ -857,6 +865,60 @@ class SettingsPanel(Panel):
             details.append(label(self.t(key), dim=True, size=11, wrap=True))
         return card(*details, horizontal=False, padding=12, spacing=8)
 
+    def _difficulty_group(self, values: dict) -> QWidget:
+        """Two logarithmic drafts saved together, matching upstream Settings."""
+        initial = {
+            "growth_difficulty": balance.clamp_difficulty(
+                values.get("growth_difficulty", 1.0)),
+            "shop_difficulty": balance.clamp_difficulty(
+                values.get("shop_difficulty", 1.0)),
+        }
+        draft = dict(initial)
+        save_button = button(self.t("save"), lambda: save())
+        save_button.setObjectName("save_difficulty")
+        save_button.hide()
+
+        def percent(value: float) -> str:
+            return f"{value * 100:.0f}%"
+
+        def difficulty_row(key: str, label_key: str) -> QWidget:
+            slider = QSlider(Qt.Horizontal)
+            slider.setObjectName(key)
+            slider.setRange(0, 1000)
+            slider.setFixedWidth(140)
+            slider.setValue(round(balance.difficulty_position(initial[key]) * 1000))
+            readout = label(percent(initial[key]), dim=True, size=12)
+            readout.setFixedWidth(42)
+            readout.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+            def changed(position: int) -> None:
+                draft[key] = balance.difficulty_at_position(position / 1000)
+                readout.setText(percent(draft[key]))
+                save_button.setVisible(draft != initial)
+
+            slider.valueChanged.connect(changed)
+            slider.setStyleSheet(_SLIDER_STYLE)
+            return self._shell(key, self.t(label_key), row(slider, readout, spacing=8))
+
+        def save() -> None:
+            config.set_value(
+                config.default_path(), "growth_difficulty",
+                str(draft["growth_difficulty"]),
+            )
+            config.set_value(
+                config.default_path(), "shop_difficulty",
+                str(draft["shop_difficulty"]),
+            )
+            commands.enqueue("reload_config", {})
+            initial.update(draft)
+            save_button.hide()
+
+        return self._group([
+            *(difficulty_row(key, label_key)
+              for key, label_key in self.DIFFICULTIES),
+            save_button,
+        ])
+
     def _update_row(self, state: dict | None) -> QWidget:
         """Whether a newer commit is published, and a button to take it.
 
@@ -878,7 +940,7 @@ class SettingsPanel(Panel):
             # Restarting is the tray's own doing: the daemon has already
             # replaced the source and re-executed itself, but this process is
             # still running the code it started with.
-            control = button(self.t("restart"), lambda _=False: _restart_tray())
+            control = button(self.t("restart"), lambda _=False: restart_tray())
             title = self.fill("update_current", update.get("installed_short", "?"))
             subtitle = update.get("error", "")
 
@@ -1056,7 +1118,7 @@ class SettingsPanel(Panel):
 # --- small controls --------------------------------------------------------
 
 
-def _restart_tray() -> None:
+def restart_tray() -> None:
     """Re-exec this process so it runs the source the daemon just installed."""
     import os
     import sys
