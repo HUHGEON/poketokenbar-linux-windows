@@ -35,6 +35,7 @@ from .sprites import SpriteStore
 from .cache import ScanCache
 from .models import DailyUsage
 from .plan import PlanSource
+from .single_instance import SingleInstance
 
 
 class Daemon:
@@ -410,6 +411,16 @@ class Daemon:
 
 
 def main() -> int:
+    instance = SingleInstance("daemon")
+    if not instance.acquire():
+        return 0
+    try:
+        return _run()
+    finally:
+        instance.release()
+
+
+def _run() -> int:
     from . import providers as provider_registry
 
     cache = ScanCache(platform_paths.cache_base() / "poketokenbar" / "scan.db")

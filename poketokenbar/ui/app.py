@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import commands, config
+from ..single_instance import SingleInstance
 from .pet import DesktopPet
 from .panels import (
     BagPanel, CollectionPanel, HomePanel, SettingsPanel, ShopPanel, ago,
@@ -591,6 +592,16 @@ class TrayApp:
 
 
 def main(argv: list[str] | None = None) -> int:
+    instance = SingleInstance("ui")
+    if not instance.acquire():
+        return 0
+    try:
+        return _run(argv)
+    finally:
+        instance.release()
+
+
+def _run(argv: list[str] | None = None) -> int:
     if sys.platform == "win32":
         # Give this application its own taskbar identity instead of Python's.
         import ctypes

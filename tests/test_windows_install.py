@@ -73,6 +73,14 @@ def test_it_starts_both_halves():
     assert "poketokenbar.ui.app" in script
 
 
+def test_both_halves_refuse_duplicate_processes():
+    """Repeated installs and login shortcuts must not create competing state writers."""
+    root = Path(__file__).resolve().parent.parent
+    for relative in ("poketokenbar/daemon.py", "poketokenbar/ui/app.py"):
+        source = (root / relative).read_text(encoding="utf-8")
+        assert "SingleInstance" in source
+
+
 def test_it_uses_pythonw_so_no_console_window_appears():
     """python.exe brings a console host with it, so a tray app started at login
     would flash a black window on every boot."""
