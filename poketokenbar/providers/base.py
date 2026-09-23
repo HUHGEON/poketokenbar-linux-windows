@@ -356,6 +356,27 @@ class ScanningProvider:
                 week["cost"] += cost
         return {"week": week, "month": month}
 
+    def fetch_month_daily(self, today: str | None = None) -> list[DailyUsage]:
+        """One bucket per elapsed day in the current month, including zeroes.
+
+        A dense series keeps every front end's chart geometry stable and makes
+        `sum(series) == month total` an easy invariant to test.
+        """
+        day = today or _date.today().strftime("%Y-%m-%d")
+        anchor = datetime.strptime(day, "%Y-%m-%d").date()
+        by_day: dict[str, list[Entry]] = {}
+        for entry in self.scan_entries():
+            if entry.local_day[:7] == day[:7] and entry.local_day <= day:
+                by_day.setdefault(entry.local_day, []).append(entry)
+        return [
+            self.aggregate_daily(
+                current.strftime("%Y-%m-%d"),
+                by_day.get(current.strftime("%Y-%m-%d"), []),
+            )
+            for offset in range(anchor.day)
+            for current in [anchor.replace(day=1) + timedelta(days=offset)]
+        ]
+
     def fetch_active_block(self, now: datetime | None = None) -> BlockUsage | None:
         """The rolling 5-hour block, and how fast it is being filled.
 

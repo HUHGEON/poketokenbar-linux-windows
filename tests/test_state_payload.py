@@ -27,6 +27,18 @@ def test_absent_periods_stay_empty():
     assert state.build({}, {}, [])["periods"] == {}
 
 
+def test_month_daily_combines_providers_without_losing_provider_rows():
+    claude = DailyUsage(date="2026-09-01", total_tokens=10, total_cost=0.1)
+    codex = DailyUsage(date="2026-09-01", total_tokens=20, total_cost=0.2)
+    payload = state.build(
+        {}, {}, [], month_daily={"claude_code": [claude], "codex": [codex]}
+    )
+
+    assert payload["month_daily"]["combined"][0]["total_tokens"] == 30
+    assert payload["month_daily"]["providers"]["codex"][0]["total_tokens"] == 20
+    assert payload["month_daily"]["combined"][0]["cost_text"]
+
+
 def test_the_panel_sprite_follows_the_pin():
     """Pinning changes the panel and nothing else, so if the panel ignored it
     the feature would have nowhere to take effect at all."""

@@ -30,7 +30,7 @@ from PySide6.QtWidgets import (
 from .. import balance, commands, config, l10n
 from . import theme
 from .widgets import (
-    Segmented, Sprite, badge, big, button, card, chip, clear_layout, column,
+    MonthlyChart, Segmented, Sprite, badge, big, button, card, chip, clear_layout, column,
     heading, icon_button, label, level_colour, meter, rarity_badge, row,
     separator, spread, stat_line,
 )
@@ -193,6 +193,7 @@ class Panel(QWidget):
 class HomePanel(Panel):
     def __init__(self, reader) -> None:
         super().__init__(reader)
+        self._selected_provider = "all"
         # Held across rebuilds so its animation is not restarted every poll.
         self.sprite = Sprite(76)
 
@@ -326,7 +327,22 @@ class HomePanel(Panel):
             self.add(row(*parts[:-1], spacing=5, stretch=True))
 
         providers = (state or {}).get("providers") or {}
-        for provider_id, usage in providers.items():
+        if self._selected_provider != "all" and self._selected_provider not in providers:
+            self._selected_provider = "all"
+        if len(providers) > 1:
+            options = [("all", self.t("all_providers"))] + [
+                (provider_id, self._provider_name(state, provider_id))
+                for provider_id in providers
+            ]
+            self.add(Segmented(
+                options, self._select_provider,
+                active=self._selected_provider, compact=True,
+            ))
+
+        shown = providers.items() if self._selected_provider == "all" else [
+            (self._selected_provider, providers[self._selected_provider])
+        ]
+        for provider_id, usage in shown:
             self.add(spread(
                 label(self._provider_name(state, provider_id), bold=True, size=15),
                 row(label(usage.get("total_tokens_compact", ""), bold=True, size=15),
@@ -341,11 +357,25 @@ class HomePanel(Panel):
                 faint=True, size=12))
 
         # Only worth the rows when the day actually spanned several models.
-        models = today.get("models") or []
+        models = (today.get("models") or []) if self._selected_provider == "all" else \
+            (providers.get(self._selected_provider, {}).get("models") or [])
         if len(models) > 1:
             for model_row in models[:6]:
                 self.add(stat_line(model_row["model"],
                                    model_row["total_tokens_compact"]))
+
+        daily = (state or {}).get("month_daily") or {}
+        series = daily.get("combined") if self._selected_provider == "all" else \
+            (daily.get("providers") or {}).get(self._selected_provider)
+        if series:
+            self.add(heading(self.t("daily_trend")))
+            self.add(MonthlyChart(series))
+
+    def _select_provider(self, provider_id: str) -> None:
+        if provider_id == self._selected_provider:
+            return
+        self._selected_provider = provider_id
+        self.refresh(self.reader.state, force=True)
 
     def _provider_name(self, state: dict | None, provider_id: str) -> str:
         """The provider's display name, as the daemon registered it."""

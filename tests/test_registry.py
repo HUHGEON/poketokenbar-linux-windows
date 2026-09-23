@@ -8,8 +8,11 @@ gets wrong is wrong everywhere.
 
 import pytest
 
+from datetime import datetime, timezone
+
 from poketokenbar import providers
 from poketokenbar.providers.base import ScanningProvider
+from poketokenbar.models import Entry
 
 
 def test_every_registered_provider_has_an_identity():
@@ -84,3 +87,18 @@ def test_period_totals_are_shared_not_reimplemented(cls):
         pytest.skip(f"{cls.__name__} is not file-scanning")
     assert cls.fetch_daily is ScanningProvider.fetch_daily
     assert cls.fetch_periods is ScanningProvider.fetch_periods
+
+
+def test_month_daily_series_is_dense_and_keeps_zero_days():
+    class Provider(ScanningProvider):
+        reports_cost = False
+
+        def scan_entries(self):
+            moment = datetime(2026, 9, 2, tzinfo=timezone.utc)
+            return [Entry("one", moment, "2026-09-02", "m", input=7)]
+
+    series = Provider().fetch_month_daily("2026-09-03")
+    assert [day.date for day in series] == [
+        "2026-09-01", "2026-09-02", "2026-09-03"
+    ]
+    assert [day.total_tokens for day in series] == [0, 7, 0]

@@ -304,6 +304,7 @@ class Daemon:
                 daily_by_provider[provider.id] = daily
 
         periods: dict = {}
+        month_daily: dict = {}
         for provider in self.providers:
             fetch_periods = getattr(provider, "fetch_periods", None)
             if fetch_periods is None:
@@ -317,6 +318,12 @@ class Daemon:
                 bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0})
                 bucket["tokens"] += result[key]["tokens"]
                 bucket["cost"] += result[key]["cost"]
+            fetch_month_daily = getattr(provider, "fetch_month_daily", None)
+            if fetch_month_daily is not None:
+                try:
+                    month_daily[provider.id] = fetch_month_daily()
+                except Exception as exc:
+                    errors.append(f"{provider.id} daily trend: {exc}")
 
         # The rolling 5-hour block per provider. It carries the tokens/minute
         # the limit forecast is derived from, so without it the popup can say
@@ -432,6 +439,7 @@ class Daemon:
             rarity_counts=self.companion_store.rarity_counts() if self.companion_store else None,
             catch_counts=self.companion_store.catch_rarity_counts() if self.companion_store else None,
             periods=periods,
+            month_daily=month_daily,
             burn=self._burn_payload(limit_status, blocks),
             blocks=blocks,
             provider_status=status_payload,

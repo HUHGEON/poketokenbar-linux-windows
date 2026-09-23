@@ -7,11 +7,13 @@ files and it does the rest.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from PySide6.QtCore import QSize, Qt, QTimer
-from PySide6.QtGui import QImageReader, QMovie, QPixmap
+from PySide6.QtGui import QColor, QImageReader, QMovie, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSizePolicy,
-    QVBoxLayout, QWidget,
+    QToolTip, QVBoxLayout, QWidget,
 )
 
 from . import theme
@@ -39,6 +41,75 @@ def level_colour(level: str | None) -> str:
 # awake, which is why "saver" is also the default.
 FRAME_FLOORS = {"saver": 0.4, "balanced": 0.2, "smooth": 0.1}
 DEFAULT_QUALITY = "saver"
+
+
+class MonthlyChart(QWidget):
+    """Compact month-to-date bars with an exact-value hover tooltip."""
+
+    def __init__(self, series: list[dict], parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.series = series
+        self.setMinimumHeight(82)
+        self.setMouseTracking(True)
+
+    def _bar_at(self, x: float) -> int | None:
+        if not self.series or self.width() <= 0:
+            return None
+        index = int(x / self.width() * len(self.series))
+        return max(0, min(index, len(self.series) - 1))
+
+    def mouseMoveEvent(self, event) -> None:
+        index = self._bar_at(event.position().x())
+        if index is None:
+            return
+        day = self.series[index]
+        QToolTip.showText(
+            event.globalPosition().toPoint(),
+            f"{day.get('date', '')}\n{day.get('total_tokens_compact', '0')} · "
+            f"{day.get('cost_text', '$0.00')}",
+            self,
+        )
+
+    def leaveEvent(self, event) -> None:
+        QToolTip.hideText()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if not self.series:
+            return
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        peak = max(1, max(int(day.get("total_tokens", 0)) for day in self.series))
+        count = len(self.series)
+        slot = self.width() / count
+        bar_width = max(2.0, slot - 2.0)
+        track = max(1, self.height() - 18)
+        painter.setPen(Qt.NoPen)
+        for index, day in enumerate(self.series):
+            tokens = max(0, int(day.get("total_tokens", 0)))
+            height = 2 if tokens == 0 else max(4, round(track * tokens / peak))
+            date_text = str(day.get("date", ""))
+            try:
+                weekday = datetime.strptime(date_text, "%Y-%m-%d").weekday()
+            except ValueError:
+                weekday = 0
+            colour = theme.SECONDARY if weekday >= 5 else theme.ACCENT
+            painter.setBrush(QColor(colour))
+            painter.drawRoundedRect(
+                round(index * slot + 1), track - height,
+                round(bar_width), height, 2, 2,
+            )
+        painter.setPen(QColor(theme.TERTIARY))
+        for index, day in enumerate(self.series):
+            number = index + 1
+            if number == 1 or number == count or number % 5 == 0:
+                painter.drawText(
+                    round(index * slot), track + 3,
+                    max(12, round(slot * 2)), 14,
+                    Qt.AlignLeft | Qt.AlignVCenter, str(number),
+                )
+        painter.end()
 
 
 def frame_floor(quality: str | None) -> float:

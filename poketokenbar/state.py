@@ -126,6 +126,36 @@ def _model_rows(models: dict[str, int]) -> list[dict]:
     ]
 
 
+def _daily_rows(series_by_provider: dict | None) -> dict:
+    def row(day):
+        return {
+            "date": day.date,
+            "total_tokens": day.total_tokens,
+            "total_tokens_compact": fmt.compact(day.total_tokens),
+            "total_cost": day.total_cost,
+            "cost_text": fmt.cost(day.total_cost),
+        }
+
+    providers = {
+        provider_id: [row(day) for day in series]
+        for provider_id, series in (series_by_provider or {}).items()
+    }
+    combined: dict[str, dict] = {}
+    for series in providers.values():
+        for day in series:
+            bucket = combined.setdefault(day["date"], {
+                "date": day["date"], "total_tokens": 0, "total_cost": 0.0,
+            })
+            bucket["total_tokens"] += day["total_tokens"]
+            bucket["total_cost"] += day["total_cost"]
+    combined_rows = []
+    for day in sorted(combined.values(), key=lambda item: item["date"]):
+        day["total_tokens_compact"] = fmt.compact(day["total_tokens"])
+        day["cost_text"] = fmt.cost(day["total_cost"])
+        combined_rows.append(day)
+    return {"combined": combined_rows, "providers": providers}
+
+
 def _transfer_payload(described: dict | None) -> dict:
     """The export file the popup would import, described before it is used.
 
@@ -190,6 +220,7 @@ def build(
     rarity_counts: dict | None = None,
     catch_counts: dict | None = None,
     periods: dict | None = None,
+    month_daily: dict | None = None,
     burn: dict | None = None,
     provider_status: dict | None = None,
     blocks: dict | None = None,
@@ -258,6 +289,7 @@ def build(
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
         "periods": _period_rows(periods),
+        "month_daily": _daily_rows(month_daily),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
         "burn": burn or {},
