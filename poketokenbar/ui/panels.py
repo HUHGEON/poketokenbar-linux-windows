@@ -397,48 +397,76 @@ class HomePanel(Panel):
 
     def _add_limits(self, state: dict | None) -> None:
         limits = (state or {}).get("limits") or {}
+        codex = (state or {}).get("codex_limits") or {}
         rows = [("session", self.t("five_hour_session"), limits.get("session")),
                 ("weekly", self.t("weekly"), limits.get("weekly"))]
         rows += [(entry.get("kind"), entry.get("name"), entry)
                  for entry in limits.get("scoped") or []]
         rows = [r for r in rows if r[2]]
         blocks = (state or {}).get("blocks") or {}
-        if not rows and not blocks.get("claude_code"):
+        show_claude = self._selected_provider in ("all", "claude_code")
+        show_codex = self._selected_provider in ("all", "codex")
+        has_claude = show_claude and (rows or blocks.get("claude_code"))
+        has_codex = show_codex and bool(codex.get("buckets"))
+        if not has_claude and not has_codex:
             return
-
-        self.add(separator())
-        self.add(heading(self.t("limits_official")))
-        if limits.get("plan_text"):
-            self.add(label(self.fill("plan_label", limits["plan_text"]),
-                           faint=True, size=12))
-        # Which account these belong to. Someone signed into two is otherwise
-        # reading a bar for the other one.
-        if limits.get("account_text"):
-            self.add(label(self.fill("account_label", limits["account_text"]),
-                           faint=True, size=12))
 
         # "Used" or "left" is a display transform only: the meter and the
         # colour stay on the utilization, so a window at 95% is still red while
         # it reads "5% left".
         remaining = ((state or {}).get("config") or {}).get(
             "limit_percent_mode") == "remaining"
-        for key, name, window in rows:
-            utilization = window.get("utilization", 0)
-            severity = window.get("severity")
-            shown = round(max(0.0, 100.0 - utilization) if remaining else utilization)
-            text = self.fill("percent_remaining", f"{shown}%") if remaining \
-                else f"{shown}%"
-            countdown = resets_in(window.get("resets_at"), self.t)
-            self.add(spread(
-                label(name, bold=True, size=15),
-                row(label(text, colour=level_colour(severity), bold=True),
-                    label(f"· {countdown}" if countdown else "", dim=True, size=12)),
-            ))
-            self.add(meter(utilization / 100, severity))
-            if key == "session":
-                self._add_forecast(state)
+        if has_claude:
+            self.add(separator())
+            self.add(heading(self.t("limits_official")))
+            if limits.get("plan_text"):
+                self.add(label(self.fill("plan_label", limits["plan_text"]),
+                               faint=True, size=12))
+            if limits.get("account_text"):
+                self.add(label(self.fill("account_label", limits["account_text"]),
+                               faint=True, size=12))
+            for key, name, window in rows:
+                self._add_limit_window(name, window, remaining)
+                if key == "session":
+                    self._add_forecast(state)
+            self._add_block(state, blocks)
 
-        self._add_block(state, blocks)
+        if has_codex:
+            self.add(separator())
+            self.add(heading(self.t("codex_limits")))
+            for bucket in codex.get("buckets") or []:
+                if len(codex.get("buckets") or []) > 1:
+                    self.add(label(bucket.get("name", "Codex"), bold=True, size=15))
+                if bucket.get("plan"):
+                    self.add(label(self.fill("plan_label", bucket["plan"]),
+                                   faint=True, size=12))
+                for window in bucket.get("windows") or []:
+                    minutes = window.get("duration_minutes")
+                    name = self.t("five_hour_session") if minutes == 300 else \
+                        self.t("weekly") if minutes == 10080 else \
+                        (f"{minutes // 60}h" if isinstance(minutes, int) and minutes >= 60
+                         else f"{minutes}m" if isinstance(minutes, int) else "Limit")
+                    self._add_limit_window(name, window, remaining)
+                personal = bucket.get("individual")
+                if personal and isinstance(personal.get("remainingPercent"), (int, float)):
+                    used = max(0, min(100, 100 - personal["remainingPercent"]))
+                    self._add_limit_window(self.t("codex_personal_limit"), {
+                        "utilization": used,
+                        "severity": "crit" if used >= 95 else "warn" if used >= 80 else "ok",
+                    }, remaining)
+
+    def _add_limit_window(self, name: str, window: dict, remaining: bool) -> None:
+        utilization = window.get("utilization", 0)
+        severity = window.get("severity")
+        shown = round(max(0.0, 100.0 - utilization) if remaining else utilization)
+        text = self.fill("percent_remaining", f"{shown}%") if remaining else f"{shown}%"
+        countdown = resets_in(window.get("resets_at"), self.t)
+        self.add(spread(
+            label(name, bold=True, size=15),
+            row(label(text, colour=level_colour(severity), bold=True),
+                label(f"· {countdown}" if countdown else "", dim=True, size=12)),
+        ))
+        self.add(meter(utilization / 100, severity))
 
     def _add_forecast(self, state: dict | None) -> None:
         """Whether the 5-hour window runs out before it resets.

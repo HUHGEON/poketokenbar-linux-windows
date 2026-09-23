@@ -156,6 +156,26 @@ def _daily_rows(series_by_provider: dict | None) -> dict:
     return {"combined": combined_rows, "providers": providers}
 
 
+def _codex_limits_payload(raw: dict | None, percent_mode: str,
+                          warn: float, crit: float) -> dict:
+    if not raw:
+        return {}
+    buckets = []
+    for bucket in raw.get("buckets") or []:
+        copied = {k: v for k, v in bucket.items() if k != "windows"}
+        copied["windows"] = []
+        for window in bucket.get("windows") or []:
+            utilization = float(window.get("utilization", 0))
+            copied["windows"].append({
+                **window,
+                "severity": limits.level(utilization, warn, crit),
+                "percent_text": limits.format_percent(
+                    limits.display_percent(utilization, percent_mode)),
+            })
+        buckets.append(copied)
+    return {"buckets": buckets}
+
+
 def _transfer_payload(described: dict | None) -> dict:
     """The export file the popup would import, described before it is used.
 
@@ -221,6 +241,7 @@ def build(
     catch_counts: dict | None = None,
     periods: dict | None = None,
     month_daily: dict | None = None,
+    codex_limits: dict | None = None,
     burn: dict | None = None,
     provider_status: dict | None = None,
     blocks: dict | None = None,
@@ -281,6 +302,11 @@ def build(
         },
         "limits": _limits_payload(
             limit_status, l10n.catalogue(config_values.get("language", "en"))),
+        "codex_limits": _codex_limits_payload(
+            codex_limits, percent_mode,
+            float(config_values.get("warn_threshold", 80)),
+            float(config_values.get("crit_threshold", 95)),
+        ),
         "companion": companion_payload or {},
         "shop": shop_payload or [],
         "bag": bag_payload or [],

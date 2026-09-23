@@ -20,6 +20,8 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "growth_boost": ("2× growth", "2배 성장", "成長2倍", "Crecimiento ×2", "Croissance ×2", "Crescimento ×2", "2× Wachstum"),
     "all_providers": ("All", "전체", "すべて", "Todos", "Tous", "Todos", "Alle"),
     "daily_trend": ("Daily this month", "이번 달 일별", "今月の日別", "Diario este mes", "Jours du mois", "Diário deste mês", "Täglich in diesem Monat"),
+    "codex_limits": ("Codex official limits", "Codex 공식 한도", "Codex公式上限", "Límites oficiales de Codex", "Limites officielles Codex", "Limites oficiais do Codex", "Offizielle Codex-Limits"),
+    "codex_personal_limit": ("Personal limit", "개인 한도", "個人上限", "Límite personal", "Limite personnelle", "Limite pessoal", "Persönliches Limit"),
     "difficulty_shop": ("Shop prices", "상점 가격 난이도", "ショップ価格", "Precios de la tienda", "Prix de la boutique", "Preços da loja", "Shop-Preise"),
     "difficulty_hint": ("10%–200% of the default balance. Lower grows faster and costs less; higher does the opposite.", "기본 밸런스의 10%–200%예요. 낮추면 빨리 자라고 싸지며, 높이면 그 반대예요.", "標準バランスの10%〜200%です。下げると早く育ち安くなり、上げるとその逆です。", "Del 10 % al 200 % del balance predeterminado. Menos crece más rápido y cuesta menos; más hace lo contrario.", "De 10 % à 200 % de l’équilibrage par défaut. Plus bas accélère la croissance et réduit les prix ; plus haut fait l’inverse.", "De 10% a 200% do balanceamento padrão. Menor cresce mais rápido e custa menos; maior faz o contrário.", "10–200 % der Standardbalance. Niedriger wächst schneller und kostet weniger; höher bewirkt das Gegenteil."),
     "save": ("Save", "저장", "保存", "Guardar", "Enregistrer", "Salvar", "Speichern"),

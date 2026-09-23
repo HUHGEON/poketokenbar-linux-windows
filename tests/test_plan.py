@@ -80,6 +80,55 @@ def test_account_protocol_is_read_only_and_discards_private_details(monkeypatch,
     assert process.stopped
 
 
+def test_codex_rate_limit_protocol_and_normalisation(monkeypatch):
+    class Capture(io.StringIO):
+        def close(self):
+            pass
+
+    payload = {
+        "rateLimits": {
+            "limitId": "codex", "limitName": "Codex", "planType": "plus",
+            "primary": {"usedPercent": 31, "windowDurationMins": 300,
+                        "resetsAt": 2_000_000_000},
+            "secondary": {"usedPercent": 12, "windowDurationMins": 10080,
+                          "resetsAt": 2_000_100_000},
+        },
+        "rateLimitsByLimitId": {
+            "codex": {"limitId": "codex"},
+            "codex_other": {"limitId": "codex_other", "limitName": "Codex other",
+                            "primary": {"usedPercent": 7, "windowDurationMins": 300}},
+        },
+    }
+
+    class Process:
+        stdin = Capture()
+        stdout = io.StringIO('\n'.join(json.dumps(m) for m in (
+            {"id": 1, "result": {}}, {"id": 2, "result": payload},
+        )))
+        stopped = False
+
+        def poll(self):
+            return None if not self.stopped else 0
+
+        def terminate(self):
+            self.stopped = True
+
+        def wait(self, timeout):
+            return 0
+
+    process = Process()
+    monkeypatch.setattr(plan.subprocess, "Popen", lambda *a, **kw: process)
+    normalized = plan.parse_rate_limits(plan.read_rate_limits("codex"))
+
+    sent = [json.loads(line) for line in process.stdin.getvalue().splitlines()]
+    assert [message["method"] for message in sent] == [
+        "initialize", "initialized", "account/rateLimits/read"
+    ]
+    assert len(normalized["buckets"]) == 2
+    assert normalized["buckets"][0]["windows"][0]["utilization"] == 31
+    assert normalized["buckets"][0]["windows"][0]["resets_at"]
+
+
 def test_background_helpers_disable_windows_console(monkeypatch):
     monkeypatch.setattr(processes.sys, "platform", "win32")
     monkeypatch.setattr(processes.subprocess, "CREATE_NO_WINDOW", 0x08000000, raising=False)

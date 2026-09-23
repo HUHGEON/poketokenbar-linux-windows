@@ -39,6 +39,18 @@ def test_month_daily_combines_providers_without_losing_provider_rows():
     assert payload["month_daily"]["combined"][0]["cost_text"]
 
 
+def test_codex_limits_are_coloured_and_follow_percent_mode():
+    payload = state.build({}, {"limit_percent_mode": "remaining"}, [], codex_limits={
+        "buckets": [{"id": "codex", "name": "Codex", "windows": [{
+            "kind": "primary", "utilization": 91, "duration_minutes": 300,
+            "resets_at": None,
+        }]}]
+    })
+    window = payload["codex_limits"]["buckets"][0]["windows"][0]
+    assert window["severity"] == "warn"
+    assert window["percent_text"] == "9%"
+
+
 def test_the_panel_sprite_follows_the_pin():
     """Pinning changes the panel and nothing else, so if the panel ignored it
     the feature would have nowhere to take effect at all."""

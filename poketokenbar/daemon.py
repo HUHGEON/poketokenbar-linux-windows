@@ -440,6 +440,7 @@ class Daemon:
             catch_counts=self.companion_store.catch_rarity_counts() if self.companion_store else None,
             periods=periods,
             month_daily=month_daily,
+            codex_limits=getattr(self.plan_source, "current_limits", None),
             burn=self._burn_payload(limit_status, blocks),
             blocks=blocks,
             provider_status=status_payload,
