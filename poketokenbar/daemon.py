@@ -128,7 +128,14 @@ class Daemon:
             self.updater.check()
         except Exception as exc:  # pragma: no cover - check() swallows its own
             errors.append(f"update check: {exc}")
-        return self.updater.payload()
+        payload = self.updater.payload()
+        skipped = str(self.config_values.get("skipped_update_revision") or "")
+        payload["skipped"] = skipped
+        payload["skipped_short"] = skipped[:7]
+        if skipped and payload.get("available") == skipped:
+            payload["available"] = ""
+            payload["available_short"] = ""
+        return payload
 
     def settings_payload(self) -> dict:
         """Provider rows for the settings page, with live extra-folder counts."""
@@ -253,6 +260,17 @@ class Daemon:
                         self._pending_restart = True
                     except Exception as exc:
                         errors.append(f"update: {exc}")
+            elif name in ("skip_update", "unskip_update"):
+                revision = ""
+                if name == "skip_update" and self.updater is not None:
+                    revision = str(self.updater.available or "")
+                try:
+                    config.set_value(
+                        self.config_path, "skipped_update_revision", revision
+                    )
+                    self.config_values = config.load(self.config_path)
+                except (OSError, ValueError, KeyError) as exc:
+                    errors.append(f"{name}: {exc}")
             elif name == "reload_config":
                 self.config_values = config.load(self.config_path)
                 self._apply_difficulty()

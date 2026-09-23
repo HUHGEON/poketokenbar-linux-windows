@@ -271,6 +271,39 @@ def test_the_daemon_ships_the_update_section():
     assert payload["update"] == {"supported": False}
 
 
+def test_skipped_revision_stays_hidden_and_can_be_restored(tmp_path):
+    from poketokenbar import commands
+    from poketokenbar.daemon import Daemon
+
+    class FakeUpdater:
+        available = "b" * 40
+
+        def check(self):
+            return self.available
+
+        def payload(self):
+            return {
+                "supported": True, "installed": "a" * 40,
+                "installed_short": "aaaaaaa", "available": self.available,
+                "available_short": self.available[:7], "error": "",
+            }
+
+    daemon = Daemon(
+        tmp_path / "state.json", tmp_path / "config.json", None, [],
+        updater=FakeUpdater(),
+    )
+    daemon.spool = tmp_path / "spool"
+    commands.enqueue("skip_update", {}, spool=daemon.spool)
+    skipped = daemon.poll_once()["update"]
+    assert skipped["available"] == ""
+    assert skipped["skipped"] == "b" * 40
+
+    commands.enqueue("unskip_update", {}, spool=daemon.spool)
+    restored = daemon.poll_once()["update"]
+    assert restored["available"] == "b" * 40
+    assert restored["skipped"] == ""
+
+
 def test_the_installers_record_the_revision_they_installed():
     """Without it an install cannot say what it is, and the updater refuses to
     offer anything rather than guess."""

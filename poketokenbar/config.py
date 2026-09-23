@@ -54,6 +54,9 @@ DEFAULTS: dict[str, object] = {
     # per-provider on purpose, so a folder added for Gemini is never handed to
     # Claude's parser.
     "custom_scan_roots": {},
+    # The exact revision a user chose not to be reminded about. A later head
+    # commit appears normally; clearing the string restores the skipped one.
+    "skipped_update_revision": "",
 }
 
 

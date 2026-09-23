@@ -990,17 +990,27 @@ class SettingsPanel(Panel):
             return label(self.t("update_unsupported"), faint=True, size=11, wrap=True)
 
         if update.get("available"):
-            control = button(
+            controls = [button(
                 self.t("update_now"),
                 lambda _=False: commands.enqueue("update", {}),
-            )
+            ), button(
+                self.t("update_skip"),
+                lambda _=False: commands.enqueue("skip_update", {}),
+            )]
             title = self.t("update_available")
             subtitle = f"{update.get('installed_short', '')} → {update['available_short']}"
+        elif update.get("skipped"):
+            controls = [button(
+                self.t("update_unskip"),
+                lambda _=False: commands.enqueue("unskip_update", {}),
+            )]
+            title = self.fill("update_skipped", update.get("skipped_short", ""))
+            subtitle = ""
         else:
             # Restarting is the tray's own doing: the daemon has already
             # replaced the source and re-executed itself, but this process is
             # still running the code it started with.
-            control = button(self.t("restart"), lambda _=False: restart_tray())
+            controls = [button(self.t("restart"), lambda _=False: restart_tray())]
             title = self.fill("update_current", update.get("installed_short", "?"))
             subtitle = update.get("error", "")
 
@@ -1013,7 +1023,8 @@ class SettingsPanel(Panel):
             *([label(subtitle, faint=True, size=11)] if subtitle else []),
             spacing=2))
         layout.addStretch(1)
-        layout.addWidget(control)
+        for control in controls:
+            layout.addWidget(control)
         return card(holder, horizontal=False, padding=0, spacing=0)
 
     def _about(self) -> QWidget:

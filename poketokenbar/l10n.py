@@ -556,6 +556,9 @@ STRINGS: dict[str, tuple[str, ...]] = {
     ),
     "update_now": ("Update now", "지금 업데이트", "今すぐ更新", "Actualizar ahora",
                    "Mettre à jour", "Atualizar agora", "Jetzt aktualisieren"),
+    "update_skip": ("Skip", "건너뛰기", "スキップ", "Omitir", "Ignorer", "Ignorar", "Überspringen"),
+    "update_skipped": ("Skipped update %1", "업데이트 %1 건너뜀", "更新 %1 をスキップ中", "Actualización %1 omitida", "Mise à jour %1 ignorée", "Atualização %1 ignorada", "Update %1 übersprungen"),
+    "update_unskip": ("Show again", "다시 표시", "再表示", "Mostrar de nuevo", "Afficher à nouveau", "Mostrar novamente", "Wieder anzeigen"),
     "update_restart": (
         "Restart to finish", "다시 시작하면 적용돼요", "再起動で反映されます",
         "Reinicia para terminar", "Redémarre pour terminer",
