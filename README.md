@@ -32,7 +32,7 @@
 | 사용량 데몬 (프로바이더 12개) | ✅ 완료 |
 | GNOME Shell 확장 | ✅ **실제 데스크탑에서 동작 확인** |
 | Qt 트레이 앱 (Windows·그 외 리눅스) | ✅ 작성 완료 |
-| 테스트 | ✅ Python 990개 + JavaScript 19개, CI 초록 |
+| 테스트 | ✅ Python 1,015개 + JavaScript 19개, CI 초록 |
 | 클린 체크아웃에서 설치 검증 | ✅ CI에서 |
 | 실제 Windows에서 데몬 동작 검증 | ✅ CI의 windows-latest 러너에서 |
 | **실제 Windows 데스크탑에서 UI 검증** | ❌ **아직** ([#7](../../issues/7)) |
@@ -67,7 +67,7 @@
 | **Pi Agent** | `~/.pi/agent/sessions` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 
-Claude 계정은 공식 5시간·주간 한도까지 읽습니다.
+Claude와 Codex 계정은 공식 5시간·주간 한도까지 읽습니다.
 
 대부분은 macOS와 같은 dotfile 경로를 씁니다. 위치가 실제로 다른 것들은 근거를 하나씩 확인했습니다.
 
@@ -90,6 +90,8 @@ Claude 계정은 공식 5시간·주간 한도까지 읽습니다.
 - 🐣 **부화.** [PokéAPI](https://pokeapi.co/)의 1~5세대 진화 계보에서 공식 capture rate 가중으로
   태어납니다. 25종 성격 중 하나가 정해지고, 아주 드물게 **✨ 이로치**가 나옵니다.
 - ⚡ **진화 → 🎓 졸업.** 실제 진화 트리를 따라 자라고, 최종 진화 후 **도감**에 영구 보존됩니다.
+- 🧬 **개체 프로필.** 레벨·성별·성격·특성·IV·계산 능력치·배운 기술과 도감 설명을 저장합니다.
+- 🚀 **완료 계열 2배 성장.** 이미 졸업한 진화 계열을 다시 키우면 두 배 빠르게 성장합니다.
 - 🍬 **한도를 채우면 이상한 사탕.** **가방**에서 써서 지금 포켓몬을 키웁니다.
 - 🛒 **상점.** 쓴 토큰이 곧 재화 — 이상한 사탕, 민트, 이로치 부적, 3등급의 알.
 - 🎚 **난이도.** 성장 속도와 상점 가격을 각각 기본값의 10%–200%로 조절합니다. 저장을 불러와도
@@ -104,12 +106,15 @@ Claude 계정은 공식 5시간·주간 한도까지 읽습니다.
 - 🔢 **사용량 / 남은 양.** 한도를 쓴 만큼으로 볼지 남은 만큼으로 볼지 고릅니다. 표시만 바뀌고
   색과 게이지·알림 판정은 사용률을 그대로 씁니다.
 - 🧮 **모델별 내역.** 세션 로그 하나에 모델이 여럿이면 실제 답한 모델 기준으로 나눠 보여줍니다.
+- 📈 **공급자 탭과 월간 그래프.** 여러 CLI의 상세 사용량을 전환하고 이번 달 일별 토큰·비용을 확인합니다.
 - 📁 **추가 스캔 폴더.** 기본 경로 밖의 로그를 프로바이더별로 지정.
 - 🎚 **애니메이션 품질.** 절약 / 기본 / 부드럽게. 프레임 하나가 재합성 비용이라 실제 전력 설정입니다.
+- 🔋 **자동 절전·재연결.** OS 절전 모드에서는 애니메이션을 줄이고, 네트워크 복구 시 한도를 새로 읽습니다.
 - 🌐 **7개 언어.** 한국어·영어·일본어·스페인어·프랑스어·포르투갈어·독일어. 포켓몬 이름, 25종
   성격 이름, 상점 아이템, 부화·진화·졸업 알림까지 전부.
 - ⬆️ **앱 안에서 업데이트.** 새 커밋이 올라오면 설정 화면에 뜨고, 버튼 한 번으로 소스를 교체하고
-  재시작합니다. 저장소를 다시 찾아 설치 스크립트를 돌릴 필요가 없습니다.
+  재시작합니다. 특정 버전은 건너뛰었다가 다시 표시할 수 있습니다.
+- 💾 **안전한 세이브 이전.** 가져오기 전 진행도를 비교하고, 자동 백업을 최근 5개까지 보관하며 되돌릴 수 있습니다.
 - 🪟 **Windows 트레이 팝오버.** 알림 영역 아이콘을 누르면 별도 작업표시줄 창 대신 아이콘 바로
   위에 패널이 열리고, 바깥을 누르면 닫힙니다.
 - 🔑 **로그인 시 자동 시작.** 설정에서 켜고 끕니다 — 리눅스는 XDG autostart, Windows는 시작 폴더.
@@ -134,8 +139,8 @@ D-Bus가 아니라 그냥 파일입니다. 데몬은 UI를 전혀 모릅니다 �
 `python-orjson`(선택).
 
 ```bash
-git clone https://github.com/HUHGEON/poketokenbar-gnome.git
-cd poketokenbar-gnome
+git clone https://github.com/HUHGEON/poketokenbar-linux-windows.git
+cd poketokenbar-linux-windows
 ./install.sh
 systemctl --user enable --now poketokend
 ```
@@ -165,8 +170,8 @@ POKETOKENBAR_UI=qt ./install.sh
 준비물: Windows 10+, Python 3.12+.
 
 ```powershell
-git clone https://github.com/HUHGEON/poketokenbar-gnome.git
-cd poketokenbar-gnome
+git clone https://github.com/HUHGEON/poketokenbar-linux-windows.git
+cd poketokenbar-linux-windows
 powershell -ExecutionPolicy Bypass -File packaging\windows\install.ps1
 ```
 
@@ -225,8 +230,8 @@ node --test tests/js/*.test.mjs   # 확장 코드를 실제로 실행하는 테�
 무엇이 검증되고 무엇이 안 되는지는 [docs/TESTING.md](docs/TESTING.md)에 정리했습니다 — 그 검사들이
 실제로 잡아낸 결함 목록까지 포함해서, "값을 한다"는 주장이 주장으로 끝나지 않게 했습니다.
 
-Qt 프론트엔드 테스트는 PySide6가 없으면 스스로 건너뜁니다. CI의 ubuntu 잡이 932개를 돌리고,
-Windows 잡이 PySide6까지 깔고 990개 전부를 돌립니다.
+Qt 프론트엔드 테스트는 PySide6가 없으면 스스로 건너뜁니다. CI의 Windows 잡은 PySide6까지
+설치해 Python 테스트 1,000개 이상과 실제 위젯 구성 경로를 함께 검증합니다.
 
 ## 크레딧
 

@@ -26,8 +26,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-REPO = "HUHGEON/poketokenbar-gnome"
-BRANCH = "gnome"
+REPO = "HUHGEON/poketokenbar-linux-windows"
+# One package serves both installs. Updating Windows from `gnome` silently
+# replaced the tray work with the Linux branch, so select the matching line.
+BRANCH = "Windows" if os.name == "nt" else "gnome"
 API = f"https://api.github.com/repos/{REPO}"
 USER_AGENT = "poketokenbar-updater"
 

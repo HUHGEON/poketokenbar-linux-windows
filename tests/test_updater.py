@@ -107,6 +107,12 @@ def test_a_newer_commit_is_offered(tmp_path, offline):
     assert subject.payload()["available_short"] == "bbbbbbb"
 
 
+def test_updater_uses_the_platform_branch():
+    assert updater_module.REPO == "HUHGEON/poketokenbar-linux-windows"
+    expected = "Windows" if updater_module.os.name == "nt" else "gnome"
+    assert updater_module.BRANCH == expected
+
+
 def test_the_same_commit_is_not(tmp_path, offline):
     subject = Updater(root=make_install(tmp_path, revision="b" * 40))
     assert subject.check() == ""
@@ -268,7 +274,9 @@ def test_the_daemon_ships_the_update_section():
     from poketokenbar.models import DailyUsage
 
     payload = state.build({"claude_code": DailyUsage(date="2026-09-03")}, {}, [])
-    assert payload["update"] == {"supported": False}
+    assert payload["update"] == {
+        "supported": False, "skipped": "", "skipped_short": "",
+    }
 
 
 def test_skipped_revision_stays_hidden_and_can_be_restored(tmp_path):

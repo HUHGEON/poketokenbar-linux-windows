@@ -81,6 +81,8 @@ export const importSave = path => enqueue('import', {path});
  * directory.
  */
 export const update = () => enqueue('update', {});
+export const skipUpdate = () => enqueue('skip_update', {});
+export const unskipUpdate = () => enqueue('unskip_update', {});
 
 // The way back from an import that replaced the wrong save. No path: the
 // daemon restores from the backup it took when it overwrote the file.

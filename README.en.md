@@ -39,7 +39,7 @@ the full panel as an anchored popover instead of a separate taskbar window.
 | Usage daemon (12 providers) | ✅ done |
 | GNOME Shell extension | ✅ **run on a real desktop** |
 | Qt tray application (Windows, other Linux) | ✅ written |
-| Test suite | ✅ 990 Python + 19 JavaScript, green on CI |
+| Test suite | ✅ 1,015 Python + 19 JavaScript, green on CI |
 | Install verified from a clean checkout | ✅ in CI |
 | Daemon verified on real Windows | ✅ on CI's windows-latest runner |
 | **Verified on a real Windows desktop** | ❌ **not yet** ([#7](../../issues/7)) |
@@ -76,7 +76,13 @@ All twelve of the upstream sources are read:
 | **Pi Agent** | `~/.pi/agent/sessions` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 
-Official 5-hour and weekly limits are read for Claude accounts.
+Official 5-hour and weekly limits are read for Claude and Codex accounts.
+
+The Windows/Qt interface also includes persistent individual Pokémon profiles
+(level, gender, nature, ability, IVs, calculated stats and moves), a 2× repeat-line
+growth bonus, per-provider tabs, a daily chart for the current month, automatic
+power-saving animation, refresh after network recovery, version skipping, and
+confirmed save imports with five rotating backups and undo.
 
 Most read a dotfile path identical to the one macOS uses. Where a location
 genuinely differs, each now has a source behind it rather than a convention.
@@ -117,8 +123,8 @@ Requirements: GNOME Shell 45+, Python 3.12+, `libnotify` for notifications
 (optional), `python-orjson` for faster parsing (optional).
 
 ```bash
-git clone https://github.com/HUHGEON/poketokenbar-gnome.git
-cd poketokenbar-gnome
+git clone https://github.com/HUHGEON/poketokenbar-linux-windows.git
+cd poketokenbar-linux-windows
 ./install.sh
 systemctl --user enable --now poketokend
 ```
@@ -149,8 +155,8 @@ POKETOKENBAR_UI=qt ./install.sh
 Requirements: Windows 10+, Python 3.12+.
 
 ```powershell
-git clone https://github.com/HUHGEON/poketokenbar-gnome.git
-cd poketokenbar-gnome
+git clone https://github.com/HUHGEON/poketokenbar-linux-windows.git
+cd poketokenbar-linux-windows
 powershell -ExecutionPolicy Bypass -File packaging\windows\install.ps1
 ```
 
@@ -214,8 +220,9 @@ says which upstream case pinned it and what went wrong without it.
 not — including the defects the checks have caught, so the claim that they earn
 their keep is checkable rather than asserted.
 
-The Qt front-end tests skip themselves when PySide6 is absent: CI's ubuntu job
-runs 932 of them and the Windows job installs PySide6 and runs all 990.
+The Qt front-end tests skip themselves when PySide6 is absent. CI's Windows job
+installs PySide6 and runs more than 1,000 Python tests, including real widget
+construction paths.
 
 ## Credits
 

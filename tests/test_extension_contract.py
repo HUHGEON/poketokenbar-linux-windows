@@ -343,7 +343,7 @@ LIST_ROW_FIELDS = {
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
-            "sprite_path"},
+            "sprite_path", "profiles"},
 }
 
 
@@ -515,8 +515,11 @@ def test_every_daemon_setting_is_reachable_from_the_ui():
         # Edited per provider through its own field, not as one blob.
         "custom_scan_roots",
         # Chosen from the language row.
-        "language",
-    }
+            "language",
+            # Written by the update Skip/Show again actions through the daemon,
+            # never edited as a raw setting.
+            "skipped_update_revision",
+        }
     missing = set(config_module.DEFAULTS) - reachable - not_for_the_ui
     assert not missing, f"settings with no control anywhere in the UI: {sorted(missing)}"
 

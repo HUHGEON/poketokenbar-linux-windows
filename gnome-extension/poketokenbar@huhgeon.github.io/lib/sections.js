@@ -747,6 +747,13 @@ class SettingsSection extends Section {
             return;
         }
         if (!update.available) {
+            if (update.skipped) {
+                this.add_child(label(
+                    t('update_skipped').replace('%1', update.skipped_short || '?'),
+                    'poketokenbar-subtle'));
+                this.add_child(button(t('update_unskip'), () => Commands.unskipUpdate()));
+                return;
+            }
             this.add_child(label(
                 t('update_current').replace('%1', update.installed_short || '?'),
                 'poketokenbar-subtle'));
@@ -759,6 +766,7 @@ class SettingsSection extends Section {
             `${update.installed_short || ''} \u2192 ${update.available_short}`,
             'poketokenbar-subtle'));
         this.add_child(button(t('update_now'), () => Commands.update()));
+        this.add_child(button(t('update_skip'), () => Commands.skipUpdate()));
     }
 
     _addToggle(key, stringKey, config) {

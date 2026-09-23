@@ -345,7 +345,12 @@ def build(
         # Whether a newer commit is published, and which one is installed. Only
         # an installed copy answers; a git checkout reports unsupported, since
         # overwriting one would throw away whatever is being worked on.
-        "update": update or {"supported": False},
+        "update": {
+            "supported": False,
+            "skipped": "",
+            "skipped_short": "",
+            **(update or {}),
+        },
         # The export file the Import button would read, described so the popup
         # can ask before overwriting instead of after.
         "transfer": _transfer_payload(transfer),
