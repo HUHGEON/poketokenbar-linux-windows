@@ -131,6 +131,25 @@ def test_graduation_marks_the_base_final_pair_as_collected():
     assert "1:1" in s.collected_finals
 
 
+def test_repeat_line_hatches_with_double_growth():
+    s = _state()
+    s.collected_finals.add("1:3")
+    apply_usage(s, balance.EGG_HATCH_THRESHOLD, line_for_egg=_line(), rng=_rng())
+
+    assert s.active.has_growth_boost is True
+    need = round(balance.phase_threshold(Rarity.COMMON, 3, 0) / 2)
+    apply_usage(s, need)
+    assert s.active.stage_index == 1
+
+
+def test_new_line_does_not_receive_repeat_growth():
+    s = _state()
+    s.collected_finals.add("99:100")
+    apply_usage(s, balance.EGG_HATCH_THRESHOLD, line_for_egg=_line(), rng=_rng())
+
+    assert s.active.has_growth_boost is False
+
+
 def test_rarer_lines_take_longer_to_graduate():
     common = _hatched(forms=1, rarity=Rarity.COMMON)
     legendary = _hatched(forms=1, rarity=Rarity.LEGENDARY)

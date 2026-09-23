@@ -136,6 +136,10 @@ class MonState:
     total_forms: int = 1
     is_shiny: bool = False
     nature: str | None = None
+    # A line that has already reached the Pokedex grows at twice the normal
+    # rate. Persist the hatch-time decision so later graduations do not change
+    # an individual halfway through raising it.
+    has_growth_boost: bool = False
     ditto_disguise: int | None = None
     ditto_revealed: bool = False
     hatched_at: float | None = None
@@ -342,6 +346,9 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         total_forms=len(plan),
         is_shiny=roll_shiny(rng, has_charm),
         nature=roll_nature(rng),
+        has_growth_boost=any(
+            key.startswith(f"{line.base_id}:") for key in state.collected_finals
+        ),
         hatched_at=__import__("time").time(),
         # The disguise stores the species being impersonated; the reveal swaps
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
@@ -431,10 +438,10 @@ def apply_usage(
     # threshold is an evolution on every iteration forever.
     for _ in range(MAX_GROWTH_STEPS):
         threshold = balance.scale_difficulty(
-            balance.phase_threshold(
+            max(1, round(balance.phase_threshold(
                 mon.rarity, mon.total_forms, mon.stage_index,
                 state.balance_multiplier,
-            ),
+            ) / (2 if mon.has_growth_boost else 1))),
             growth_difficulty,
         )
         if mon.used_at_stage < threshold:

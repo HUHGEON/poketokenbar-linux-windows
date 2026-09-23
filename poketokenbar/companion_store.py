@@ -81,10 +81,10 @@ class CompanionStore:
                 )
             else:
                 mon = self.state.active
-                base = balance.phase_threshold(
+                base = round(balance.phase_threshold(
                     mon.rarity, mon.total_forms, mon.stage_index,
                     self.state.balance_multiplier,
-                )
+                ) / (2 if mon.has_growth_boost else 1))
                 mon.used_at_stage = self._rescaled_progress(
                     mon.used_at_stage, base, old, new_growth
                 )
@@ -117,11 +117,12 @@ class CompanionStore:
         )
 
     def _stage_threshold(self, mon) -> int:
+        multiplier = 2 if mon.has_growth_boost else 1
         return balance.scale_difficulty(
-            balance.phase_threshold(
+            max(1, round(balance.phase_threshold(
                 mon.rarity, mon.total_forms, mon.stage_index,
                 self.state.balance_multiplier,
-            ),
+            ) / multiplier)),
             self.growth_difficulty,
         )
 
@@ -437,6 +438,7 @@ class CompanionStore:
             "evo_line": evo_line,
             "is_shiny": mon.is_shiny,
             "nature": mon.nature,
+            "growth_multiplier": 2 if mon.has_growth_boost else 1,
             "rarity": str(mon.rarity),
             "stage_index": mon.stage_index,
             "total_forms": mon.total_forms,

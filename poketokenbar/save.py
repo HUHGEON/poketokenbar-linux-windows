@@ -78,6 +78,7 @@ def _decode_mon(raw) -> MonState | None:
         total_forms=_lenient(raw, "total_forms", int, len(path_ids)),
         is_shiny=_lenient(raw, "is_shiny", bool, False),
         nature=raw.get("nature") if isinstance(raw.get("nature"), str) else None,
+        has_growth_boost=_lenient(raw, "has_growth_boost", bool, False),
         ditto_disguise=raw.get("ditto_disguise")
         if isinstance(raw.get("ditto_disguise"), int)
         else None,
@@ -254,6 +255,7 @@ def encode(state: CompanionState) -> dict:
             "total_forms": m.total_forms,
             "is_shiny": m.is_shiny,
             "nature": m.nature,
+            "has_growth_boost": m.has_growth_boost,
             "ditto_disguise": m.ditto_disguise,
             "ditto_revealed": m.ditto_revealed,
             "hatched_at": m.hatched_at,

@@ -239,6 +239,8 @@ class HomePanel(Panel):
                       bold=True, size=17),
                 rarity_badge(companion.get("rarity"),
                              self.t(companion.get("rarity", "common"))),
+                *([badge(self.t("growth_boost"), theme.GREEN, theme.WINDOW)]
+                  if companion.get("growth_multiplier", 1) > 1 else []),
                 stretch=True,
             )
             form = self.t("final_form") if companion.get("is_final_form") \
