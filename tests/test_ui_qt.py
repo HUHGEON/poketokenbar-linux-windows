@@ -239,6 +239,30 @@ def test_the_tooltip_falls_back_to_the_app_name(qt_app):
     assert tray.tray.toolTip() == "PokeTokenBar"
 
 
+def test_import_requires_confirmation_and_undo_is_in_the_tray(qt_app, reader, payload,
+                                                               monkeypatch):
+    transfer = {
+        "exists": True, "error": "", "path": "/tmp/save.json",
+        "exported_text": "2026-09-23", "dex_count": 2, "used_text": "10M",
+        "current_dex_count": 4, "current_used_text": "20M",
+        "goes_backwards": True, "can_undo": True,
+    }
+    reader.state = dict(payload, transfer=transfer)
+    tray = keep(TrayApp(qt_app, reader))
+    accepted = []
+    queued = []
+    monkeypatch.setattr(tray, "_ask_transfer",
+                        lambda title, detail, key: accepted.append((title, detail, key)) or True)
+    monkeypatch.setattr("poketokenbar.ui.app.commands.enqueue",
+                        lambda name, args: queued.append((name, args)))
+
+    tray._confirm_import()
+
+    assert accepted and "20M" in accepted[0][1]
+    assert queued == [("import", {"path": "/tmp/save.json"})]
+    assert "undo_import" in tray._menu_actions
+
+
 def test_the_tray_menu_offers_open_refresh_and_quit(qt_app, payload):
     subject = StateReader()
     subject.state = payload

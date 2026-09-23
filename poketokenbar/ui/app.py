@@ -17,7 +17,7 @@ from pathlib import Path
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QTimer, Qt
 from PySide6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QMovie, QPixmap
 from PySide6.QtWidgets import (
-    QApplication, QHBoxLayout, QMenu, QStackedWidget, QSystemTrayIcon,
+    QApplication, QHBoxLayout, QMenu, QMessageBox, QStackedWidget, QSystemTrayIcon,
     QVBoxLayout, QWidget,
 )
 
@@ -356,10 +356,15 @@ class TrayApp:
         menu.addAction(export)
 
         import_action = QAction(self.reader.text("import_save"), menu)
-        import_action.triggered.connect(
-            lambda: commands.enqueue("import", {"path": str(self.save_path())}))
+        import_action.triggered.connect(self._confirm_import)
         self._menu_actions["import_save"] = import_action
         menu.addAction(import_action)
+
+        undo = QAction(self.reader.text("undo_import"), menu)
+        undo.triggered.connect(self._confirm_restore)
+        undo.setEnabled(False)
+        self._menu_actions["undo_import"] = undo
+        menu.addAction(undo)
 
         menu.addSeparator()
         restart = QAction(self.reader.text("restart"), menu)
@@ -412,6 +417,65 @@ class TrayApp:
             if action.text() != text:
                 action.setText(text)
 
+    def _fill(self, key: str, *values) -> str:
+        text = self.reader.text(key)
+        for index, value in enumerate(values, 1):
+            text = text.replace(f"%{index}", str(value))
+        return text
+
+    def _confirm_import(self) -> None:
+        transfer = (self.reader.state or {}).get("transfer") or {}
+        if not transfer.get("exists"):
+            QMessageBox.information(
+                self.window, self.reader.text("import_save"),
+                self._fill("import_no_file", transfer.get("path") or self.save_path()),
+            )
+            return
+        if transfer.get("error"):
+            QMessageBox.warning(
+                self.window, self.reader.text("import_save"),
+                self.reader.text("import_unreadable"),
+            )
+            return
+        incoming = self._fill(
+            "import_file_detail", transfer.get("exported_text", ""),
+            transfer.get("dex_count", 0), transfer.get("used_text", "0"),
+        )
+        current = self._fill(
+            "import_current_detail", transfer.get("current_dex_count", 0),
+            transfer.get("current_used_text", "0"),
+        )
+        warning = (f"\n\n⚠ {self.reader.text('import_goes_backwards')}"
+                   if transfer.get("goes_backwards") else "")
+        if self._ask_transfer(self.reader.text("import_confirm"),
+                              f"{incoming}\n{current}{warning}", "replace"):
+            commands.enqueue("import", {"path": transfer.get("path") or str(self.save_path())})
+
+    def _confirm_restore(self) -> None:
+        transfer = (self.reader.state or {}).get("transfer") or {}
+        if not transfer.get("can_undo"):
+            return
+        backup = self._fill(
+            "undo_file_detail", transfer.get("undo_taken_text", ""),
+            transfer.get("undo_dex_count", 0), transfer.get("undo_used_text", "0"),
+        )
+        warning = (f"\n\n⚠ {self.reader.text('import_goes_backwards')}"
+                   if transfer.get("undo_goes_backwards") else "")
+        if self._ask_transfer(self.reader.text("undo_confirm"),
+                              f"{backup}{warning}", "restore"):
+            commands.enqueue("restore", {})
+
+    def _ask_transfer(self, title: str, detail: str, accept_key: str) -> bool:
+        box = QMessageBox(self.window)
+        box.setIcon(QMessageBox.Warning)
+        box.setWindowTitle("PokeTokenBar")
+        box.setText(title)
+        box.setInformativeText(detail)
+        accept = box.addButton(self.reader.text(accept_key), QMessageBox.AcceptRole)
+        box.addButton(self.reader.text("cancel"), QMessageBox.RejectRole)
+        box.exec()
+        return box.clickedButton() is accept
+
     def poll(self) -> None:
         state = self.reader.read()
         changed = (
@@ -423,6 +487,8 @@ class TrayApp:
 
         if changed:
             self._relabel_menu()
+            transfer = (state or {}).get("transfer") or {}
+            self._menu_actions["undo_import"].setEnabled(bool(transfer.get("can_undo")))
             self._update_tray(state)
             self._sync_pet(state)
             if self.window.isVisible():
