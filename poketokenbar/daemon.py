@@ -43,6 +43,7 @@ class Daemon:
         self, state_path: Path, config_path: Path, cache, providers,
         limits_source=None, companion_store=None, notifier=None,
         burn_tracker=None, status_checker=None, updater=None, plan_source=None,
+        connectivity=None, power_probe=None,
     ) -> None:
         self.state_path = state_path
         self.config_path = config_path
@@ -55,6 +56,8 @@ class Daemon:
         self.burn = burn_tracker
         self.updater = updater
         self.plan_source = plan_source
+        self.connectivity = connectivity
+        self.power_probe = power_probe
         # Which account the last limits belonged to. Switching accounts changes
         # what the percentages mean, so cached limits and burn history from the
         # previous account must not carry over.
@@ -441,6 +444,7 @@ class Daemon:
             periods=periods,
             month_daily=month_daily,
             codex_limits=getattr(self.plan_source, "current_limits", None),
+            power_saver=bool(self.power_probe()) if self.power_probe else False,
             burn=self._burn_payload(limit_status, blocks),
             blocks=blocks,
             provider_status=status_payload,
@@ -473,6 +477,18 @@ class Daemon:
                 waited += 2
                 if self._has_commands() or (self.plan_source is not None and self.plan_source.ready):
                     break
+                if self.connectivity is not None and self.connectivity.reconnected():
+                    self._handle_reconnect()
+                    break
+
+    def _handle_reconnect(self) -> None:
+        """Drop only network-backed caches; local log scans need no reset."""
+        if self.limits_source is not None:
+            self.limits_source.invalidate()
+        if self.plan_source is not None:
+            invalidate = getattr(self.plan_source, "invalidate", None)
+            if invalidate is not None:
+                invalidate()
 
     def _has_commands(self) -> bool:
         spool = self.spool or commands.spool_dir()
@@ -491,6 +507,7 @@ def main() -> int:
 
 def _run() -> int:
     from . import providers as provider_registry
+    from .system_state import ConnectivityMonitor, power_saver
 
     cache = ScanCache(platform_paths.cache_base() / "poketokenbar" / "scan.db")
     config_path = config.default_path()
@@ -511,6 +528,8 @@ def _run() -> int:
         status_checker=StatusChecker(),
         updater=updater_module.Updater(),
         plan_source=PlanSource(),
+        connectivity=ConnectivityMonitor(),
+        power_probe=power_saver,
     )
     # The daemon owns the live config, so it is what answers the providers'
     # extra-folders lookup — reading it per call, not once at startup.

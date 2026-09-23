@@ -72,6 +72,27 @@ def test_reload_config_command_is_applied(tmp_path):
     assert payload["panel"]["tokens_text"] == ""
 
 
+def test_network_reconnect_invalidates_remote_limit_sources(tmp_path):
+    class Invalidatable:
+        def __init__(self):
+            self.called = 0
+
+        def invalidate(self):
+            self.called += 1
+
+    claude = Invalidatable()
+    codex = Invalidatable()
+    daemon = Daemon(
+        tmp_path / "state.json", tmp_path / "config.json", None, [],
+        limits_source=claude, plan_source=codex,
+    )
+
+    daemon._handle_reconnect()
+
+    assert claude.called == 1
+    assert codex.called == 1
+
+
 # MARK: save transfer
 #
 # Import replaces a Pokedex, so what it writes, what it keeps, and what it can

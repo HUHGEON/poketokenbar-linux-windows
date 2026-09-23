@@ -101,8 +101,9 @@ class DesktopPet(QWidget):
         # Both always-visible surfaces share one quality setting, as upstream's
         # do: a frame costs a redraw wherever it is drawn.
         from .widgets import quality_of
+        from ..system_state import power_saver
 
-        self.sprite.set_quality(quality_of(config))
+        self.sprite.set_quality("saver" if power_saver() else quality_of(config))
 
         today = (state or {}).get("today") or {}
         tooltip = today.get("tokens_grouped", "")

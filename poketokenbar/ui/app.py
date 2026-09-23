@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (
 )
 
 from .. import commands, config
+from ..system_state import power_saver
 from ..single_instance import SingleInstance
 from .pet import DesktopPet
 from .panels import (
@@ -432,6 +433,9 @@ class TrayApp:
             self._reassert_pet()
             if self.window.isVisible():
                 self.window.refresh_footer(state)
+        # Power mode changes independently of state.json and should take
+        # effect even between the daemon's slower scans.
+        self._apply_quality(state)
 
     def _sync_pet(self, state: dict | None) -> None:
         """Create, update or remove the pet to match the daemon's settings.
@@ -483,7 +487,6 @@ class TrayApp:
         if path != self._sprite_path:
             self._sprite_path = path
             self._set_icon(path)
-        self._apply_quality(state)
         tooltip = self._tooltip(state)
         if tooltip != self._tooltip_text:
             self._tooltip_text = tooltip
@@ -495,7 +498,7 @@ class TrayApp:
         The tray is rebuilt rather than re-timed: its frames are pre-rendered
         icons, so a new floor means a different set of them.
         """
-        quality = quality_of((state or {}).get("config"))
+        quality = "saver" if power_saver() else quality_of((state or {}).get("config"))
         if self.pet is not None:
             self.pet.sprite.set_quality(quality)
         if quality != self._quality:

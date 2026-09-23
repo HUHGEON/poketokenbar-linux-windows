@@ -272,3 +272,8 @@ class PlanSource:
     @property
     def ready(self) -> bool:
         return not self._results.empty() or not self._limit_results.empty()
+
+    def invalidate(self) -> None:
+        """Let both account snapshots refresh at their next scheduler tick."""
+        self._next_check = 0.0
+        self._next_limit_check = 0.0
