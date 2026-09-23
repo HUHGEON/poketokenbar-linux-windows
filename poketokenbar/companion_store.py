@@ -261,15 +261,28 @@ class CompanionStore:
         if not description and language == "ja":
             description = descriptions.get("ja-Hrkt")
         description = description or descriptions.get("en", "")
+        ability = profile.ability_name
+        moves = [dict(move) for move in profile.moves]
+        localize = (getattr(self.api, "localized_battle_names", None)
+                    if self.api is not None else None)
+        if callable(localize):
+            try:
+                ability, move_names = localize(
+                    ability, [str(move.get("name") or "") for move in moves], language)
+                for move in moves:
+                    raw_name = str(move.get("name") or "")
+                    move["display_name"] = move_names.get(raw_name, raw_name)
+            except (pokeapi.PokeAPIError, OSError, ValueError, TypeError, AttributeError):
+                pass
         return {
             "instance_id": profile.instance_id,
             "level": profile.level,
             "gender": profile.gender,
             "nature": nature,
-            "ability": profile.ability_name,
+            "ability": ability,
             "ability_is_hidden": profile.ability_is_hidden,
             "ivs": dict(profile.ivs),
-            "moves": list(profile.moves),
+            "moves": moves,
             "stats": computed_stats(details, profile, nature) if details else [],
             "types": list((details or {}).get("types") or []),
             "height": (details or {}).get("height"),

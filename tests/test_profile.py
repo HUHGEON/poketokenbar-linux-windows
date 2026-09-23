@@ -3,6 +3,7 @@ import random
 from poketokenbar import balance, pokeapi, save
 from poketokenbar.balance import Rarity
 from poketokenbar.companion import CompanionState, EvoLine, apply_usage
+from poketokenbar.companion_store import CompanionStore
 from poketokenbar.profile import PokemonProfile, STAT_ORDER, computed_stats
 
 
@@ -92,3 +93,63 @@ def test_pokeapi_details_are_normalized_and_cached(tmp_path, monkeypatch):
     assert details["descriptions"]["ko"] == "씨앗 포켓몬"
     assert api.details(1) is details
     assert len(calls) == 1
+
+
+def test_battle_names_are_localized_in_one_request_and_cached(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_post(url, payload, timeout=20.0):
+        calls.append((url, payload))
+        return {"data": {
+            "abilityname": [
+                {"name": "심록", "language": {"name": "ko"},
+                 "ability": {"name": "overgrow"}},
+                {"name": "Overgrow", "language": {"name": "en"},
+                 "ability": {"name": "overgrow"}},
+            ],
+            "movename": [
+                {"name": "몸통박치기", "language": {"name": "ko"},
+                 "move": {"name": "tackle"}},
+                {"name": "Tackle", "language": {"name": "en"},
+                 "move": {"name": "tackle"}},
+            ],
+        }}
+
+    monkeypatch.setattr(pokeapi, "_post_json", fake_post)
+    api = pokeapi.PokeAPI(cache_dir=tmp_path)
+    ability, moves = api.localized_battle_names("overgrow", ["tackle"], "ko")
+    assert ability == "심록"
+    assert moves == {"tackle": "몸통박치기"}
+    assert len(calls) == 1
+    assert "overgrow" in calls[0][1]["query"] and "tackle" in calls[0][1]["query"]
+
+    # A fresh process reads the disk cache and makes no second request.
+    cached = pokeapi.PokeAPI(cache_dir=tmp_path)
+    ability, moves = cached.localized_battle_names("overgrow", ["tackle"], "ko")
+    assert (ability, moves["tackle"]) == ("심록", "몸통박치기")
+    assert len(calls) == 1
+
+
+def test_profile_payload_translates_without_rewriting_the_saved_profile(tmp_path):
+    class LocalizedAPI:
+        @staticmethod
+        def cached_details(_species_id):
+            return {"descriptions": {"ko": "씨앗포켓몬"}}
+
+        @staticmethod
+        def localized_battle_names(ability, moves, language):
+            assert (ability, moves, language) == ("overgrow", ["tackle"], "ko")
+            return "심록", {"tackle": "몸통박치기"}
+
+    subject = CompanionStore(
+        api=LocalizedAPI(), sprite_store=None, save_path=tmp_path / "save.json")
+    subject.state = CompanionState(language="ko")
+    profile = PokemonProfile.generate(seed=1)
+    profile.ability_name = "overgrow"
+    profile.moves = [{"name": "tackle", "learned_at": 1}]
+
+    payload = subject._profile_payload(profile, 1, "hardy")
+    assert payload["ability"] == "심록"
+    assert payload["moves"][0]["display_name"] == "몸통박치기"
+    assert profile.ability_name == "overgrow"
+    assert profile.moves[0]["name"] == "tackle"

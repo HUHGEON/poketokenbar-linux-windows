@@ -71,6 +71,90 @@ class PokeAPI:
         self._species: dict[int, dict] = {}
         self._lines: dict[int, EvoLine] = {}
         self._details: dict[int, dict] = {}
+        self._battle_names: dict[str, dict[str, dict[str, str]]] | None = None
+        self._battle_names_retry_after = 0.0
+
+    # --- translated battle names -----------------------------------------
+
+    @property
+    def _battle_names_file(self) -> Path:
+        return self.cache_dir / "battle-names-v1.json"
+
+    def _load_battle_names(self) -> dict[str, dict[str, dict[str, str]]]:
+        if self._battle_names is not None:
+            return self._battle_names
+        try:
+            raw = json.loads(self._battle_names_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError):
+            raw = {}
+        self._battle_names = {
+            "ability": raw.get("ability", {}) if isinstance(raw, dict) else {},
+            "move": raw.get("move", {}) if isinstance(raw, dict) else {},
+        }
+        return self._battle_names
+
+    def localized_battle_names(self, ability: str | None, moves: list[str],
+                               language: str) -> tuple[str, dict[str, str]]:
+        """Translate one profile's ability and moves in one cached request.
+
+        Profiles persist PokéAPI's stable English slugs.  Display names live in
+        a separate cache so changing the app language never rewrites a save.
+        """
+        wanted = {
+            "ability": [ability] if ability else [],
+            "move": list(dict.fromkeys(name for name in moves if name)),
+        }
+        cache = self._load_battle_names()
+        missing = {
+            kind: [name for name in names if name not in cache[kind]]
+            for kind, names in wanted.items()
+        }
+        if any(missing.values()) and time.time() >= self._battle_names_retry_after:
+            query = (
+                "{ abilityname(where: {ability: {name: {_in: "
+                + json.dumps(missing["ability"])
+                + "}}}) { name language { name } ability { name } } "
+                "movename(where: {move: {name: {_in: "
+                + json.dumps(missing["move"])
+                + "}}}) { name language { name } move { name } } }"
+            )
+            try:
+                payload = _post_json(GRAPHQL_URL, {"query": query})
+                data = payload.get("data") or {}
+                for kind, rows, relation in (
+                    ("ability", data.get("abilityname") or [], "ability"),
+                    ("move", data.get("movename") or [], "move"),
+                ):
+                    # Record even a resource with no translated row, otherwise
+                    # an absent language would trigger the same request forever.
+                    for name in missing[kind]:
+                        cache[kind].setdefault(name, {})
+                    for row in rows:
+                        slug = str((row.get(relation) or {}).get("name") or "")
+                        code = str((row.get("language") or {}).get("name") or "")
+                        translated = str(row.get("name") or "")
+                        if slug and code and translated:
+                            if code == "ja-hrkt":
+                                code = "ja-Hrkt"
+                            cache[kind].setdefault(slug, {})[code] = translated
+                tmp = self._battle_names_file.with_suffix(".tmp")
+                tmp.write_text(json.dumps(cache, ensure_ascii=False), encoding="utf-8")
+                tmp.replace(self._battle_names_file)
+            except (PokeAPIError, OSError, ValueError, TypeError, AttributeError):
+                # A disconnected machine should not stall every two-second
+                # state poll. Network recovery or five minutes is soon enough.
+                self._battle_names_retry_after = time.time() + 300
+
+        def resolve(kind: str, slug: str) -> str:
+            names = cache[kind].get(slug) or {}
+            for code in ({"ja": ["ja-Hrkt", "ja"]}.get(language, [language])):
+                if names.get(code):
+                    return names[code]
+            return names.get("en") or slug
+
+        return resolve("ability", ability) if ability else "", {
+            name: resolve("move", name) for name in wanted["move"]
+        }
 
     # --- individual details -----------------------------------------------
 

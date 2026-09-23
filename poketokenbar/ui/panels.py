@@ -821,7 +821,10 @@ class CollectionPanel(Panel):
             self.add(label(self.t("no_moves"), dim=True, size=12))
         for move in moves:
             learned = int(move.get("learned_at", 0))
-            self.add(stat_line(str(move.get("name", "")).replace("-", " ").title(),
+            display_name = move.get("display_name")
+            if not display_name:
+                display_name = str(move.get("name", "")).replace("-", " ").title()
+            self.add(stat_line(str(display_name),
                                f"Lv. {learned}" if learned else ""))
 
     def _choose_profile(self, index: int) -> None:
