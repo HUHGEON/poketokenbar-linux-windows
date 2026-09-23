@@ -35,9 +35,11 @@ from .widgets import (
     separator, spread, stat_line,
 )
 
-# How many Pokedex cells fit on a page. Four columns, six rows — the grid the
-# macOS popover uses at this window width.
-DEX_COLUMNS = 4
+# The Windows popover is 400 logical pixels wide.  A cell header contains the
+# number, detail button and representative star, so four columns exceed the
+# viewport once the panel margins and scrollbar are included.  Three equal
+# columns keep every card wholly inside the popover at all display scales.
+DEX_COLUMNS = 3
 DEX_PER_PAGE = 24
 
 RARITIES = ("legendary", "rare", "uncommon", "common")
@@ -685,6 +687,8 @@ class CollectionPanel(Panel):
         grid = QGridLayout(grid_widget)
         grid.setContentsMargins(0, 4, 0, 4)
         grid.setSpacing(6)
+        for column_index in range(DEX_COLUMNS):
+            grid.setColumnStretch(column_index, 1)
         for index, entry in enumerate(page):
             grid.addWidget(self._cell(entry), index // DEX_COLUMNS, index % DEX_COLUMNS)
         self.add(grid_widget)

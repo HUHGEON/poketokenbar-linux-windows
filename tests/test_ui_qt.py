@@ -22,7 +22,7 @@ pytest.importorskip("PySide6", reason="the Qt front end is optional")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PySide6.QtCore import QRect, QSize, Qt  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QGridLayout, QWidget  # noqa: E402
 
 # Parked on `sys`, not in a module global or a fixture.
 #
@@ -76,6 +76,24 @@ def reader(payload):
 
 
 PANEL_NAMES = ("home", "shop", "bag", "collection", "settings")
+
+
+def test_pokedex_cards_fit_the_fixed_width_popover(qt_app, reader, payload):
+    """The card header has three controls, so a fourth column is clipped by
+    the 400px Windows popover instead of becoming narrower."""
+    data = dict(payload, dex=payload["dex"] * 3)
+    panel = keep(panels.CollectionPanel(reader))
+    panel.update(data)
+    grids = [
+        child.layout() for child in panel.body.findChildren(QWidget)
+        if isinstance(child.layout(), QGridLayout)
+    ]
+    assert len(grids) == 1
+    grid = grids[0]
+    positions = [grid.getItemPosition(index)[:2] for index in range(grid.count())]
+    assert all(column < 3 for _row, column in positions)
+    assert positions[3] == (1, 0)
+    assert [grid.columnStretch(column) for column in range(3)] == [1, 1, 1]
 
 
 @pytest.mark.parametrize("plan,status,multiplier", [
