@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 from . import balance
 from .balance import Rarity
+from .profile import PokemonProfile
 
 
 # Animated Black/White assets exist for Gen I-V only. A species without one is
@@ -136,6 +137,7 @@ class MonState:
     total_forms: int = 1
     is_shiny: bool = False
     nature: str | None = None
+    profile: PokemonProfile | None = None
     # A line that has already reached the Pokedex grows at twice the normal
     # rate. Persist the hatch-time decision so later graduations do not change
     # an individual halfway through raising it.
@@ -170,6 +172,7 @@ class DexEntry:
     rarity: Rarity
     is_shiny: bool = False
     nature: str | None = None
+    profile: PokemonProfile | None = None
     # Epoch seconds. None on entries written before this was tracked; those
     # sort last rather than pretending to be ancient.
     caught_at: float | None = None
@@ -336,6 +339,9 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
     # the plan's length, not the tree's depth: a companion on a two-form branch
     # of a three-deep tree has two stages to pay for, not three.
     plan = plan_path(line, state.collected_finals, rng)
+    shiny = roll_shiny(rng, has_charm)
+    nature = roll_nature(rng)
+    disguise = line.base_id if roll_ditto(rng, line) else None
     mon = MonState(
         base_id=line.base_id,
         path_ids=list(plan),
@@ -344,15 +350,16 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         used_at_stage=0,
         rarity=line.rarity,
         total_forms=len(plan),
-        is_shiny=roll_shiny(rng, has_charm),
-        nature=roll_nature(rng),
+        is_shiny=shiny,
+        nature=nature,
+        profile=PokemonProfile.generate(rng),
         has_growth_boost=any(
             key.startswith(f"{line.base_id}:") for key in state.collected_finals
         ),
         hatched_at=__import__("time").time(),
         # The disguise stores the species being impersonated; the reveal swaps
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
-        ditto_disguise=line.base_id if roll_ditto(rng, line) else None,
+        ditto_disguise=disguise,
     )
     state.active = mon
     # The guarantee is consumed by the hatch it paid for.
@@ -367,6 +374,8 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
     import time as _time
 
     now = _time.time() if now is None else now
+    if mon.profile is not None:
+        mon.profile.advance(1.0)
     entry = DexEntry(
         base_id=mon.base_id,
         final_id=mon.current_id,
@@ -374,6 +383,7 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
         rarity=mon.rarity,
         is_shiny=mon.is_shiny,
         nature=mon.nature,
+        profile=mon.profile,
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
     )

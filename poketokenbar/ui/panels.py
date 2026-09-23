@@ -235,6 +235,7 @@ class HomePanel(Panel):
             )
         else:
             name = companion.get("name") or f"#{companion.get('species_id')}"
+            profile = companion.get("profile") or {}
             title = row(
                 label(f"✨ {name}" if companion.get("is_shiny") else name,
                       bold=True, size=17),
@@ -256,9 +257,14 @@ class HomePanel(Panel):
                 f" border-radius: 3px; }}")
             remaining_key = "graduation_remaining" if companion.get("is_final_form") \
                 else "evolution_remaining"
+            profile_line = " · ".join(part for part in (
+                f"Lv. {profile.get('level')}" if profile.get("level") else "",
+                self.t(f"gender_{profile.get('gender')}") if profile.get("gender") else "",
+                self.nature(companion.get("nature")),
+            ) if part)
             details = column(
                 title,
-                label(f"{form} · {self.nature(companion.get('nature'))}", dim=True),
+                label(f"{form} · {profile_line}", dim=True),
                 progress,
                 label(self.fill(remaining_key, companion.get("remaining_text", "")),
                       dim=True),
@@ -599,17 +605,23 @@ class CollectionPanel(Panel):
         self._page = 0
         self._rarity: str | None = None
         self._state: dict | None = None
+        self._detail_species: int | None = None
+        self._profile_index = 0
 
     def fingerprint(self, state: dict | None) -> str:
         # The view, the page and the filter are this panel's own state; without
         # them in the key, switching tab or turning a page changes nothing the
         # payload can see and the rebuild is skipped.
         return json.dumps(
-            [super().fingerprint(state), self._showing_log, self._page, self._rarity])
+            [super().fingerprint(state), self._showing_log, self._page, self._rarity,
+             self._detail_species, self._profile_index])
 
     def update(self, state: dict | None) -> None:
         self._state = state
         self.clear()
+        if self._detail_species is not None:
+            self._build_detail(state)
+            return
         self.tabs = Segmented(
             (("dex", self.t("pokedex")), ("log", self.t("catch_log"))),
             lambda value: self._show(value == "log"),
@@ -715,6 +727,9 @@ class CollectionPanel(Panel):
         header_layout.setSpacing(0)
         header_layout.addWidget(number)
         header_layout.addStretch(1)
+        header_layout.addWidget(icon_button(
+            "ⓘ", lambda _=False, item=entry: self._open_detail(item),
+            self.t("pokemon_details"), size=12))
         header_layout.addWidget(star)
 
         parts = [header, sprite]
@@ -729,6 +744,85 @@ class CollectionPanel(Panel):
         parts.append(name)
 
         return card(column(*parts, spacing=3), horizontal=False, padding=6)
+
+    def _open_detail(self, entry: dict) -> None:
+        self._detail_species = int(entry.get("species_id"))
+        self._profile_index = 0
+        self.refresh(self._state, force=True)
+
+    def _close_detail(self) -> None:
+        self._detail_species = None
+        self._profile_index = 0
+        self.refresh(self._state, force=True)
+
+    def _build_detail(self, state: dict | None) -> None:
+        entry = next((item for item in (state or {}).get("dex") or []
+                      if int(item.get("species_id", -1)) == self._detail_species), None)
+        if entry is None:
+            self._close_detail()
+            return
+        self.add(row(
+            icon_button("‹", self._close_detail, self.t("back"), size=17),
+            label(self.t("pokemon_details"), bold=True, size=15), stretch=True,
+        ))
+        sprite = Sprite(88)
+        sprite.set_path(entry.get("sprite_path") or None)
+        self.add(row(
+            sprite,
+            column(
+                label(entry.get("name") or f"#{entry.get('species_id')}", bold=True, size=20),
+                rarity_badge(entry.get("rarity"), self.t(entry.get("rarity", "common"))),
+                spacing=5,
+            ), spacing=12,
+        ))
+        profiles = entry.get("profiles") or []
+        if not profiles:
+            self.add(label(self.t("unknown"), dim=True))
+            return
+        self._profile_index = min(self._profile_index, len(profiles) - 1)
+        if len(profiles) > 1:
+            picker = _combo()
+            for index, profile in enumerate(profiles):
+                picker.addItem(f"#{index + 1} · Lv. {profile.get('level', 5)}", index)
+            picker.setCurrentIndex(self._profile_index)
+            picker.currentIndexChanged.connect(self._choose_profile)
+            self.add(picker)
+        profile = profiles[self._profile_index]
+        gender = profile.get("gender")
+        ability = profile.get("ability") or self.t("unknown")
+        if profile.get("ability_is_hidden"):
+            ability += f" · {self.t('hidden_ability')}"
+        self.add(card(column(
+            stat_line(self.t("level"), str(profile.get("level", 5))),
+            stat_line(self.t("gender"), self.t(f"gender_{gender}") if gender else self.t("unknown")),
+            stat_line(self.t("nature"), self.nature(profile.get("nature"))),
+            stat_line(self.t("ability"), ability),
+            spacing=5,
+        ), horizontal=False, padding=10))
+        if profile.get("description"):
+            self.add(label(profile["description"], dim=True, size=12, wrap=True))
+
+        ivs = profile.get("ivs") or {}
+        stats = {item.get("name"): item for item in profile.get("stats") or []}
+        self.add(heading(f"{self.t('stats')} · {self.t('individual_values')}"))
+        for key in ("hp", "attack", "defense", "special-attack", "special-defense", "speed"):
+            stat = stats.get(key) or {}
+            value = str(stat.get("value", "—"))
+            self.add(stat_line(self.t(f"stat_{key.replace('-', '_')}"),
+                               f"{value}  ·  IV {ivs.get(key, 0)}"))
+
+        self.add(heading(self.t("known_moves")))
+        moves = profile.get("moves") or []
+        if not moves:
+            self.add(label(self.t("no_moves"), dim=True, size=12))
+        for move in moves:
+            learned = int(move.get("learned_at", 0))
+            self.add(stat_line(str(move.get("name", "")).replace("-", " ").title(),
+                               f"Lv. {learned}" if learned else ""))
+
+    def _choose_profile(self, index: int) -> None:
+        self._profile_index = max(0, int(index))
+        self.refresh(self._state, force=True)
 
     def _pinned(self) -> str:
         return str(((self._state or {}).get("panel") or {}).get("representative_id") or "")

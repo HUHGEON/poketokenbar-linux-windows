@@ -16,6 +16,7 @@ from . import balance, companion, l10n, pokeapi, save, shop, sprites
 from .companion import CompanionState
 from .format import compact as _compact
 from .plan import MULTIPLIERS
+from .profile import PokemonProfile, computed_stats
 
 
 def _duration(seconds: float | None) -> str:
@@ -57,6 +58,18 @@ class CompanionStore:
         # notification fires immediately but the banner needs a render pass.
         self.celebration: dict | None = None
         self.last_events: companion.GrowthEvents | None = None
+        self._ensure_profiles()
+
+    def _ensure_profiles(self) -> None:
+        """Add deterministic profiles to saves written before profiles existed."""
+        mon = self.state.active
+        if mon is not None and mon.profile is None:
+            seed = (mon.base_id << 32) ^ int(mon.hatched_at or 0)
+            mon.profile = PokemonProfile.generate(seed=seed)
+        for index, entry in enumerate(self.state.dex):
+            if entry.profile is None:
+                seed = (entry.base_id << 32) ^ int(entry.caught_at or index + 1)
+                entry.profile = PokemonProfile.generate(seed=seed)
 
     # --- usage -------------------------------------------------------------
 
@@ -198,8 +211,71 @@ class CompanionStore:
             self.state, delta, line_for_egg=line, rng=self.rng,
             growth_difficulty=self.growth_difficulty,
         )
+        self._sync_profile(self.last_events)
         self._note_celebration(self.last_events)
         self._persist()
+
+    def _sync_profile(self, events=None) -> None:
+        """Advance level and enrich species-dependent fields when possible."""
+        target = self.state.active
+        species_id = target.current_id if target is not None else None
+        profile = target.profile if target is not None else None
+        nature = target.nature if target is not None else None
+        if target is not None and profile is not None:
+            standard_done = sum(
+                balance.phase_threshold(target.rarity, target.total_forms, index)
+                for index in range(target.stage_index)
+            )
+            standard_stage = balance.phase_threshold(
+                target.rarity, target.total_forms, target.stage_index)
+            actual_stage = max(1, self._stage_threshold(target))
+            earned = standard_done + min(1.0, target.used_at_stage / actual_stage) * standard_stage
+            profile.advance(earned / max(1, balance.graduation_total(target.rarity)))
+            if events is not None and events.ditto_revealed:
+                profile.gender = None
+                profile.ability_slot = None
+                profile.ability_name = None
+                profile.ability_is_hidden = False
+                profile.moves = []
+        elif events is not None and events.graduated is not None:
+            entry = events.graduated
+            profile, species_id, nature = entry.profile, entry.final_id, entry.nature
+
+        detail_fetch = getattr(self.api, "details", None) if self.api is not None else None
+        if profile is None or species_id is None or detail_fetch is None:
+            return
+        try:
+            profile.enrich(detail_fetch(species_id))
+        except (pokeapi.PokeAPIError, OSError, ValueError, TypeError):
+            pass
+
+    def _profile_payload(self, profile: PokemonProfile | None, species_id: int,
+                         nature: str | None) -> dict | None:
+        if profile is None:
+            return None
+        cached = getattr(self.api, "cached_details", None) if self.api is not None else None
+        details = cached(species_id) if cached is not None else None
+        language = self.state.language
+        descriptions = (details or {}).get("descriptions") or {}
+        description = descriptions.get(language)
+        if not description and language == "ja":
+            description = descriptions.get("ja-Hrkt")
+        description = description or descriptions.get("en", "")
+        return {
+            "instance_id": profile.instance_id,
+            "level": profile.level,
+            "gender": profile.gender,
+            "nature": nature,
+            "ability": profile.ability_name,
+            "ability_is_hidden": profile.ability_is_hidden,
+            "ivs": dict(profile.ivs),
+            "moves": list(profile.moves),
+            "stats": computed_stats(details, profile, nature) if details else [],
+            "types": list((details or {}).get("types") or []),
+            "height": (details or {}).get("height"),
+            "weight": (details or {}).get("weight"),
+            "description": description,
+        }
 
     def _note_celebration(self, events) -> None:
         """Build the banner the popup shows once, in the user's language.
@@ -438,6 +514,7 @@ class CompanionStore:
             "evo_line": evo_line,
             "is_shiny": mon.is_shiny,
             "nature": mon.nature,
+            "profile": self._profile_payload(mon.profile, mon.current_id, mon.nature),
             "growth_multiplier": 2 if mon.has_growth_boost else 1,
             "rarity": str(mon.rarity),
             "stage_index": mon.stage_index,
@@ -473,6 +550,7 @@ class CompanionStore:
             self.state, key, rng=self.rng,
             growth_difficulty=self.growth_difficulty,
         )
+        self._sync_profile()
         self._persist()
         return message
 
@@ -625,6 +703,14 @@ class CompanionStore:
                     "is_shiny": slot["is_shiny"],
                     "is_raising": not slot["graduated"],
                     "sprite_path": sprite,
+                    "profiles": [
+                        payload for payload in (
+                            self._profile_payload(entry.profile, species_id, entry.nature)
+                            for entry in self.state.dex if entry.final_id == species_id
+                        ) if payload is not None
+                    ] + ([self._profile_payload(mon.profile, species_id, mon.nature)]
+                         if mon is not None and mon.current_id == species_id
+                         and mon.profile is not None else []),
                 }
             )
         return out

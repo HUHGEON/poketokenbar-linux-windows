@@ -10,6 +10,7 @@ tokens in the egg and hatches later — progress is never discarded.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -69,6 +70,86 @@ class PokeAPI:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._species: dict[int, dict] = {}
         self._lines: dict[int, EvoLine] = {}
+        self._details: dict[int, dict] = {}
+
+    # --- individual details -----------------------------------------------
+
+    def _details_file(self, species_id: int) -> Path:
+        return self.cache_dir / "pokemon-details-v1" / f"{species_id}.json"
+
+    def cached_details(self, species_id: int) -> dict | None:
+        if species_id in self._details:
+            return self._details[species_id]
+        path = self._details_file(species_id)
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+            details = snapshot.get("details")
+            if isinstance(details, dict):
+                self._details[species_id] = details
+                return details
+        except (OSError, ValueError, AttributeError):
+            pass
+        return None
+
+    def details(self, species_id: int) -> dict:
+        """Default-form battle data, cached for 30 days with stale fallback."""
+        if species_id in self._details:
+            return self._details[species_id]
+        path = self._details_file(species_id)
+        cached = self.cached_details(species_id)
+        try:
+            snapshot = json.loads(path.read_text(encoding="utf-8"))
+            if cached is not None and time.time() - float(snapshot.get("fetched_at", 0)) < 30 * 86400:
+                return cached
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+        try:
+            pokemon = _get_json(f"{REST_BASE}/pokemon/{species_id}")
+            species = self.species(species_id)
+            moves = []
+            for move in pokemon.get("moves") or []:
+                levels = [
+                    int(row.get("level_learned_at", 0))
+                    for row in move.get("version_group_details") or []
+                    if (row.get("version_group") or {}).get("name") == "black-white"
+                    and (row.get("move_learn_method") or {}).get("name") == "level-up"
+                ]
+                if levels:
+                    moves.append({"name": (move.get("move") or {}).get("name", ""),
+                                  "learned_at": min(levels)})
+            descriptions = {}
+            for entry in species.get("flavor_text_entries") or []:
+                code = (entry.get("language") or {}).get("name")
+                if code in LANG_CODES and code not in descriptions:
+                    descriptions[code] = " ".join(str(entry.get("flavor_text") or "").split())
+            details = {
+                "species_id": species_id,
+                "height": int(pokemon.get("height") or 0),
+                "weight": int(pokemon.get("weight") or 0),
+                "gender_rate": int(species.get("gender_rate", -1)),
+                "types": [row.get("type", {}).get("name", "")
+                          for row in sorted(pokemon.get("types") or [],
+                                            key=lambda row: row.get("slot", 0))],
+                "base_stats": {row.get("stat", {}).get("name", ""): int(row.get("base_stat", 0))
+                               for row in pokemon.get("stats") or []},
+                "abilities": [{"name": row.get("ability", {}).get("name", ""),
+                               "slot": int(row.get("slot", 0)),
+                               "is_hidden": bool(row.get("is_hidden"))}
+                              for row in pokemon.get("abilities") or []],
+                "moves": sorted(moves, key=lambda move: (move["learned_at"], move["name"])),
+                "descriptions": descriptions,
+            }
+            self._details[species_id] = details
+            path.parent.mkdir(parents=True, exist_ok=True)
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({"fetched_at": time.time(), "details": details}),
+                           encoding="utf-8")
+            tmp.replace(path)
+            return details
+        except PokeAPIError:
+            if cached is not None:
+                return cached
+            raise
 
     # --- hatch candidates --------------------------------------------------
 

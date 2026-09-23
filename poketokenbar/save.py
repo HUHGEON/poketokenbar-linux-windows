@@ -19,6 +19,7 @@ from . import platform_paths
 
 from .balance import Rarity
 from .companion import CompanionState, DexEntry, MonState
+from .profile import PokemonProfile, STAT_ORDER
 
 
 def default_path() -> Path:
@@ -50,6 +51,46 @@ def _lenient(raw: dict, key: str, kind, default):
     return value if isinstance(value, kind) else default
 
 
+def _decode_profile(raw) -> PokemonProfile | None:
+    if not isinstance(raw, dict):
+        return None
+    ivs = raw.get("ivs")
+    if not isinstance(ivs, dict):
+        return None
+    try:
+        profile = PokemonProfile(
+            instance_id=str(raw.get("instance_id") or ""),
+            seed=int(raw.get("seed", 0)),
+            ivs={name: int(ivs.get(name, 0)) for name in STAT_ORDER},
+            gender=raw.get("gender") if raw.get("gender") in
+            ("male", "female", "genderless") else None,
+            ability_slot=raw.get("ability_slot")
+            if isinstance(raw.get("ability_slot"), int) else None,
+            ability_name=raw.get("ability_name")
+            if isinstance(raw.get("ability_name"), str) else None,
+            ability_is_hidden=_lenient(raw, "ability_is_hidden", bool, False),
+            level=_lenient(raw, "level", int, 5),
+            moves=raw.get("moves") if isinstance(raw.get("moves"), list) else [],
+        )
+        profile.sanitize()
+        return profile
+    except (TypeError, ValueError):
+        return None
+
+
+def _encode_profile(profile: PokemonProfile | None):
+    if profile is None:
+        return None
+    return {
+        "instance_id": profile.instance_id, "seed": profile.seed,
+        "gender": profile.gender, "ivs": dict(profile.ivs),
+        "ability_slot": profile.ability_slot,
+        "ability_name": profile.ability_name,
+        "ability_is_hidden": profile.ability_is_hidden,
+        "level": profile.level, "moves": list(profile.moves),
+    }
+
+
 def _decode_mon(raw) -> MonState | None:
     if not isinstance(raw, dict):
         return None
@@ -78,6 +119,7 @@ def _decode_mon(raw) -> MonState | None:
         total_forms=_lenient(raw, "total_forms", int, len(path_ids)),
         is_shiny=_lenient(raw, "is_shiny", bool, False),
         nature=raw.get("nature") if isinstance(raw.get("nature"), str) else None,
+        profile=_decode_profile(raw.get("profile")),
         has_growth_boost=_lenient(raw, "has_growth_boost", bool, False),
         ditto_disguise=raw.get("ditto_disguise")
         if isinstance(raw.get("ditto_disguise"), int)
@@ -104,6 +146,7 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         rarity=_rarity(raw.get("rarity")),
         is_shiny=_lenient(raw, "is_shiny", bool, False),
         nature=raw.get("nature") if isinstance(raw.get("nature"), str) else None,
+        profile=_decode_profile(raw.get("profile")),
         caught_at=raw.get("caught_at") if isinstance(raw.get("caught_at"), (int, float)) else None,
         raised_seconds=raw.get("raised_seconds")
         if isinstance(raw.get("raised_seconds"), (int, float))
@@ -255,6 +298,7 @@ def encode(state: CompanionState) -> dict:
             "total_forms": m.total_forms,
             "is_shiny": m.is_shiny,
             "nature": m.nature,
+            "profile": _encode_profile(m.profile),
             "has_growth_boost": m.has_growth_boost,
             "ditto_disguise": m.ditto_disguise,
             "ditto_revealed": m.ditto_revealed,
@@ -282,6 +326,7 @@ def encode(state: CompanionState) -> dict:
                 "rarity": str(d.rarity),
                 "is_shiny": d.is_shiny,
                 "nature": d.nature,
+                "profile": _encode_profile(d.profile),
                 "caught_at": d.caught_at,
                 "raised_seconds": d.raised_seconds,
             }
