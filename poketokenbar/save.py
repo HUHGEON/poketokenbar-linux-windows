@@ -215,6 +215,11 @@ def decode(raw: dict) -> CompanionState:
     tiers = raw.get("candy_grant_tier")
     if isinstance(tiers, dict):
         state.candy_grant_tier = {k: v for k, v in tiers.items() if isinstance(v, int)}
+    epochs = raw.get("candy_window_epoch")
+    if isinstance(epochs, dict):
+        state.candy_window_epoch = {
+            k: v for k, v in epochs.items() if isinstance(k, str) and isinstance(v, str)
+        }
     state.candy_feature_seeded = _lenient(raw, "candy_feature_seeded", bool, False)
     return state
 
@@ -271,6 +276,7 @@ def encode(state: CompanionState) -> dict:
         "growth_difficulty": state.growth_difficulty,
         "inventory": state.inventory,
         "candy_grant_tier": state.candy_grant_tier,
+        "candy_window_epoch": state.candy_window_epoch,
         "candy_feature_seeded": state.candy_feature_seeded,
     }
 

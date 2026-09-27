@@ -376,14 +376,19 @@ class Daemon:
                 # Candy and notifications ride on fresh limits.
                 if fresh_limits and limit_status is not None:
                     windows = {}
+                    # When each window resets, so a grant can tell a window that
+                    # has rolled over from one that simply stayed full.
+                    epochs: dict[str, str | None] = {}
                     if limit_status.session is not None:
                         windows["session"] = limit_status.session.utilization
+                        epochs["session"] = limit_status.session.resets_at
                     if limit_status.weekly is not None:
                         windows["weekly"] = limit_status.weekly.utilization
+                        epochs["weekly"] = limit_status.weekly.resets_at
                     if self.burn is not None:
                         for kind, utilization in windows.items():
                             self.burn.record(kind, utilization)
-                    self.companion_store.grant_candy(windows)
+                    self.companion_store.grant_candy(windows, epochs)
                     if self.notifier is not None and self.config_values.get(
                         "limit_notifications", True
                     ):

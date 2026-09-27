@@ -644,8 +644,10 @@ class CompanionStore:
         if companion.set_growth_difficulty(self.state, growth):
             self._persist()
 
-    def grant_candy(self, windows: dict[str, float]) -> int:
-        granted = shop.grant_candy(self.state, windows)
+    def grant_candy(
+        self, windows: dict[str, float], epochs: dict[str, str | None] | None = None
+    ) -> int:
+        granted = shop.grant_candy(self.state, windows, epochs)
         self._persist()
         return granted
 

@@ -131,6 +131,12 @@ class CompanionState:
     language: str = "en"
     inventory: dict[str, int] = field(default_factory=dict)
     candy_grant_tier: dict[str, int] = field(default_factory=dict)
+    # The reset instant each window was last judged against. A window that has
+    # since reset is a new window, so the grant rearms even though its
+    # utilization never dipped (upstream e94da86). Kept out of the tier key
+    # itself: a rolling weekly window reports a new resets_at on every fetch,
+    # which would mint a new key each time and pay out for ever.
+    candy_window_epoch: dict[str, str] = field(default_factory=dict)
     candy_feature_seeded: bool = False
     # The growth difficulty that egg_usage and used_at_stage were earned under.
     # Saved, unlike the setting itself: when the setting differs (changed in

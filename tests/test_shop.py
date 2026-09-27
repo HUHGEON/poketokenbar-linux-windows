@@ -219,6 +219,34 @@ def test_window_rearms_after_dropping_below_the_warning_line():
     assert shop.grant_candy(s, {"session": 100.0}) > 0
 
 
+def test_a_window_that_has_reset_pays_out_again_without_ever_dipping(monkeypatch):
+    """The weekly window is usually read as already full, then read as full
+    again after it rolls over — it never passes through a low utilization for
+    the dip to catch, so the reset itself has to rearm it (upstream e94da86)."""
+    s = CompanionState()
+    shop.grant_candy(s, {"weekly": 10.0}, {"weekly": "2026-09-22T00:00:00Z"})
+    first = shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-09-22T00:00:00Z"})
+    again = shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-09-22T00:00:00Z"})
+    after_reset = shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-09-29T00:00:00Z"})
+    assert first > 0 and again == 0 and after_reset > 0
+
+
+def test_a_window_with_no_reset_instant_still_needs_the_dip():
+    # Not every provider reports one, and a missing instant must not read as a
+    # window that has changed.
+    s = CompanionState()
+    shop.grant_candy(s, {"session": 10.0})
+    assert shop.grant_candy(s, {"session": 100.0}) > 0
+    assert shop.grant_candy(s, {"session": 100.0}, {"session": None}) == 0
+
+
+def test_the_first_sighting_of_a_window_is_not_a_reset():
+    s = CompanionState()
+    shop.grant_candy(s, {"session": 10.0}, {"session": "2026-09-27T00:00:00Z"})
+    assert shop.grant_candy(s, {"session": 100.0}, {"session": "2026-09-27T00:00:00Z"}) > 0
+    assert s.candy_window_epoch == {"limit:session": "2026-09-27T00:00:00Z"}
+
+
 def test_window_key_excludes_volatile_fields():
     # A rolling weekly window reports a new resets_at on every fetch. Keying on
     # it re-fired the notification each refresh in the Swift app.

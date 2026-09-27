@@ -36,6 +36,31 @@ def test_roundtrip_preserves_everything(tmp_path):
     assert loaded.inventory == {"rareCandy": 2}
 
 
+def test_the_grant_bookkeeping_survives_a_roundtrip(tmp_path):
+    """Both halves, or a restart hands out the same candy twice — or never
+    hands it out again."""
+    p = tmp_path / "companion.json"
+    state = _full_state()
+    state.candy_grant_tier = {"limit:weekly": 2}
+    state.candy_window_epoch = {"limit:weekly": "2026-09-29T00:00:00Z"}
+    save.save(state, p)
+    loaded = save.load(p)
+    assert loaded.candy_grant_tier == {"limit:weekly": 2}
+    assert loaded.candy_window_epoch == {"limit:weekly": "2026-09-29T00:00:00Z"}
+
+
+def test_a_save_from_before_reset_rearming_reads_as_no_epochs_known(tmp_path):
+    p = tmp_path / "companion.json"
+    save.save(_full_state(), p)
+    raw = json.loads(p.read_text(encoding="utf-8"))
+    del raw["candy_window_epoch"]
+    raw["candy_grant_tier"] = {"limit:weekly": 2}
+    p.write_text(json.dumps(raw), encoding="utf-8")
+    loaded = save.load(p)
+    assert loaded.candy_window_epoch == {}
+    assert loaded.candy_grant_tier == {"limit:weekly": 2}
+
+
 def test_a_release_record_survives_a_roundtrip(tmp_path):
     p = tmp_path / "companion.json"
     state = _full_state()

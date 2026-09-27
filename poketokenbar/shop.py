@@ -271,15 +271,30 @@ def window_key(kind: str) -> str:
     return f"limit:{kind}"
 
 
-def grant_candy(state: CompanionState, windows: dict[str, float]) -> int:
+def grant_candy(
+    state: CompanionState,
+    windows: dict[str, float],
+    epochs: dict[str, str | None] | None = None,
+) -> int:
     """Award candy for maxed limit windows. Edge-triggered.
 
-    `windows` maps kind ("session"/"weekly") to utilization percent.
-    Returns how many candies were granted.
+    `windows` maps kind ("session"/"weekly") to utilization percent, and
+    `epochs` the same kinds to the instant each window resets. Returns how many
+    candies were granted.
     """
     granted = 0
     for kind, utilization in windows.items():
         key = window_key(kind)
+        epoch = (epochs or {}).get(kind)
+        # A window that has reset since it last paid out is a new window: rearm
+        # before judging it, or a user who fills the weekly limit every week
+        # collects once and never again (upstream e94da86). Checked before the
+        # utilization test, because a fresh window usually reports a high
+        # utilization straight away rather than dipping through zero first.
+        if epoch is not None:
+            if key in state.candy_window_epoch and state.candy_window_epoch[key] != epoch:
+                state.candy_grant_tier.pop(key, None)
+            state.candy_window_epoch[key] = epoch
         tier = 2 if utilization >= 100 else (1 if utilization >= 80 else 0)
         previous = state.candy_grant_tier.get(key, 0)
 
