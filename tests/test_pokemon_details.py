@@ -276,7 +276,10 @@ def test_the_page_loads_then_names_its_individuals_newest_first(tmp_path, networ
     assert labels == [(True, False), (False, True), (False, False)]
     first = page["individuals"][0]
     assert first["nature_text"] == "고집"
-    assert first["label"] == "#1 · Lv. 5"
+    # The appearance and the date belong in the label: the picker filters by
+    # appearance, so "#1" alone would not say which one is on screen.
+    assert first["label"] == "#1 · 일반 · Lv. 5 · 키우는 중"
+    assert page["individuals"][1]["label"].startswith("#2 · 일반 · Lv. ")
     assert [s["label"] for s in first["stats"]] == ["HP", "스피드"]
     # Names are on their way: an ellipsis, never an English flash.
     assert first["ability_text"] == "…"
@@ -332,3 +335,35 @@ def test_the_inspect_command_opens_and_closes_the_page(tmp_path, network):
     assert daemon.react()["detail"]["species_id"] == 79
     commands.enqueue("inspect", {"species_id": "none"}, spool=daemon.spool)
     assert daemon.react()["detail"] == {}
+
+
+def test_the_page_carries_both_appearances_so_the_picker_can_switch(tmp_path, network):
+    """The header sprite follows the appearance picker, and switching it must
+    not wait for a poll — so both sprites travel with the page."""
+    store, _api, loader = _page_store(
+        tmp_path, network,
+        dex=[
+            DexEntry(base_id=79, final_id=79, chain_order=[79], rarity=Rarity.COMMON,
+                     profile=P.generate(1), caught_at=1_780_000_000),
+            DexEntry(base_id=79, final_id=79, chain_order=[79], rarity=Rarity.COMMON,
+                     is_shiny=True, profile=P.generate(2), caught_at=1_781_000_000),
+        ])
+    class Sprites:
+        def path(self, species_id, animated=False, shiny=False):
+            return f"/sprites/{species_id}{'-shiny' if shiny else ''}.gif"
+
+        def item_path(self, name):
+            return ""
+
+    store.sprites = Sprites()
+    store.inspect(79)
+    loader.drain()
+    store.enrich_profiles()
+    page = store.detail_payload(dex_rows=store.dex_payload())
+
+    assert page["is_shiny"] and page["has_normal"]
+    assert page["sprite_path_normal"] == "/sprites/79.gif"
+    assert page["sprite_path_shiny"] == "/sprites/79-shiny.gif"
+    appearances = [one["is_shiny"] for one in page["individuals"]]
+    assert appearances == [True, False], "newest first, both kept"
+    assert "✨" in page["individuals"][0]["label"]

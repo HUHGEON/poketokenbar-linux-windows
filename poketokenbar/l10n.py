@@ -299,6 +299,19 @@ STRINGS: dict[str, tuple[str, ...]] = {
         'Jetons insuffisants', 'Tokens insuficientes', 'Nicht genug Tokens',
     ),
     # dex
+    # The appearance picker on a Pokédex page: a species collected both ways
+    # has two of them, and one used to hide the other (upstream 4bfae97).
+    "dex_normal_label": ("Normal", "일반", "通常", "Normal", "Normal", "Normal", "Normal"),
+    "dex_appearance": ("Appearance", "모습", "姿", "Aspecto", "Apparence", "Aparência", "Aussehen"),
+    "dex_appearance_preview": (
+        "Collected appearance · species reference",
+        "수집한 모습 · 종 정보",
+        "収集した姿・種情報",
+        "Aspecto coleccionado · datos de especie",
+        "Apparence collectionnée · données de l'espèce",
+        "Aparência coletada · dados da espécie",
+        "Gesammeltes Aussehen · Speziesdaten",
+    ),
     "no_pokemon_yet": (
         "No Pokémon caught yet!", "아직 잡은 포켓몬이 없어요!", "まだ捕まえたポケモンがいません！",
         "¡Aún no has capturado ninguno!",

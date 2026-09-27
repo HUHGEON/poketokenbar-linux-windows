@@ -854,6 +854,9 @@ class CollectionSection extends Section {
     _open(speciesId) {
         this._inspecting = speciesId;
         this._individualIndex = 0;
+        // Which appearance the page is showing: null follows what was caught
+        // first, true or false is a choice made on the page.
+        this._appearance = null;
         this._showingMoves = false;
         Commands.inspect(speciesId);
         this.update(this._state);
@@ -1078,22 +1081,38 @@ class CollectionSection extends Section {
 
         // Identity: drawn from the grid's own row until the daemon answers.
         const sprite = new Sprite({size: DETAIL_SPRITE_SIZE});
-        sprite.setPath((ready ? detail.sprite_path : dexRow.sprite_path) || null);
         const spriteBox = new St.Bin({
             style_class: 'poketokenbar-companion-sprite',
             child: sprite,
             y_align: Clutter.ActorAlign.START,
         });
         const rarity = (ready ? detail.rarity : dexRow.rarity) || 'common';
+        const individuals = ready ? (detail.individuals ?? []) : [];
+        // A species caught both ways owns two appearances, and one used to hide
+        // the other (upstream 4bfae97). The choice only holds while that
+        // appearance is actually collected.
+        const hasShiny = Boolean(ready ? detail.is_shiny : dexRow.is_shiny);
+        const hasNormal = Boolean(ready ? detail.has_normal : dexRow.has_normal);
+        let showingShiny;
+        if (this._appearance === true && hasShiny)
+            showingShiny = true;
+        else if (this._appearance === false && hasNormal)
+            showingShiny = false;
+        else
+            showingShiny = individuals[0]?.is_shiny ?? hasShiny;
         const identity = column([
             label(ready ? detail.name : (dexRow.name || `#${this._inspecting}`), 'poketokenbar-title'),
             label(t(rarity), 'poketokenbar-caption poketokenbar-strong poketokenbar-secondary'),
         ], 'poketokenbar-companion-lines');
         identity.x_expand = true;
-        if (ready ? detail.is_shiny : dexRow.is_shiny)
+        if (showingShiny)
             identity.add_child(caption(`✨ ${t('shiny')}`, 'secondary'));
         if (ready ? detail.is_raising : dexRow.is_raising)
             identity.add_child(caption(t('raising'), 'accent'));
+        sprite.setPath((ready
+            ? (showingShiny ? detail.sprite_path_shiny : detail.sprite_path_normal)
+                || detail.sprite_path
+            : dexRow.sprite_path) || null);
         const pinned = ready ? detail.is_pinned : dexRow.is_pinned;
         const pin = borderedButton(pinned ? t('unpin') : t('pin_to_panel'), () =>
             markSent(pin, Commands.represent(pinned ? null : this._inspecting)));
@@ -1114,16 +1133,35 @@ class CollectionSection extends Section {
             return;
         }
 
-        const individuals = detail.individuals ?? [];
-        if (individuals.length > 1) {
-            this.add_child(segmented(individuals.map((individual, index) => ({
-                label: individual.label, value: index,
-            })), Math.min(this._individualIndex, individuals.length - 1), index => {
-                this._individualIndex = index;
+        // Both appearances collected: pick which one this page is about.
+        if (hasNormal && hasShiny) {
+            this.add_child(segmented([
+                {label: t('dex_normal_label'), value: false},
+                {label: `✨ ${t('shiny')}`, value: true},
+            ], showingShiny, value => {
+                this._appearance = value;
+                this._individualIndex = 0;
+                this.update(this._state);
+            }, {accent: true, expand: false}));
+        }
+
+        const shown = individuals.filter(individual => Boolean(individual.is_shiny) === showingShiny);
+        const index = Math.min(this._individualIndex, Math.max(0, shown.length - 1));
+        if (shown.length > 1) {
+            this.add_child(segmented(shown.map((individual, position) => ({
+                label: individual.label, value: position,
+            })), index, position => {
+                this._individualIndex = position;
                 this.update(this._state);
             }, {expand: false}));
+        } else if (shown.length === 1) {
+            this.add_child(caption(shown[0].label, 'secondary'));
+        } else {
+            // An earlier stage of a line, or the colour you have not caught:
+            // the species reference below is all there is to show.
+            this.add_child(caption(t('dex_appearance_preview'), 'secondary'));
         }
-        const individual = individuals[Math.min(this._individualIndex, individuals.length - 1)];
+        const individual = shown[index];
         if (individual)
             this._addIndividual(individual, t);
         else

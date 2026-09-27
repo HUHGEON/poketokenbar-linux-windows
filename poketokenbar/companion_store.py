@@ -8,6 +8,8 @@ single total cannot be decomposed when one provider resets and another does not.
 
 from __future__ import annotations
 
+import time as _time
+
 import random
 from datetime import date as _date
 from pathlib import Path
@@ -229,9 +231,21 @@ class CompanionStore:
                      "iv": s.iv, "fraction": round(s.value / scale, 4)}
                     for s in computed
                 ]
+            appearance = (
+                f"\N{SPARKLES} {t('shiny')}" if shiny else t('dex_normal_label')
+            )
+            # When it was caught, or that it is the one being raised. The
+            # appearance belongs here too, because the picker is now filtered by
+            # it and "#2" alone says nothing about which one is on screen
+            # (upstream 4bfae97).
+            caught = entry.caught_at if entry is not None else None
+            when = (
+                _time.strftime("%Y-%m-%d", _time.localtime(caught)) if caught
+                else (t("raising") if entry is None else "—")
+            )
             individuals.append({
                 "instance_id": individual.instance_id,
-                "label": f"#{index + 1} · Lv. {individual.level}",
+                "label": f"#{index + 1} · {appearance} · Lv. {individual.level} · {when}",
                 "is_active": entry is None,
                 "is_released": entry is not None and entry.is_released,
                 "is_shiny": shiny,
@@ -270,19 +284,27 @@ class CompanionStore:
                 ],
             }
 
-        sprite = ""
-        if self.sprites is not None:
-            shiny = found[0][2] if found else bool(row.get("is_shiny"))
+        # Both colours, so the page can follow the appearance picker without a
+        # round trip; either can be empty when its sprite has not been cached.
+        def sprite_for(shiny: bool) -> str:
+            if self.sprites is None:
+                return ""
             path = self.sprites.path(species_id, animated=True, shiny=shiny)
-            sprite = str(path) if path else ""
+            return str(path) if path else ""
+
+        default_shiny = found[0][2] if found else bool(row.get("is_shiny"))
         return {
             "species_id": species_id,
             "name": self.species_name(species_id, language) or f"#{species_id}",
             "rarity": row.get("rarity", ""),
             "is_shiny": bool(row.get("is_shiny")),
+            # Which appearances this species has actually been collected in.
+            "has_normal": bool(row.get("has_normal")),
+            "sprite_path_normal": sprite_for(False),
+            "sprite_path_shiny": sprite_for(True),
             "is_raising": bool(row.get("is_raising")),
             "is_pinned": self.state.representative_species_id == species_id,
-            "sprite_path": sprite,
+            "sprite_path": sprite_for(default_shiny),
             "status": status,
             "individuals": individuals,
             "species": species,
@@ -886,20 +908,27 @@ class CompanionStore:
             for species_id in entry.chain_order:
                 slot = acc.setdefault(
                     species_id,
-                    {"rarity": str(entry.rarity), "is_shiny": False},
+                    {"rarity": str(entry.rarity), "is_shiny": False, "has_normal": False},
                 )
+                # Both colours are tracked, not just "any shiny": owning a
+                # shiny one used to hide the ordinary one you also caught
+                # (upstream 4bfae97).
                 if entry.is_shiny:
                     slot["is_shiny"] = True
+                else:
+                    slot["has_normal"] = True
 
         mon = self.state.active
         if mon is not None:
             for species_id in mon.path_ids[: mon.stage_index + 1]:
                 slot = acc.setdefault(
                     species_id,
-                    {"rarity": str(mon.rarity), "is_shiny": False},
+                    {"rarity": str(mon.rarity), "is_shiny": False, "has_normal": False},
                 )
                 if mon.is_shiny:
                     slot["is_shiny"] = True
+                else:
+                    slot["has_normal"] = True
 
         # Which cell is holding the panel. Without this the pin was invisible:
         # the panel stopped following the companion and nothing anywhere said
@@ -924,6 +953,7 @@ class CompanionStore:
                     "name": self.species_name(species_id, self.state.language),
                     "rarity": slot["rarity"],
                     "is_shiny": slot["is_shiny"],
+                    "has_normal": slot["has_normal"],
                     "is_raising": species_id == raising,
                     "is_pinned": species_id == pinned,
                     "sprite_path": sprite,

@@ -134,3 +134,28 @@ def test_dex_and_catch_counts_are_tallied_separately(tmp_path):
     ]
     assert s.rarity_counts()["uncommon"] == 3      # species
     assert s.catch_rarity_counts()["uncommon"] == 1  # individuals
+
+
+def test_a_species_caught_both_ways_owns_both_appearances(tmp_path):
+    """A shiny catch used to be all a species had: the ordinary one you also
+    caught had nowhere to be seen (upstream 4bfae97)."""
+    s = _store(tmp_path)
+    s.state.active = None
+    s.state.dex = [
+        DexEntry(base_id=41, final_id=42, chain_order=[41, 42], rarity=Rarity.COMMON),
+        DexEntry(base_id=41, final_id=42, chain_order=[41, 42], rarity=Rarity.COMMON,
+                 is_shiny=True),
+    ]
+    row = next(r for r in s.dex_payload() if r["species_id"] == 42)
+    assert row["is_shiny"] and row["has_normal"]
+
+
+def test_a_species_caught_only_one_way_says_so(tmp_path):
+    s = _store(tmp_path)
+    s.state.active = None
+    s.state.dex = [
+        DexEntry(base_id=41, final_id=42, chain_order=[41, 42], rarity=Rarity.COMMON,
+                 is_shiny=True),
+    ]
+    row = next(r for r in s.dex_payload() if r["species_id"] == 42)
+    assert row["is_shiny"] and not row["has_normal"]

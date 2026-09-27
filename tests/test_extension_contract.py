@@ -381,8 +381,8 @@ LIST_ROW_FIELDS = {
              "max_buy", "release_note"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
-    "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
-            "is_pinned", "sprite_path"},
+    "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "has_normal",
+            "is_raising", "is_pinned", "sprite_path"},
 }
 
 # Fields only some rows in a block carry — the candy ladder belongs to the one
