@@ -21,7 +21,7 @@ import shutil
 import subprocess
 import sys
 
-from . import l10n
+from . import balance, l10n
 
 APP_NAME = "PokeTokenBar"
 ICON = "utilities-system-monitor"
@@ -178,12 +178,16 @@ class Notifier:
         language: str = "en",
         shiny: bool = False,
         disguise: str | None = None,
+        shiny_odds: int = balance.SHINY_DENOMINATOR,
     ) -> None:
         """Announce what just happened to the companion.
 
         `disguise` is the species a Ditto was pretending to be, which is the
         only thing worth saying about a reveal — by the time this runs the
         companion is already called Ditto.
+
+        `shiny_odds` is the denominator the roll actually used, which is not 64
+        while the Shiny Charm is held.
         """
         if events is None:
             return
@@ -193,7 +197,8 @@ class Notifier:
         if events.hatched is not None:
             if shiny:
                 self._send(t("notif_shiny_hatch_title"),
-                           l10n.fill("notif_shiny_hatch_body", language, label))
+                           l10n.fill("notif_shiny_hatch_body", language, label,
+                                     str(shiny_odds)))
             else:
                 self._send(t("notif_hatch_title"),
                            l10n.fill("notif_hatch_body", language, label))

@@ -367,11 +367,11 @@ class CompanionStore:
         label = name or l10n.t("raising", language)
         shiny = mon is not None and mon.is_shiny
 
-        def banner(kind: str, title_key: str, body_key: str, subject: str) -> dict:
+        def banner(kind: str, title_key: str, body_key: str, *subjects: str) -> dict:
             return {
                 "kind": kind,
                 "title": l10n.t(title_key, language),
-                "detail": l10n.fill(body_key, language, subject),
+                "detail": l10n.fill(body_key, language, *subjects),
             }
 
         if events.ditto_revealed:
@@ -392,10 +392,18 @@ class CompanionStore:
                 "shiny" if shiny else "hatched",
                 "notif_shiny_hatch_title" if shiny else "notif_hatch_title",
                 "notif_shiny_hatch_body" if shiny else "notif_hatch_body",
-                label)
+                label, str(self.shiny_odds()))
         else:
             return False
         return True
+
+    def shiny_odds(self) -> int:
+        """The denominator the shiny roll used: 1 in this.
+
+        Read from the charm rather than written into the copy, so a charm holder
+        is not told they beat 1/64 when they beat 1/48 (upstream fe51577).
+        """
+        return balance.shiny_denominator(self.state.inventory.get("shinyCharm", 0) > 0)
 
     def disguise_name(self) -> str | None:
         """What a Ditto is pretending to be, for the reveal notification.

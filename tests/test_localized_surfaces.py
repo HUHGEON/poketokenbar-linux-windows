@@ -73,6 +73,32 @@ def test_a_shiny_hatch_says_so():
     assert "✨" in shiny.sent[0][0]
 
 
+def test_a_shiny_hatch_quotes_the_odds_the_roll_actually_used():
+    """The copy said 1/64 whatever the charm did, so a charm holder was told
+    they beat odds they had already improved (upstream fe51577)."""
+    from poketokenbar import balance
+
+    plain, charmed = Spy(), Spy()
+    Notifier(plain).companion(GrowthEvents(hatched=25), "로토스", "en", shiny=True)
+    Notifier(charmed).companion(
+        GrowthEvents(hatched=25), "로토스", "en", shiny=True,
+        shiny_odds=balance.shiny_denominator(has_charm=True))
+    assert f"1 in {balance.SHINY_DENOMINATOR}" in plain.text
+    assert f"1 in {balance.SHINY_CHARM_DENOMINATOR}" in charmed.text
+    for language in l10n.LANGUAGES:
+        spy = Spy()
+        Notifier(spy).companion(GrowthEvents(hatched=25), "로토스", language, shiny=True)
+        assert "%2" not in spy.text and "64" in spy.text
+
+
+def test_a_ditto_reveal_no_longer_quotes_odds_it_cannot_know():
+    """A disguised Ditto reveals itself long after the hatch, and whether the
+    charm was held back then is not recorded."""
+    for language in l10n.LANGUAGES:
+        body = l10n.t("notif_shiny_ditto_body", language)
+        assert "64" not in body and "48" not in body and "%2" not in body
+
+
 def test_a_ditto_reveal_replaces_the_evolution_that_triggered_it():
     """The reveal happens on the first evolution, and announcing both would say
     it became the next form and then that it never was one."""

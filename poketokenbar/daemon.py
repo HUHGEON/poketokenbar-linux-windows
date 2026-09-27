@@ -407,6 +407,7 @@ class Daemon:
                         language,
                         shiny=bool(companion_payload.get("is_shiny")),
                         disguise=self.companion_store.disguise_name(),
+                        shiny_odds=self.companion_store.shiny_odds(),
                     )
                 # Cleared whether or not it was announced. These events are
                 # also what puts the companion in its level-up mood for exactly

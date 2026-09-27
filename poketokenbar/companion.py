@@ -283,10 +283,7 @@ STATUS_MESSAGE = {
 
 
 def roll_shiny(rng: random.Random, has_charm: bool) -> bool:
-    denominator = (
-        balance.SHINY_CHARM_DENOMINATOR if has_charm else balance.SHINY_DENOMINATOR
-    )
-    return rng.randrange(denominator) == 0
+    return rng.randrange(balance.shiny_denominator(has_charm)) == 0
 
 
 def roll_nature(rng: random.Random) -> str:

@@ -159,6 +159,15 @@ def egg_price(tier: Rarity | None) -> int:
 # --- odds ------------------------------------------------------------------
 
 SHINY_DENOMINATOR = 64
+
+
+def shiny_denominator(has_charm: bool) -> int:
+    """The odds the shiny roll actually used, 1 in this.
+
+    One source for the roll and for the copy that quotes it: the notification
+    used to read "1/64" whatever the charm did (upstream fe51577).
+    """
+    return SHINY_CHARM_DENOMINATOR if has_charm else SHINY_DENOMINATOR
 DITTO_DISGUISE_DENOMINATOR = 128
 DITTO_SPECIES_ID = 132
 
