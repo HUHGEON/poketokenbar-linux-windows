@@ -12,6 +12,21 @@ import St from 'gi://St';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 /** Utilisation bands, matching limits.level() in the daemon. */
+/**
+ * The colour a pace tier is drawn in, slowest to fastest.
+ *
+ * One map for the bar, the percentage and the panel, so a number and the bar
+ * under it can never disagree about what a colour means.
+ */
+export const TIER_TINT = {
+    way_under: 'blue',
+    under: 'teal',
+    on_pace: 'green',
+    slightly_over: 'yellow',
+    over: 'orange',
+    way_over: 'red',
+};
+
 export function levelClass(level) {
     if (level === 'crit')
         return 'poketokenbar-crit';
@@ -103,7 +118,12 @@ class Meter extends St.Widget {
         super._init({style_class: styleClass, x_expand: true});
         this._fill = new St.Widget({style_class: 'poketokenbar-meter-fill'});
         this.add_child(this._fill);
+        // Where an even burn would have reached by now. Hidden unless set: a
+        // window whose length is unknown has no line to draw.
+        this._pace = new St.Widget({style_class: 'poketokenbar-meter-pace', visible: false});
+        this.add_child(this._pace);
         this._fraction = 0;
+        this._paceFraction = null;
     }
 
     /**
@@ -116,6 +136,17 @@ class Meter extends St.Widget {
         this._fill.style_class = tint
             ? `poketokenbar-meter-fill poketokenbar-fill-${tint}`
             : `poketokenbar-meter-fill ${levelClass(level)}`;
+        this.queue_relayout();
+    }
+
+    /**
+     * The pace mark: the fraction of the window already elapsed, or null for
+     * none. Fill past the mark means this window will run out before it resets.
+     */
+    setPace(fraction) {
+        this._paceFraction = typeof fraction === 'number' && fraction >= 0 && fraction <= 1
+            ? fraction : null;
+        this._pace.visible = this._paceFraction !== null;
         this.queue_relayout();
     }
 
@@ -136,6 +167,17 @@ class Meter extends St.Widget {
             y1: 0,
             x2: Math.round(box.get_width() * this._fraction),
             y2: height,
+        }));
+        if (this._paceFraction === null)
+            return;
+        // A hairline that overhangs the track top and bottom, so it reads as a
+        // mark on the bar rather than a gap in the fill.
+        const x = Math.round(box.get_width() * this._paceFraction);
+        this._pace.allocate(new Clutter.ActorBox({
+            x1: Math.max(0, Math.min(box.get_width() - 1, x)),
+            y1: -2,
+            x2: Math.max(1, Math.min(box.get_width(), x + 1)),
+            y2: height + 2,
         }));
     }
 });

@@ -25,7 +25,7 @@ import {LANGUAGES, LANGUAGE_NAMES} from './languages.js';
 import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
-    Meter, RARITY_TINT, ago, borderedButton, button, caption, card, column, divider,
+    Meter, RARITY_TINT, TIER_TINT, ago, borderedButton, button, caption, card, column, divider,
     ellipsized, grouped, label, levelClass, markSent, paragraph, pill, placeholder,
     resetsIn, row, segmented, spacer, switchButton, valuePair, verticalBox,
 } from './widgets.js';
@@ -493,11 +493,27 @@ class HomeSection extends Section {
                 head.add_child(caption(`${resets}${resetClock(limitWindow.resets_at, t)}`,
                     'tertiary'));
             }
+            // Coloured by pace, not by the absolute number: 71% is fast half an
+            // hour into a five-hour window and slow with ten minutes left
+            // (upstream 68deb09). Yellow text is unreadable, so "slightly fast"
+            // keeps the ordinary colour and says it in the hint instead.
+            const tint = TIER_TINT[limitWindow.tier] ?? null;
+            const textTint = limitWindow.tier === 'slightly_over' ? null : tint;
             head.add_child(label(mode === 'remaining' ? t('percent_left').replace('%1', percent) : percent,
-                `poketokenbar-callout ${levelClass(limitWindow.severity)}`));
+                `poketokenbar-callout ${textTint ? `poketokenbar-text-${textTint}` : levelClass(limitWindow.severity)}`));
             const meter = new Meter();
-            meter.setFraction(shown / 100, limitWindow.severity);
+            meter.setFraction(shown / 100, limitWindow.severity, tint);
+            // The mark runs through the same displayed fraction as the fill, so
+            // the remaining-percentage mode cannot flip one without the other.
+            meter.setPace(mode === 'remaining' && typeof limitWindow.pace === 'number'
+                ? 1 - limitWindow.pace : limitWindow.pace);
             this.add_child(column([head, meter]));
+            // What the colour means, in words, since a colour alone is not an
+            // answer — and the only place the pace percentage is spelled out.
+            const pace = [limitWindow.tier_text, limitWindow.pace_delta_text]
+                .filter(part => part).join(' · ');
+            if (limitWindow.pace_hint)
+                this.add_child(caption(`${pace} — ${limitWindow.pace_hint}`, 'tertiary'));
 
             // The forecast belongs to the window it is a forecast for.
             const burnRow = state?.burn?.[key];

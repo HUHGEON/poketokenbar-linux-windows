@@ -374,6 +374,26 @@
 .poketokenbar-fill-orange { background-color: #ff9f0a; }
 .poketokenbar-fill-blue { background-color: #0a84ff; }
 
+/* Pace tiers, slowest to fastest. One palette for the bar, the percentage and
+   the panel number, so a colour means the same thing wherever it appears. */
+.poketokenbar-fill-teal { background-color: #40c8e0; }
+.poketokenbar-fill-green { background-color: #30d158; }
+.poketokenbar-fill-yellow { background-color: #ffd60a; }
+.poketokenbar-fill-red { background-color: #ff453a; }
+.poketokenbar-text-blue { color: #0a84ff; }
+.poketokenbar-text-teal { color: #40c8e0; }
+.poketokenbar-text-green { color: #30d158; }
+.poketokenbar-text-yellow { color: #ffd60a; }
+.poketokenbar-text-orange { color: #ff9f0a; }
+.poketokenbar-text-red { color: #ff453a; }
+
+/* Where an even burn would have reached by now: a hairline standing slightly
+   proud of the track, so fill past it reads as "this runs out early". */
+.poketokenbar-meter-pace {
+  background-color: rgba(255, 255, 255, 0.55);
+  border-radius: 1px;
+}
+
 /* This month by day. The weekend mark is a short underline because a
    full-height shade reads as a tall bar on a dark panel. */
 .poketokenbar-trend { spacing: 2px; padding-top: 2px; }

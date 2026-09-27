@@ -227,16 +227,24 @@ def level(utilization: float, warn: float = 80, crit: float = 95) -> str:
     return "ok"
 
 
-def windows(status: LimitStatus | None, mode: str) -> list[LimitWindow]:
-    """The windows the panel should show, in display order."""
+def named_windows(status: LimitStatus | None, mode: str) -> list[tuple[str, LimitWindow]]:
+    """The windows the panel should show, in display order, each with its kind.
+
+    The kind is what says how long the window is, which is what a pace needs.
+    """
     if status is None:
         return []
-    out: list[LimitWindow] = []
+    out: list[tuple[str, LimitWindow]] = []
     if mode in ("session", "both") and status.session is not None:
-        out.append(status.session)
+        out.append(("session", status.session))
     if mode in ("weekly", "both") and status.weekly is not None:
-        out.append(status.weekly)
+        out.append(("weekly", status.weekly))
     return out
+
+
+def windows(status: LimitStatus | None, mode: str) -> list[LimitWindow]:
+    """The windows the panel should show, in display order."""
+    return [window for _kind, window in named_windows(status, mode)]
 
 
 def display_percent(utilization: float, mode: str | None) -> float:

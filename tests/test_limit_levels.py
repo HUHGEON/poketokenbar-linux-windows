@@ -1,3 +1,5 @@
+import pytest
+
 from poketokenbar import config, limits, state
 from poketokenbar.models import DailyUsage
 
@@ -80,3 +82,54 @@ def test_panel_windows_omit_a_missing_window():
 
 def test_tokens_text_can_be_switched_off_independently():
     assert _panel()["tokens_text"] == ""
+
+
+# --- pace tiers (upstream 68deb09, 2eec9af, b32717f) ------------------------
+
+
+def _live_status(session_percent, seconds_left, span):
+    """A window whose reset is a real instant, so it has a pace."""
+    from datetime import datetime, timedelta, timezone
+
+    resets = (datetime.now(timezone.utc) + timedelta(seconds=seconds_left)).isoformat()
+    kind = "session" if span == "session" else "weekly_all"
+    return limits.parse({"limits": [
+        {"kind": kind, "percent": session_percent, "resets_at": resets.replace("+00:00", "Z")},
+    ]})
+
+
+def _limits(status):
+    values = dict(config.DEFAULTS, show_limit_in_menu=True)
+    return state.build(
+        {"claude_code": DailyUsage(date="2026-08-18", total_tokens=1)},
+        values, [], limit_status=status,
+    )
+
+
+def test_a_window_carries_its_pace_and_tier():
+    from poketokenbar import pace
+
+    # Four fifths through a five-hour window, at 90%: 10 points ahead.
+    payload = _limits(_live_status(90.0, 3600, "session"))
+    window = payload["limits"]["session"]
+    assert window["pace"] == pytest.approx(0.8, abs=1e-3)
+    assert window["tier"] == "slightly_over"
+    assert window["tier_text"] == "Slightly fast"
+    assert "10" in window["pace_delta_text"]
+    assert "80%" in window["pace_hint"]
+
+
+def test_a_window_with_a_stale_reset_has_no_pace_but_still_has_a_tier():
+    """The panel and the popup always need a colour; the mark is what needs a
+    trustworthy pace."""
+    payload = _limits(_status(session=96.0))
+    window = payload["limits"]["session"]
+    assert window["pace"] is None
+    assert window["pace_hint"] == "" and window["pace_delta_text"] == ""
+    assert window["tier"] == "way_over"  # from the absolute threshold
+
+
+def test_the_panel_number_and_the_popup_gauge_share_one_tier():
+    status = _live_status(90.0, 3600, "session")
+    payload = _limits(status)
+    assert payload["panel"]["limit_windows"][0]["tier"] == payload["limits"]["session"]["tier"]

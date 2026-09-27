@@ -20,7 +20,8 @@ import {
     BagSection, CollectionSection, HomeSection, SettingsSection, ShopSection,
 } from './sections.js';
 import {
-    ago, button, iconButton, label, levelClass, row, segmented, spacer, verticalBox,
+    TIER_TINT, ago, button, iconButton, label, levelClass, row, segmented, spacer,
+    verticalBox,
 } from './widgets.js';
 
 // The popup is a fixed width so the Pokédex grid never reflows mid-browse.
@@ -262,8 +263,12 @@ class Indicator extends PanelMenu.Button {
         windows.forEach((panelWindow, index) => {
             if (index > 0)
                 this._limitBox.add_child(label('|', 'poketokenbar-panel-sep'));
-            this._limitBox.add_child(label(
-                panelWindow.text, `poketokenbar-panel-text ${levelClass(panelWindow.level)}`));
+            // The popup gauge's tier, so the panel number and the bar behind it
+            // agree (upstream b32717f). `level` is the fallback for a payload
+            // written before the tier existed.
+            const tint = TIER_TINT[panelWindow.tier];
+            this._limitBox.add_child(label(panelWindow.text,
+                `poketokenbar-panel-text ${tint ? `poketokenbar-text-${tint}` : levelClass(panelWindow.level)}`));
         });
 
         this._tokensLabel.text = panel?.tokens_text ?? '';

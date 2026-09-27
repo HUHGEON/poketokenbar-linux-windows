@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import format as fmt
 from . import platform_paths
-from . import l10n, limits
+from . import l10n, limits, pace as pace_module
 from .models import CostCoverage, DailyUsage
 
 SCHEMA_VERSION = 1
@@ -25,7 +25,13 @@ def default_path() -> Path:
     return platform_paths.state_base() / "poketokenbar" / "state.json"
 
 
-def _limits_payload(status, freshness: dict | None = None) -> dict:
+def _limits_payload(
+    status,
+    freshness: dict | None = None,
+    language: str = "en",
+    warn: float = 80,
+    crit: float = 95,
+) -> dict:
     """Serialise a limits.LimitStatus, or an empty dict when unavailable.
 
     `freshness` says whether the numbers are the last good ones while fetching
@@ -35,18 +41,46 @@ def _limits_payload(status, freshness: dict | None = None) -> dict:
         return {}
     freshness = freshness or {}
 
-    def window(w):
+    def window(w, kind):
         if w is None:
             return None
+        # How far through the window we are, and how far ahead of that the
+        # usage is. 71% means nothing on its own: early in a window it is fast,
+        # late in one it is slow (upstream 68deb09, 2eec9af).
+        elapsed = pace_module.fraction(w.resets_at, pace_module.span_for(kind))
+        tier = pace_module.gauge(w.utilization, elapsed, warn, crit)
+        delta = (
+            pace_module.rounded_delta(w.utilization, elapsed)
+            if elapsed is not None and elapsed >= pace_module.MINIMUM_PACE
+            else None
+        )
         return {
             "utilization": w.utilization,
             "resets_at": w.resets_at,
             "severity": w.severity,
+            # None while the window has barely started, or when its length is
+            # unknown: no mark at all beats one in the wrong place.
+            "pace": elapsed,
+            "tier": tier,
+            "tier_text": l10n.t(f"pace_{tier}", language),
+            # Whole points: the tier is judged on a rounded delta, so a hint
+            # reading 80.4% beside a 10-point delta would not add up.
+            "pace_hint": (
+                l10n.fill("pace_hint", language, f"{round(elapsed * 100)}%")
+                if elapsed is not None
+                else ""
+            ),
+            "pace_delta_text": (
+                l10n.fill("pace_delta_over" if delta > 0 else "pace_delta_under",
+                          language, str(abs(delta)))
+                if delta
+                else ""
+            ),
         }
 
     return {
-        "session": window(status.session),
-        "weekly": window(status.weekly),
+        "session": window(status.session, "session"),
+        "weekly": window(status.weekly, "weekly"),
         "plan": status.subscription_type,
         "account": status.account or {},
         "stale": bool(freshness.get("stale")),
@@ -287,7 +321,13 @@ def build(
             }
             for pid, d in daily_by_provider.items()
         },
-        "limits": _limits_payload(limit_status, limits_freshness),
+        "limits": _limits_payload(
+            limit_status,
+            limits_freshness,
+            language,
+            float(config_values.get("warn_threshold", 80)),
+            float(config_values.get("crit_threshold", 95)),
+        ),
         "companion": companion_payload or {},
         "shop": shop_payload or [],
         "bag": bag_payload or [],
@@ -335,8 +375,18 @@ def build(
                         config_values.get("warn_threshold", 80),
                         config_values.get("crit_threshold", 95),
                     ),
+                    # The popup gauge's own tier, so the panel number and the
+                    # bar under it cannot say different things (upstream
+                    # b32717f). `level` stays for anything that only knows the
+                    # three absolute bands.
+                    "tier": pace_module.gauge(
+                        w.utilization,
+                        pace_module.fraction(w.resets_at, pace_module.span_for(kind)),
+                        float(config_values.get("warn_threshold", 80)),
+                        float(config_values.get("crit_threshold", 95)),
+                    ),
                 }
-                for w in limits.windows(limit_status, limit_mode)
+                for kind, w in limits.named_windows(limit_status, limit_mode)
             ]
             if config_values.get("show_limit_in_menu")
             else [],
