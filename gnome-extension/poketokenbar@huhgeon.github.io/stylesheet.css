@@ -483,6 +483,13 @@
   background-color: rgba(0, 0, 0, 0.35);
 }
 
+/* The number's rarity, matching the chips above the grid. The capsule keeps a
+   dark backing so a light tint stays legible on a pale sprite. */
+.poketokenbar-dexnum-gray { color: rgba(255, 255, 255, 0.8); }
+.poketokenbar-dexnum-green { color: #30d158; }
+.poketokenbar-dexnum-blue { color: #64b5ff; }
+.poketokenbar-dexnum-orange { color: #ffb340; }
+
 .poketokenbar-dexname {
   font-size: 0.72em;
   text-align: center;

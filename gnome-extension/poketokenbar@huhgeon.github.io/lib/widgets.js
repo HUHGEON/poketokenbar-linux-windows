@@ -235,15 +235,9 @@ export function button(text, onClick, styleClass = 'poketokenbar-button') {
     return widget;
 }
 
-/** Compact "12,345" style text for a token count the daemon did not preformat. */
-export function grouped(value) {
-    // The daemon preformats everything it ships, so this is only for numbers
-    // computed here. JS toLocaleString on a large float renders 8.55336e+07 in
-    // some locales, hence the explicit grouping.
-    const n = Math.round(value || 0);
-    return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-
+// Number formatting lives in format.js so it can be run under node: this
+// module imports gi:// and a test cannot load it.
+export {compact, grouped} from './format.js';
 
 /**
  * "resets in 2h 15m" from an ISO-8601 instant.

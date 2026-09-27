@@ -25,9 +25,9 @@ import {LANGUAGES, LANGUAGE_NAMES} from './languages.js';
 import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
-    Meter, RARITY_TINT, TIER_TINT, ago, borderedButton, button, caption, card, column, divider,
-    ellipsized, grouped, label, levelClass, markSent, paragraph, pill, placeholder,
-    resetsIn, row, segmented, spacer, switchButton, valuePair, verticalBox,
+    Meter, RARITY_TINT, TIER_TINT, ago, borderedButton, button, caption, card, column,
+    compact, divider, ellipsized, grouped, label, levelClass, markSent, paragraph, pill,
+    placeholder, resetsIn, row, segmented, spacer, switchButton, valuePair, verticalBox,
 } from './widgets.js';
 
 // The Pokédex grid, as upstream's: four across and six down per page.
@@ -510,10 +510,10 @@ class HomeSection extends Section {
             this.add_child(column([head, meter]));
             // What the colour means, in words, since a colour alone is not an
             // answer — and the only place the pace percentage is spelled out.
-            const pace = [limitWindow.tier_text, limitWindow.pace_delta_text]
+            const pace = [limitWindow.tier_text, limitWindow.pace_delta_text, limitWindow.pace_hint]
                 .filter(part => part).join(' · ');
             if (limitWindow.pace_hint)
-                this.add_child(caption(`${pace} — ${limitWindow.pace_hint}`, 'tertiary'));
+                this.add_child(caption(pace, 'tertiary'));
 
             // The forecast belongs to the window it is a forecast for.
             const burnRow = state?.burn?.[key];
@@ -660,7 +660,7 @@ class ShopSection extends Section {
         // One item's price, or the running total once the stepper has moved:
         // a bulk purchase is only safe if the bill is on screen before the tap.
         const priceText = count > 1
-            ? grouped(shopItem.price * count)
+            ? compact(shopItem.price * count)
             : (shopItem.price_text ?? '');
         const controls = row([
             caption(`${t('price')} ${priceText}`, 'tertiary'),
@@ -747,7 +747,7 @@ class BagSection extends Section {
             const count = Math.min(Math.max(1, this._candyCount), Math.max(1, limit));
             const plan = limit > 0 ? planCandyUse(bagItem.candy, count) : null;
             const effect = plan && bagItem.candy?.effect_template
-                ? bagItem.candy.effect_template.replace('%1', grouped(plan.xp))
+                ? bagItem.candy.effect_template.replace('%1', compact(plan.xp))
                 : (bagItem.effect ?? '');
             const bottom = row([caption(effect, 'tertiary'), spacer()]);
             if (limit > 1)
@@ -787,10 +787,10 @@ class BagSection extends Section {
         if (plan.graduates)
             lines.push(caption(t('candy_graduates'), 'secondary'));
         if (plan.discardedXP > 0) {
-            lines.push(paragraph(t('candy_discarded_xp').replace('%1', grouped(plan.discardedXP)),
+            lines.push(paragraph(t('candy_discarded_xp').replace('%1', compact(plan.discardedXP)),
                 'poketokenbar-caption2 poketokenbar-orange'));
         } else if (plan.evolves && !plan.graduates) {
-            lines.push(paragraph(t('candy_carryover_xp').replace('%1', grouped(plan.carryoverXP)),
+            lines.push(paragraph(t('candy_carryover_xp').replace('%1', compact(plan.carryoverXP)),
                 'poketokenbar-caption2 poketokenbar-secondary'));
         }
         return lines;
@@ -970,7 +970,13 @@ class CollectionSection extends Section {
         const sprite = new Sprite({size: DEX_SPRITE_SIZE});
         sprite.setPath(dexEntry.sprite_path || null);
         const spriteBin = new St.Bin({child: sprite, x_align: Clutter.ActorAlign.CENTER});
-        const top = row([label(`#${dexEntry.species_id}`, 'poketokenbar-dexnum'), spacer()]);
+        // The number carries the rarity, so rarity still reads in the "all"
+        // view where the chips are not filtering (upstream f0ef5ff).
+        const tint = RARITY_TINT[dexEntry.rarity] ?? 'gray';
+        const top = row([
+            label(`#${dexEntry.species_id}`, `poketokenbar-dexnum poketokenbar-dexnum-${tint}`),
+            spacer(),
+        ]);
         if (dexEntry.is_shiny)
             top.add_child(label('✨', 'poketokenbar-caption2'));
         const parts = [top, spriteBin];

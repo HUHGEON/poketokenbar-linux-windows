@@ -21,8 +21,11 @@ def test_the_elapsed_fraction_comes_from_the_reset_and_the_span():
     now = time.time()
     # An hour left of five: four fifths gone.
     assert pace.fraction(resets_in(3600, now), pace.FIVE_HOUR, now) == pytest.approx(0.8, abs=1e-6)
-    # A window that has only just started.
-    assert pace.fraction(resets_in(pace.SEVEN_DAY, now), pace.SEVEN_DAY, now) == pytest.approx(0, abs=1e-6)
+    # A window that has only just started. A second in, not exactly zero: a
+    # reset one tick beyond the window's own length is outside it, and outside
+    # has no pace at all.
+    just_started = pace.fraction(resets_in(pace.SEVEN_DAY - 1, now), pace.SEVEN_DAY, now)
+    assert 0 < just_started < 0.001
 
 
 @pytest.mark.parametrize("seconds", [-60, pace.FIVE_HOUR + 60])

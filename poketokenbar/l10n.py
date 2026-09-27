@@ -261,14 +261,11 @@ STRINGS: dict[str, tuple[str, ...]] = {
     # Pace against a limit window (upstream 68deb09, 2eec9af). Deliberately not
     # called a "recommended" amount: it is the line where an even burn would
     # sit, not advice to use less, and there is no reason to fill a window.
-    "pace_hint": (
-        "Pace — an even burn across this window would sit at %1 now.",
-        "페이스 — 창 시간만큼 균등하게 썼다면 지금 %1입니다.",
-        "ペース — この枠を均等に使っていれば今は %1 です。",
-        "Ritmo: un consumo uniforme en esta ventana estaría en %1 ahora.",
-        "Rythme — une consommation régulière sur cette fenêtre serait à %1.",
-        "Ritmo — um consumo uniforme nesta janela estaria em %1 agora.",
-        "Tempo – bei gleichmäßigem Verbrauch in diesem Fenster wären es jetzt %1.",
+    # Where an even burn would sit right now. Short, because it shares a line
+    # with the tier name and the delta; upstream has the room for a sentence in
+    # a tooltip, a panel popup does not.
+    "pace_hint": ("Pace %1", "페이스 %1", "ペース %1", "Ritmo %1",
+        "Rythme %1", "Ritmo %1", "Tempo %1",
     ),
     "pace_way_under": ("Well under pace", "여유 많음", "かなり余裕", "Muy por debajo del ritmo",
         "Bien sous le rythme", "Bem abaixo do ritmo", "Deutlich unter Tempo",
