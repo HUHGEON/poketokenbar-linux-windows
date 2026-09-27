@@ -6,6 +6,8 @@ that includes it says so — showing a guessed price would be worse than none.
 
 from __future__ import annotations
 
+import sys
+import threading
 from dataclasses import dataclass
 
 
@@ -30,6 +32,16 @@ ZERO = ModelRate()
 # there 2026-09-11 against the OpenAI, Anthropic and Gemini price pages). An
 # estimate of API-equivalent usage, not a subscription bill.
 TABLE: dict[str, ModelRate] = {
+    # Claude rates, checked upstream 2026-09-25 against
+    # https://platform.claude.com/docs/en/about-claude/pricing
+    # (base input, output, 5m cache write, cache hit).
+    # The Claude 5 family needs exact rows: with the family fallback gone, a
+    # missing row left today's cost unpriced for nearly all Claude use
+    # (upstream 1ef1979, 832154a).
+    "claude-opus-5": per_million(5, 25, 6.25, 0.5),
+    # Opus 5.5 is cheaper than Opus 5, with cache reads at 0.05x input.
+    "claude-opus-5-5": per_million(4, 20, 5, 0.2),
+    "claude-sonnet-5": per_million(2, 10, 2.5, 0.2),
     "claude-opus-4-20250514": per_million(15, 75, 18.75, 1.5),
     "claude-sonnet-4-20250514": per_million(3, 15, 3.75, 0.3),
     "claude-sonnet-4-5-20250929": per_million(3, 15, 3.75, 0.3),
@@ -57,6 +69,9 @@ TABLE: dict[str, ModelRate] = {
     # audio charges cannot be recovered from the logs.
     "gemini-2.5-pro": per_million(1.25, 10, 0, 0.125),
     "gemini-2.5-flash": per_million(0.30, 2.5, 0, 0.03),
+    # Flash-Lite is its own SKU; a "flash" match would bill it at Flash rates
+    # (upstream 29a4e2d).
+    "gemini-2.5-flash-lite": per_million(0.10, 0.40, 0, 0.01),
     "gemini-2.0-flash": per_million(0.10, 0.4, 0, 0.025),
 }
 
@@ -136,6 +151,38 @@ def estimated_cost(
         (input_ * r.input + cache_write * r.cache_write + cache_read * r.cache_read)
         * input_multiplier
         + output * r.output * output_multiplier
+    )
+
+
+_unpriced_seen: set[str] = set()
+_unpriced_lock = threading.Lock()
+
+
+def first_unpriced_sighting(model: str) -> bool:
+    """True the first time this model identity is seen, normalized as the
+    table lookup normalizes it. The dedupe behind note_unpriced."""
+    key = model_key(model)
+    with _unpriced_lock:
+        if key in _unpriced_seen:
+            return False
+        _unpriced_seen.add(key)
+        return True
+
+
+def note_unpriced(model: str) -> None:
+    """Report a model the table cannot price, once per process.
+
+    Ports upstream's noteUnpriced (5f6a4f0). An unpriced model shows as
+    "cost unavailable" and leaves no other trace, so a newly released model
+    went unnoticed for days. The daemon's stderr is the journal.
+    """
+    if not first_unpriced_sighting(model):
+        return
+    print(
+        f"poketokenbar: unpriced model: {model} — its cost reads as unavailable"
+        " until pricing.TABLE has a row for it",
+        file=sys.stderr,
+        flush=True,
     )
 
 

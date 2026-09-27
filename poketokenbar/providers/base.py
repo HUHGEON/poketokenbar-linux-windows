@@ -310,6 +310,10 @@ class ScanningProvider:
                 entry.model, entry.input, entry.output, entry.cache_write, entry.cache_read)
             if estimate is not None:
                 return estimate, CostCoverage(estimated=True)
+            # A missing price row is the cause here, and nothing else says so
+            # (upstream 5f6a4f0). Where the source itself declared the cost
+            # unavailable, the table is not to blame.
+            pricing.note_unpriced(entry.model)
         return 0.0, CostCoverage(unknown=True)
 
     def fetch_daily(self, today: str | None = None) -> DailyUsage | None:

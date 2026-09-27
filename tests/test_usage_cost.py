@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from poketokenbar import config, state
+from poketokenbar import config, pricing, state
 from poketokenbar.models import CostCoverage, DailyUsage, Entry
 from poketokenbar.providers.base import ScanningProvider
 from poketokenbar.providers.codex import parse_rollout
@@ -60,6 +60,21 @@ def test_a_mixed_day_keeps_its_known_part_and_says_it_is_partial():
 def test_zero_token_records_cannot_make_an_unknown_day_look_priced():
     d = day(entry(model="unlisted"), entry(tokens=0, explicit_cost=0.0))
     assert d.cost_coverage.only_unknown
+
+
+def test_a_missing_price_row_is_reported_but_a_declared_unavailable_cost_is_not():
+    """A blank cost otherwise leaves no trace at all (upstream 5f6a4f0). Only a
+    missing table row is the table's fault; a source that declared the cost
+    unavailable is not evidence of one.
+    """
+    seen = set(pricing._unpriced_seen)
+    pricing._unpriced_seen.clear()
+    try:
+        day(entry(model="unlisted-by-the-table"), entry(cost_unavailable=True))
+        assert pricing._unpriced_seen == {"unlisted-by-the-table"}
+    finally:
+        pricing._unpriced_seen.clear()
+        pricing._unpriced_seen.update(seen)
 
 
 # MARK: text

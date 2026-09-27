@@ -103,3 +103,64 @@ def test_documented_aliases_and_namespaces_reach_the_table(model, key):
 def test_antigravity_prefix_is_not_a_namespace():
     assert pricing.model_key("antigravity/gpt-5") == "antigravity/gpt-5"
     assert pricing.rate("antigravity/gpt-5") == pricing.ZERO
+
+
+@pytest.mark.parametrize("model,rates", [
+    # Claude 5 family, priced upstream in 1ef1979 and 832154a.
+    ("claude-opus-5", (5, 25, 6.25, 0.5)),
+    ("claude-opus-5-5", (4, 20, 5, 0.2)),
+    ("claude-sonnet-5", (2, 10, 2.5, 0.2)),
+])
+def test_the_claude_5_family_is_priced(model, rates):
+    assert pricing.rate(model) == per_token(*rates)
+
+
+def test_every_model_a_provider_log_names_can_be_priced():
+    """The inverse guard: a table that only asserts its own rows cannot notice
+    a current model going unpriced, which is what blanked Claude's cost
+    upstream (1ef1979). A real Claude request logs cache writes and reads, so
+    a row without a write rate is unpriced in practice.
+    """
+    for model in ("claude-opus-5", "claude-opus-5-5", "claude-sonnet-5",
+                  "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6",
+                  "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1"):
+        cost = pricing.estimated_cost(model, 2, 175, 26_939, 42_676)
+        assert cost is not None, f"{model} has no price, so its cost reads as unavailable"
+        assert cost > 0, model
+
+
+def test_gemini_flash_lite_uses_its_own_rates():
+    assert pricing.rate("gemini-2.5-flash-lite") == per_token(0.10, 0.40, 0, 0.01)
+    assert pricing.rate("models/gemini-2.5-flash-lite") == per_token(0.10, 0.40, 0, 0.01)
+    assert pricing.estimated_cost("gemini-2.5-flash-lite", 10**6, 0, 0, 0) == pytest.approx(0.10)
+    assert pricing.estimated_cost("gemini-2.5-flash-lite", 0, 10**6, 0, 0) == pytest.approx(0.40)
+    assert pricing.estimated_cost("gemini-2.5-flash-lite", 0, 0, 0, 10**6) == pytest.approx(0.01)
+    # Cache-write and audio rates are not recoverable from these logs.
+    assert pricing.estimated_cost("gemini-2.5-flash-lite", 0, 0, 1, 0) is None
+    # A later lite id must not inherit either Flash row.
+    assert pricing.estimated_cost("gemini-3-flash-lite", 10**6, 0, 0, 0) is None
+
+
+@pytest.fixture
+def forget_unpriced():
+    """The sighting set is process-wide, so a test must not inherit it."""
+    saved = set(pricing._unpriced_seen)
+    pricing._unpriced_seen.clear()
+    yield
+    pricing._unpriced_seen.clear()
+    pricing._unpriced_seen.update(saved)
+
+
+def test_an_unpriced_model_is_reported_once(forget_unpriced, capsys):
+    assert pricing.first_unpriced_sighting("brand-new-model") is True
+    assert pricing.first_unpriced_sighting("brand-new-model") is False
+    pricing.note_unpriced("another-new-model")
+    pricing.note_unpriced("another-new-model")
+    reported = capsys.readouterr().err.strip().splitlines()
+    assert len(reported) == 1
+    assert "another-new-model" in reported[0]
+
+
+def test_one_model_under_several_spellings_is_one_sighting(forget_unpriced):
+    assert pricing.first_unpriced_sighting("openai/Brand-New ") is True
+    assert pricing.first_unpriced_sighting("brand-new") is False
