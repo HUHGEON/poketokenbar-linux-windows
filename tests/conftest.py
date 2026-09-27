@@ -41,6 +41,31 @@ _RUNTIME_VARIABLE = "XDG_RUNTIME_DIR"
 
 
 @pytest.fixture(scope="session", autouse=True)
+def no_live_network():
+    """Nothing in the suite may open a socket.
+
+    Ports the intent of upstream 671c1ec and d6d24a0: their tests reached the
+    real limits endpoint with the developer's own login, and rewrote the real
+    usage cache. Here the paths are already redirected; this closes the other
+    half — a new test that forgets to inject a fake fails loudly instead of
+    calling PokéAPI, GitHub or api.anthropic.com from CI.
+    """
+    import urllib.request
+
+    real = urllib.request.urlopen
+
+    def refuse(request, *args, **kwargs):
+        url = getattr(request, "full_url", request)
+        raise AssertionError(
+            f"a test tried to open {url}; inject a fake instead of calling the network")
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(urllib.request, "urlopen", refuse)
+        yield
+    urllib.request.urlopen = real
+
+
+@pytest.fixture(scope="session", autouse=True)
 def isolated_session_locations(tmp_path_factory):
     """The same isolation for fixtures wider than one test.
 

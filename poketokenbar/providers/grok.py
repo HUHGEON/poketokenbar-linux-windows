@@ -275,7 +275,8 @@ class GrokProvider(ScanningProvider):
     display_name = "Grok CLI"
     reports_cost = True
     # v2: a zero-tick cost counts (69ff39b).
-    PARSER_VERSION = 2
+    # v3: a duplicated turn keeps its earliest timestamp (upstream e76a8e0).
+    PARSER_VERSION = 3
 
     def curated_roots(self) -> list[Path]:
         return session_roots(self._home)

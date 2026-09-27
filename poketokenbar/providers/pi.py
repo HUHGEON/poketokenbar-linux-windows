@@ -253,7 +253,8 @@ class PiProvider(ScanningProvider):
     display_name = "Pi Agent"
     reports_cost = True
     # v2: zero recorded costs count, total-only turns are unpriced (69ff39b).
-    PARSER_VERSION = 2
+    # v3: a duplicated turn keeps its earliest timestamp (upstream e76a8e0).
+    PARSER_VERSION = 3
 
     def curated_roots(self) -> list[Path]:
         return pi_session_roots(self._home)
@@ -275,7 +276,8 @@ class OmpProvider(ScanningProvider):
     display_name = "omp"
     reports_cost = True
     # v2: zero recorded costs count, total-only turns are unpriced (69ff39b).
-    PARSER_VERSION = 2
+    # v3: a duplicated turn keeps its earliest timestamp (upstream e76a8e0).
+    PARSER_VERSION = 3
 
     def curated_roots(self) -> list[Path]:
         return omp_session_roots(self._home)

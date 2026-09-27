@@ -70,3 +70,13 @@ def test_a_store_with_no_path_reads_nothing_from_the_real_machine():
     assert subject.state.active is None
     assert subject.state.dex == []
 
+
+
+def test_the_suite_cannot_reach_the_network():
+    """The guard itself, so a future rewrite of conftest cannot quietly drop it:
+    upstream's tests called the limits endpoint with the developer's own login
+    (671c1ec) and rewrote their real usage cache (d6d24a0)."""
+    import urllib.request
+
+    with pytest.raises(AssertionError, match="inject a fake"):
+        urllib.request.urlopen("https://example.invalid/")

@@ -123,12 +123,26 @@ def local_day(date: datetime) -> str:
 
 
 def dedup_keep_max(entries: list[Entry]) -> list[Entry]:
-    """Keep the largest-total entry per id — the completed one."""
+    """Keep the largest-total entry per id — the completed one.
+
+    The turn's time is the earliest of the copies, not the kept one's. Forking
+    or resuming a session logs the same turn again, with a later timestamp, and
+    whichever copy happens to hold the larger total would otherwise decide
+    which day the tokens fall on — moving usage into a day it did not happen in
+    (upstream e76a8e0).
+    """
     by_id: dict[str, Entry] = {}
     for e in entries:
         existing = by_id.get(e.id)
-        if existing is None or e.total > existing.total:
+        if existing is None:
             by_id[e.id] = e
+            continue
+        kept = e if e.total > existing.total else existing
+        earliest = e if e.date < existing.date else existing
+        if kept.date != earliest.date:
+            kept.date = earliest.date
+            kept.local_day = earliest.local_day
+        by_id[e.id] = kept
     return list(by_id.values())
 
 

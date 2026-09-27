@@ -196,8 +196,9 @@ class ClaudeProvider(ScanningProvider):
     display_name = "Claude Code"
     reports_cost = True
     # Bump when parse_line changes shape, to invalidate cached blobs. 2 adds
-    # the reported cost from Claude Code's own cost-state ledger.
-    PARSER_VERSION = 2
+    # the reported cost from Claude Code's own cost-state ledger; 3 keeps a
+    # duplicated turn's earliest timestamp.
+    PARSER_VERSION = 3
 
     def curated_roots(self) -> list[Path]:
         return project_roots(home=self._home)

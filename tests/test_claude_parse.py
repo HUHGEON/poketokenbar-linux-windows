@@ -95,3 +95,26 @@ def test_parse_file_dedups_within_the_file(tmp_path):
 
 def test_parse_file_returns_empty_for_unreadable_path(tmp_path):
     assert claude.parse_file(tmp_path / "missing.jsonl") == []
+
+
+def test_a_turn_logged_twice_keeps_the_time_it_first_happened():
+    """Forking or resuming a session writes the same turn again with a later
+    timestamp. Whichever copy holds the larger total used to decide the day, so
+    tokens moved into a day they did not happen in (upstream e76a8e0)."""
+    from datetime import datetime, timezone
+
+    from poketokenbar.models import Entry
+    from poketokenbar.providers.base import dedup_keep_max
+
+    first = Entry(id="a", date=datetime(2026, 9, 17, 23, 50, tzinfo=timezone.utc),
+                  local_day="2026-09-17", model="m", input=10)
+    # The completed copy, written after midnight by a fork of that session.
+    later = Entry(id="a", date=datetime(2026, 9, 18, 0, 10, tzinfo=timezone.utc),
+                  local_day="2026-09-18", model="m", input=99)
+
+    for order in ([first, later], [later, first]):
+        kept = dedup_keep_max(list(order))
+        assert len(kept) == 1
+        assert kept[0].total == 99, "the completed copy is still the one kept"
+        assert kept[0].local_day == "2026-09-17"
+        assert kept[0].date == first.date
