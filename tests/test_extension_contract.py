@@ -273,6 +273,8 @@ def test_fields_read_out_of_each_block_exist(block, expression, payload, compani
 ROW_ACCESSORS = {
     "shopItem": "shop",
     "bagItem": "bag",
+    # The candy ladder hangs off the one bag row that has stages to preview.
+    "candy": "bag_candy",
     "dexEntry": "dex",
     "catchRecord": "catch_log",
     "modelRow": "today_models",
@@ -338,6 +340,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "bag_candy":
+        return set(next(r for r in payload["bag"] if r["key"] == "rareCandy")["candy"])
     if name == "month_trend":
         return set(payload["month_trend"])
     if name == "month_trend_day":
@@ -373,12 +377,17 @@ def test_row_fields_read_in_the_extension_exist(variable, block, payload):
 
 LIST_ROW_FIELDS = {
     "shop": {"key", "kind", "price", "price_text", "label", "description", "badge",
-             "sprite_path", "emoji", "owned", "owned_count", "affordable", "locked"},
+             "sprite_path", "emoji", "owned", "owned_count", "affordable", "locked",
+             "max_buy"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
             "is_pinned", "sprite_path"},
 }
+
+# Fields only some rows in a block carry — the candy ladder belongs to the one
+# item that has stages to preview.
+OPTIONAL_ROW_FIELDS = {"bag": {"candy"}}
 
 
 @pytest.mark.parametrize("block", sorted(LIST_ROW_FIELDS))
@@ -387,7 +396,15 @@ def test_list_row_fields_match_what_the_daemon_emits(block, payload):
     rather than a blank column in the popup."""
     rows = payload[block]
     assert rows, f"{block} fixture produced no rows"
-    assert set(rows[0]) == LIST_ROW_FIELDS[block]
+    optional = OPTIONAL_ROW_FIELDS.get(block, set())
+    for row in rows:
+        assert set(row) - optional == LIST_ROW_FIELDS[block]
+
+
+def test_the_candy_row_carries_the_ladder_the_popup_previews_from(payload):
+    candy = next(row for row in payload["bag"] if row["key"] == "rareCandy")
+    assert set(candy["candy"]) == {
+        "xp", "xp_text", "effect_template", "max_use", "stage_costs", "used_at_stage"}
 
 
 def test_catch_log_row_shape(payload):

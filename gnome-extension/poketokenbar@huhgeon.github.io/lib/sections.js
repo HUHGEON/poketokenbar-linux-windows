@@ -17,6 +17,7 @@ import GObject from 'gi://GObject';
 import St from 'gi://St';
 
 import * as Commands from './commands.js';
+import {planCandyUse, maxCandyUses} from './candy.js';
 import * as Config from './config.js';
 import {ANIMATION_OFF, DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
 import {isPowerSaver} from './power.js';
@@ -25,8 +26,8 @@ import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
     Meter, RARITY_TINT, ago, borderedButton, button, caption, card, column, divider,
-    ellipsized, label, levelClass, markSent, paragraph, pill, placeholder, resetsIn,
-    row, segmented, spacer, switchButton, valuePair, verticalBox,
+    ellipsized, grouped, label, levelClass, markSent, paragraph, pill, placeholder,
+    resetsIn, row, segmented, spacer, switchButton, valuePair, verticalBox,
 } from './widgets.js';
 
 // The Pokédex grid, as upstream's: four across and six down per page.
@@ -517,11 +518,22 @@ class ShopSection extends Section {
         // The item whose Buy is waiting on a second tap, as upstream's
         // two-step confirm. An egg throws the companion away.
         this._confirming = null;
+        // How many of each item the stepper is set to. Kept here rather than in
+        // the daemon: it is a pending choice, not saved state, and it must
+        // answer the tap without waiting for a poll.
+        this._quantity = new Map();
     }
 
     release() {
         this._confirming = null;
+        this._quantity.clear();
         super.release();
+    }
+
+    /** The chosen quantity, clamped to what the wallet can pay for now. */
+    _quantityFor(shopItem) {
+        const limit = Math.max(1, Math.trunc(shopItem.max_buy ?? 1));
+        return Math.min(Math.max(1, this._quantity.get(shopItem.key) ?? 1), limit);
     }
 
     update(state) {
@@ -565,13 +577,17 @@ class ShopSection extends Section {
             return row([label(`✓ ${t('owned_already')}`,
                 'poketokenbar-caption poketokenbar-strong poketokenbar-green')]);
         }
+        const count = this._quantityFor(shopItem);
+        const times = n => t('times_count').replace('%1', String(n));
         if (this._confirming === shopItem.key) {
-            const buy = borderedButton(t('buy'), () => {
+            const name = shopItem.label || shopItem.key;
+            const buy = borderedButton(count > 1 ? `${t('buy')} ${times(count)}` : t('buy'), () => {
                 this._confirming = null;
-                markSent(buy, Commands.buy(shopItem.key));
+                markSent(buy, Commands.buy(shopItem.key, count));
             }, true);
             return row([
-                caption(t('buy_confirm').replace('%1', shopItem.label || shopItem.key), 'secondary'),
+                caption(t('buy_confirm').replace(
+                    '%1', count > 1 ? `${name} ${times(count)}` : name), 'secondary'),
                 spacer(),
                 buy,
                 button(t('cancel'), () => {
@@ -580,15 +596,25 @@ class ShopSection extends Section {
                 }),
             ]);
         }
+        // One item's price, or the running total once the stepper has moved:
+        // a bulk purchase is only safe if the bill is on screen before the tap.
+        const priceText = count > 1
+            ? grouped(shopItem.price * count)
+            : (shopItem.price_text ?? '');
         const controls = row([
-            caption(`${t('price')} ${shopItem.price_text ?? ''}`, 'tertiary'),
+            caption(`${t('price')} ${priceText}`, 'tertiary'),
             spacer(),
         ]);
+        // Buying several at once is this port's own. Eggs stay single: one
+        // replaces the companion, so a stack of them means nothing.
+        if (shopItem.affordable && (shopItem.max_buy ?? 0) > 1)
+            controls.add_child(this._quantityStepper(shopItem, count, t));
         if (shopItem.affordable) {
-            controls.add_child(borderedButton(t('buy'), () => {
-                this._confirming = shopItem.key;
-                this.update(this._reader.state);
-            }));
+            controls.add_child(borderedButton(count > 1 ? `${t('buy')} ${times(count)}` : t('buy'),
+                () => {
+                    this._confirming = shopItem.key;
+                    this.update(this._reader.state);
+                }));
         } else if (shopItem.locked) {
             const buy = borderedButton(t('buy'), () => {});
             buy.reactive = false;
@@ -599,6 +625,25 @@ class ShopSection extends Section {
         }
         return controls;
     }
+
+    /** − ×n + max, clamped to what one purchase can cover. */
+    _quantityStepper(shopItem, count, t) {
+        const limit = Math.max(1, Math.trunc(shopItem.max_buy ?? 1));
+        const set = value => {
+            this._quantity.set(shopItem.key, Math.max(1, Math.min(limit, value)));
+            this.update(this._reader.state);
+        };
+        const down = button('−', () => set(count - 1));
+        const up = button('+', () => set(count + 1));
+        down.opacity = count > 1 ? 255 : 110;
+        up.opacity = count < limit ? 255 : 110;
+        const stepper = row([down, label(String(count), 'poketokenbar-stepvalue'), up],
+            'poketokenbar-stepper');
+        // Stepping to a hundred one tap at a time is not a purchase flow.
+        if (limit > 2)
+            stepper.add_child(button(t('quantity_max'), () => set(limit)));
+        return stepper;
+    }
 });
 
 export const BagSection = GObject.registerClass(
@@ -606,6 +651,13 @@ class BagSection extends Section {
     _init(reader) {
         super._init();
         this._reader = reader;
+        // How many candies the stepper is set to, as in the shop.
+        this._candyCount = 1;
+    }
+
+    release() {
+        this._candyCount = 1;
+        super.release();
     }
 
     update(state) {
@@ -628,16 +680,59 @@ class BagSection extends Section {
             text.x_expand = true;
             const top = row([itemIcon(bagItem.sprite_path, bagItem.emoji), text]);
             top.style = 'spacing: 10px;';
-            const bottom = row([caption(bagItem.effect ?? '', 'tertiary'), spacer()]);
+            // Several candies at once, with what the batch would do underneath
+            // (upstream 2e8efdd). The rest of the bag is one at a time.
+            const limit = bagItem.usable ? maxCandyUses(bagItem.candy) : 0;
+            const count = Math.min(Math.max(1, this._candyCount), Math.max(1, limit));
+            const plan = limit > 0 ? planCandyUse(bagItem.candy, count) : null;
+            const effect = plan && bagItem.candy?.effect_template
+                ? bagItem.candy.effect_template.replace('%1', grouped(plan.xp))
+                : (bagItem.effect ?? '');
+            const bottom = row([caption(effect, 'tertiary'), spacer()]);
+            if (limit > 1)
+                bottom.add_child(this._candyStepper(limit, count));
             if (bagItem.usable) {
-                const use = borderedButton(t('use'), () => markSent(use, Commands.use(bagItem.key)));
+                const uses = plan?.count ?? 1;
+                const use = borderedButton(
+                    uses > 1 ? `${t('use')} ${t('times_count').replace('%1', String(uses))}` : t('use'),
+                    () => markSent(use, Commands.use(bagItem.key, uses)));
                 bottom.add_child(use);
             } else if (bagItem.passive) {
                 bottom.add_child(label(`✓ ${t('active')}`,
                     'poketokenbar-caption poketokenbar-strong poketokenbar-green'));
             }
-            this.add_child(card([top, bottom]));
+            this.add_child(card([top, bottom, ...this._preview(plan, t)]));
         }
+    }
+
+    _candyStepper(limit, count) {
+        const set = value => {
+            this._candyCount = Math.max(1, Math.min(limit, value));
+            this.update(this._reader.state);
+        };
+        const down = button('−', () => set(count - 1));
+        const up = button('+', () => set(count + 1));
+        down.opacity = count > 1 ? 255 : 110;
+        up.opacity = count < limit ? 255 : 110;
+        return row([down, label(String(count), 'poketokenbar-stepvalue'), up],
+            'poketokenbar-stepper');
+    }
+
+    /** What this batch would do: graduation, discarded XP, or carry-over. */
+    _preview(plan, t) {
+        if (plan === null)
+            return [];
+        const lines = [];
+        if (plan.graduates)
+            lines.push(caption(t('candy_graduates'), 'secondary'));
+        if (plan.discardedXP > 0) {
+            lines.push(paragraph(t('candy_discarded_xp').replace('%1', grouped(plan.discardedXP)),
+                'poketokenbar-caption2 poketokenbar-orange'));
+        } else if (plan.evolves && !plan.graduates) {
+            lines.push(paragraph(t('candy_carryover_xp').replace('%1', grouped(plan.carryoverXP)),
+                'poketokenbar-caption2 poketokenbar-secondary'));
+        }
+        return lines;
     }
 });
 

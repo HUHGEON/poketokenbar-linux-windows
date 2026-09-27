@@ -67,8 +67,10 @@ export function enqueue(name, args = {}) {
 
 export const refresh = () => enqueue('refresh', {});
 export const reloadConfig = () => enqueue('reload_config', {});
-export const buy = key => enqueue('buy', {key});
-export const use = key => enqueue('use', {key});
+// `count` buys or uses several at once: several candies in one go, and one
+// purchase for a stack of them. The daemon clamps it either way.
+export const buy = (key, count = 1) => enqueue('buy', {key, count});
+export const use = (key, count = 1) => enqueue('use', {key, count});
 // Open a species' Pokédex page, or close it with null. `retry` asks again for
 // details that failed to load.
 export const inspect = (speciesId, retry = false) =>

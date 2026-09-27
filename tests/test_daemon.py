@@ -338,6 +338,24 @@ def _clicky_daemon(tmp_path):
     return d, provider, limits_source, store, "rareCandy"
 
 
+def test_a_buy_carries_its_quantity_through_the_spool(tmp_path):
+    """The count is the only part of a bulk purchase that can go missing between
+    the popup and the wallet."""
+    from poketokenbar import commands
+
+    d, _provider, _limits, store, key = _clicky_daemon(tmp_path)
+    store.state.used_since_install = 10 ** 12
+    d.poll_once()
+    commands.enqueue("buy", {"key": key, "count": 6}, spool=d.spool)
+    d.react()
+    assert store.state.inventory.get(key, 0) == 6
+
+    # A command from an older extension carries no count at all.
+    commands.enqueue("buy", {"key": key}, spool=d.spool)
+    d.react()
+    assert store.state.inventory.get(key, 0) == 7
+
+
 def test_a_buy_is_answered_from_the_last_scan(tmp_path):
     from poketokenbar import commands
 

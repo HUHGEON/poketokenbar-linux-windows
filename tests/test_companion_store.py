@@ -192,3 +192,16 @@ def test_an_item_use_is_saved_immediately(tmp_path):
     reopened = CompanionStore(save_path=tmp_path / "companion.json", api=FakeAPI())
     assert reopened.state.inventory["rareCandy"] == 0
     assert reopened.state.active.used_at_stage == grown
+
+
+def test_a_batch_says_how_many_it_bought_or_used(tmp_path):
+    """"Bought Rare Candy" for three of them reads as a bug, and the count is
+    the one part of a bulk purchase the toast has to carry."""
+    s = _hatched(tmp_path)
+    s.state.used_since_install = 10 ** 12
+    s.state.spent_tokens = 0
+    assert "×4" in s.buy("rareCandy", 4)
+    assert "×4" not in s.buy("rareCandy", 1)
+    assert s.state.inventory["rareCandy"] == 5
+    assert "×2" in s.use_item("rareCandy", 2)
+    assert s.state.inventory["rareCandy"] == 3

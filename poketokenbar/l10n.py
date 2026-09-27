@@ -249,6 +249,10 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "bag_empty": ("Your bag is empty.", "가방이 비어 있어요.", "バッグは空です。", "Tu bolsa está vacía.",
         'Votre sac est vide.', 'Sua mochila está vazia.', 'Dein Beutel ist leer.',
     ),
+    # The shortcut on a quantity stepper: jump to everything the wallet covers.
+    "quantity_max": ("Max", "최대", "最大", "Máx.",
+        "Max", "Máx.", "Max",
+    ),
     "price": ("Price", "가격", "価格", "Precio",
         'Prix', 'Preço', 'Preis',
     ),
@@ -367,6 +371,11 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "A évolué en %1 !", "Evoluiu para %1!", "Hat sich zu %1 entwickelt!",
     ),
     # shop and bag
+    # A bare quantity mark. The same in every language, and one place to change
+    # if a language ever needs a different one.
+    "times_count": ("×%1", "×%1", "×%1", "×%1",
+        "×%1", "×%1", "×%1",
+    ),
     "owned_count": ("Owned ×%1", "보유 ×%1", "所持 ×%1", "En posesión ×%1",
         "Possédés ×%1", "Você tem ×%1", "Im Beutel ×%1",
     ),
@@ -387,6 +396,30 @@ STRINGS: dict[str, tuple[str, ...]] = {
     ),
     "item_shiny_charm_desc": ("While owned, raises the chance of hatching a shiny.", "보유하면 이로치 포켓몬이 태어날 확률이 올라가요.", "持っていると色違いが生まれる確率が上がります。", "Mientras lo tengas, aumenta la probabilidad de que nazca un Pokémon variocolor.",
         "Tant que tu le possèdes, augmente les chances qu'un Pokémon chromatique éclose.", "Enquanto estiver na sua bolsa, aumenta a chance de nascer um Pokémon shiny.", "Erhöht im Beutel die Chance, dass ein schillerndes Pokémon schlüpft.",
+    ),
+    # Rare Candy batch preview — what using this many at once would do.
+    "candy_graduates": ("Expected to graduate.", "이 포켓몬은 졸업할 것으로 예상돼요.",
+        "卒業する見込みです。", "Se espera que se gradúe.",
+        "Devrait terminer sa croissance.", "Deve se formar.",
+        "Schließt voraussichtlich sein Training ab.",
+    ),
+    "candy_carryover_xp": (
+        "Expected after evolution: %1 XP carried over.",
+        "예상 진화 후 이월 경험치: %1 XP.",
+        "進化後の予想繰越経験値：%1 XP。",
+        "Tras evolucionar: %1 XP de remanente previsto.",
+        "Après évolution : %1 XP de report prévu.",
+        "Após evoluir: previsão de %1 XP restantes.",
+        "Nach der Entwicklung: voraussichtlich %1 EP übertragen.",
+    ),
+    "candy_discarded_xp": (
+        "On graduation, %1 leftover XP will be discarded.",
+        "졸업 시 남는 %1 XP는 사라져요.",
+        "卒業時、余った%1 XPは失われます。",
+        "Al graduarse, se perderán %1 XP sobrantes.",
+        "À la fin de la croissance, les %1 XP restants seront perdus.",
+        "Ao se formar, %1 XP restantes serão descartados.",
+        "Beim Trainingsabschluss verfallen %1 überschüssige EP.",
     ),
     "item_rare_candy_effect": ("+%1 XP", "+%1 XP", "+%1 XP", "+%1 XP",
         "+%1 XP", "+%1 XP", "+%1 EP",

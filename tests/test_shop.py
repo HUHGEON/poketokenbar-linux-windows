@@ -224,3 +224,125 @@ def test_window_key_excludes_volatile_fields():
     # it re-fired the notification each refresh in the Swift app.
     assert shop.window_key("weekly") == "limit:weekly"
     assert "resets" not in shop.window_key("weekly")
+
+
+# --- buying several at once -------------------------------------------------
+#
+# This port's own: upstream's shop is one item per click, which is a lot of
+# clicking for a wallet holding hundreds of candies.
+
+
+def _candy_price(state):
+    return next(e for e in shop.entries(state) if e.key == "rareCandy").price
+
+
+def test_one_purchase_can_cover_a_stack_of_items():
+    s = _with_mon(tokens=10 ** 12)
+    price = _candy_price(s)
+    result = shop.buy(s, "rareCandy", 7)
+    assert result.count == 7
+    assert s.inventory["rareCandy"] == 7
+    assert s.spent_tokens == price * 7
+
+
+def test_a_stack_the_wallet_cannot_cover_is_refused_whole():
+    s = _with_mon(tokens=0)
+    s.used_since_install = _candy_price(s) * 2
+    with pytest.raises(shop.ShopError):
+        shop.buy(s, "rareCandy", 3)
+    assert s.inventory.get("rareCandy", 0) == 0
+    assert s.spent_tokens == 0
+
+
+def test_max_buy_is_what_the_wallet_covers_and_eggs_stay_single():
+    s = _with_mon(tokens=0)
+    price = _candy_price(s)
+    s.used_since_install = price * 5
+    candy = next(e for e in shop.entries(s) if e.key == "rareCandy")
+    assert shop.max_buy(s, candy) == 5
+    egg = next(e for e in shop.entries(s) if e.key == "egg")
+    s.used_since_install = 10 ** 12
+    assert shop.max_buy(s, egg) == 1
+    with pytest.raises(shop.ShopError):
+        shop.buy(s, "egg", 2)
+
+
+def test_a_passive_and_a_nonsense_count_are_refused():
+    s = _with_mon(tokens=10 ** 12)
+    with pytest.raises(shop.ShopError):
+        shop.buy(s, "shinyCharm", 2)
+    with pytest.raises(shop.ShopError):
+        shop.buy(s, "rareCandy", 0)
+    assert s.inventory == {}
+
+
+# --- using several candies at once (upstream 2e8efdd) -----------------------
+
+
+def test_the_offer_never_exceeds_what_graduation_can_absorb():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 500
+    needed = -(-sum(shop.candy_stage_costs(s)) // balance.RARE_CANDY_XP)
+    assert shop.max_candy_uses(s) == needed < 500
+    # And never more than the bag holds.
+    s.inventory["rareCandy"] = 2
+    assert shop.max_candy_uses(s) == 2
+
+
+def test_a_batch_short_of_the_threshold_only_progresses():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 1
+    plan = shop.plan_candy_use(s, 1)
+    assert plan.count == 1 and plan.xp == balance.RARE_CANDY_XP
+    assert not plan.evolves and not plan.graduates
+    assert plan.carryover_xp == 0 and plan.discarded_xp == 0
+
+
+def test_a_batch_that_clears_a_stage_evolves_and_carries_the_rest_over():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 500
+    costs = shop.candy_stage_costs(s)
+    count = -(-costs[0] // balance.RARE_CANDY_XP) + 1
+    plan = shop.plan_candy_use(s, count)
+    assert plan.evolves and not plan.graduates
+    assert plan.carryover_xp == count * balance.RARE_CANDY_XP - costs[0]
+    assert plan.discarded_xp == 0
+
+
+def test_a_batch_that_clears_every_stage_graduates_and_discards_the_leftover():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 500
+    total = sum(shop.candy_stage_costs(s))
+    count = shop.max_candy_uses(s)
+    plan = shop.plan_candy_use(s, count)
+    assert plan.graduates and plan.carryover_xp == 0
+    assert plan.discarded_xp == count * balance.RARE_CANDY_XP - total
+
+
+def test_using_a_batch_spends_exactly_the_candies_the_plan_needed():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 500
+    needed = shop.max_candy_uses(s)
+    before = s.active.used_at_stage
+    result = shop.use_item(s, "rareCandy", rng=random.Random(2), count=500)
+    assert result.count == needed
+    assert s.inventory["rareCandy"] == 500 - needed
+    # Graduating clears the companion, which is what a full batch is for.
+    assert result.events.graduated is not None
+    assert before >= 0
+
+
+def test_a_batch_of_one_is_still_the_old_single_use():
+    s = _with_mon(tokens=10 ** 12)
+    s.inventory["rareCandy"] = 3
+    result = shop.use_item(s, "rareCandy", rng=random.Random(3))
+    assert result.count == 1 and s.inventory["rareCandy"] == 2
+    assert s.active.used_at_stage == balance.RARE_CANDY_XP
+
+
+def test_candy_has_no_plan_without_a_companion_or_a_candy():
+    s = CompanionState()
+    s.inventory["rareCandy"] = 5
+    assert shop.max_candy_uses(s) == 0 and shop.plan_candy_use(s, 1) is None
+    with pytest.raises(shop.ShopError):
+        shop.use_item(s, "rareCandy", count=3)

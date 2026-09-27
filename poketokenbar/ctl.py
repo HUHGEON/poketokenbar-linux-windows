@@ -11,7 +11,7 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if not argv:
         print("usage: poketokenctl {set <key> <value>|scan-roots <provider> <paths>|"
-              "represent <species-id|none>|refresh|buy <key>|use <key>|"
+              "represent <species-id|none>|refresh|buy <key> [count]|use <key> [count]|"
               "export <path>|import <path>|restore}",
               file=sys.stderr)
         return 2
@@ -72,10 +72,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if action in ("buy", "use"):
-        if len(rest) != 1:
-            print(f"usage: poketokenctl {action} <key>", file=sys.stderr)
+        if len(rest) not in (1, 2):
+            print(f"usage: poketokenctl {action} <key> [count]", file=sys.stderr)
             return 2
-        commands.enqueue(action, {"key": rest[0]})
+        try:
+            count = int(rest[1]) if len(rest) == 2 else 1
+        except ValueError:
+            print(f"usage: poketokenctl {action} <key> [count]", file=sys.stderr)
+            return 2
+        commands.enqueue(action, {"key": rest[0], "count": count})
         return 0
 
     print(f"unknown command: {action}", file=sys.stderr)

@@ -7,6 +7,7 @@ rewinds growth; it only debits the wallet.
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 
 from . import balance, companion
@@ -36,6 +37,9 @@ class ItemResult:
     action: str  # "buy" | "use"
     events: companion.GrowthEvents | None = None
     nature: str | None = None
+    # How many were bought or used. One purchase or use can cover several
+    # items, and the toast has to say which it was.
+    count: int = 1
 
 
 @dataclass(slots=True)
@@ -87,18 +91,48 @@ def _debit(state: CompanionState, price: int) -> None:
     state.spent_tokens += price
 
 
-def buy(state: CompanionState, key: str) -> ItemResult:
-    """Purchase one shop entry."""
+def max_buy(state: CompanionState, entry: ShopEntry) -> int:
+    """How many of this entry the wallet can take in one purchase.
+
+    An egg is one per purchase whatever the wallet holds: it throws the current
+    companion away, so "buy three" has no meaning. A passive already held is
+    not for sale again.
+    """
+    if entry.owned:
+        return 0
+    if entry.kind != "item" or entry.key == "shinyCharm":
+        return 1 if state.spendable_tokens >= entry.price else 0
+    return state.spendable_tokens // entry.price
+
+
+def buy(state: CompanionState, key: str, count: int = 1) -> ItemResult:
+    """Purchase one shop entry, or several of a stackable item.
+
+    Buying in bulk is this port's own: upstream's shop is one item per click,
+    which is a lot of clicking for a wallet holding hundreds of candies. The
+    price per item is unchanged — quantity multiplies the one entry rather than
+    unlocking a cheaper bundle.
+    """
     entry = next((e for e in entries(state) if e.key == key), None)
     if entry is None:
         raise ShopError(f"unknown shop item: {key}")
+    if count < 1:
+        raise ShopError(f"a purchase needs a count of at least one: {count}")
 
     if entry.kind == "item":
-        if entry.key == "shinyCharm" and entry.owned:
-            raise ShopError("shiny charm is already held")
-        _debit(state, entry.price)
-        state.inventory[entry.key] = state.inventory.get(entry.key, 0) + 1
-        return ItemResult(entry.key, "buy")
+        if entry.key == "shinyCharm":
+            if entry.owned:
+                raise ShopError("shiny charm is already held")
+            if count > 1:
+                raise ShopError("the shiny charm is passive: one is all it takes")
+        # No clamping: the wallet's refusal names the shortfall, and the UI
+        # already offers no more than it can pay for.
+        _debit(state, entry.price * count)
+        state.inventory[entry.key] = state.inventory.get(entry.key, 0) + count
+        return ItemResult(entry.key, "buy", count=count)
+
+    if count > 1:
+        raise ShopError("an egg replaces the companion, so it is bought one at a time")
 
     # Eggs replace the current companion outright.
     tier = {"egg": None, f"egg:{Rarity.UNCOMMON}": Rarity.UNCOMMON,
@@ -120,8 +154,78 @@ def buy(state: CompanionState, key: str) -> ItemResult:
     return ItemResult(entry.key, "buy")
 
 
-def use_item(state: CompanionState, key: str, rng=None) -> ItemResult:
-    """Consume one held item."""
+def candy_stage_costs(state: CompanionState) -> list[int]:
+    """What each remaining stage costs, at the difficulty and boost in force.
+
+    The same rounded thresholds growth itself uses, so a preview cannot promise
+    an evolution the growth loop then withholds. Read off the apparent line: a
+    disguised Ditto must not be detectable from the bag.
+    """
+    mon = state.active
+    if mon is None:
+        return []
+    probe = copy.copy(mon)
+    costs = []
+    for stage in range(mon.stage_index, mon.total_forms):
+        probe.stage_index = stage
+        costs.append(state.stage_threshold(probe))
+    return costs
+
+
+def max_candy_uses(state: CompanionState) -> int:
+    """How many candies can be used at once — never more than graduation needs.
+
+    Candies past the last threshold would be swallowed for nothing, so they
+    stay in the bag.
+    """
+    held = state.inventory.get("rareCandy", 0)
+    mon = state.active
+    if held <= 0 or mon is None:
+        return 0
+    remaining = max(0, sum(candy_stage_costs(state)) - mon.used_at_stage)
+    needed = -(-remaining // balance.RARE_CANDY_XP)  # ceil
+    return min(held, needed)
+
+
+@dataclass(frozen=True, slots=True)
+class CandyPlan:
+    """What using `count` candies right now would do."""
+
+    count: int
+    xp: int
+    evolves: bool
+    graduates: bool
+    carryover_xp: int
+    discarded_xp: int
+
+
+def plan_candy_use(state: CompanionState, count: int) -> CandyPlan | None:
+    """Walk the stage costs to see how far `count` candies would get.
+
+    None when nothing can be used. Carry-over is only reported when an
+    evolution actually happens, and leftover XP at graduation is discarded
+    rather than carried — there is nothing left to carry it into.
+    """
+    count = min(max(0, count), max_candy_uses(state))
+    mon = state.active
+    if count <= 0 or mon is None:
+        return None
+    xp = count * balance.RARE_CANDY_XP
+    remaining = mon.used_at_stage + xp
+    evolves = False
+    costs = candy_stage_costs(state)
+    for index, cost in enumerate(costs):
+        if remaining < cost:
+            break
+        remaining -= cost
+        if index == len(costs) - 1:
+            return CandyPlan(count, xp, evolves, True, 0, remaining)
+        evolves = True
+    return CandyPlan(count, xp, evolves, False, remaining if evolves else 0, 0)
+
+
+def use_item(state: CompanionState, key: str, rng=None, count: int = 1) -> ItemResult:
+    """Consume held items — several candies at once, one of anything else."""
     held = state.inventory.get(key, 0)
     if held <= 0:
         raise ShopError(f"no {key} in bag")
@@ -129,12 +233,17 @@ def use_item(state: CompanionState, key: str, rng=None) -> ItemResult:
     if key == "rareCandy":
         if state.active is None:
             raise ShopError("candy needs a hatched companion")
-        state.inventory[key] = held - 1
+        plan = plan_candy_use(state, count)
+        if plan is None:
+            raise ShopError("this companion has no growth left for candy")
+        # plan.count, not the request: the plan already refused to spend
+        # candies the last threshold has no room for.
+        state.inventory[key] = held - plan.count
         # Routed through apply_usage so carry-over, evolution, and graduation
         # all behave exactly as they do for real usage — and the events it
         # reports are handed back for the same reason.
-        events = companion.apply_usage(state, balance.RARE_CANDY_XP, rng=rng)
-        return ItemResult(key, "use", events=events)
+        events = companion.apply_usage(state, plan.xp, rng=rng)
+        return ItemResult(key, "use", events=events, count=plan.count)
 
     if key == "mint":
         if state.active is None:

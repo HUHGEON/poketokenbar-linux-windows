@@ -649,16 +649,16 @@ class CompanionStore:
         self._persist()
         return granted
 
-    def buy(self, key: str) -> str:
-        result = shop.buy(self.state, key)
+    def buy(self, key: str, count: int = 1) -> str:
+        result = shop.buy(self.state, key, count)
         # A bought egg discards the companion, so a pin that was following it
         # names a species nobody owns any more.
         self.state.reconcile_representative()
         self._persist()
         return self._shop_message(result)
 
-    def use_item(self, key: str) -> str:
-        result = shop.use_item(self.state, key, rng=self.rng)
+    def use_item(self, key: str, count: int = 1) -> str:
+        result = shop.use_item(self.state, key, rng=self.rng, count=count)
         self._persist()
         # An item that evolves or graduates the companion has to announce it
         # exactly as real usage does. These events used to be discarded here,
@@ -696,7 +696,11 @@ class CompanionStore:
             return l10n.t("shop_nature_now", language).replace(
                 "%1", l10n.nature_name(result.nature, language))
         key = "shop_bought" if result.action == "buy" else "shop_used"
-        return l10n.t(key, language).replace("%1", self._label_for(result.key))
+        label = self._label_for(result.key)
+        if result.count > 1:
+            # "×3" rather than a plural form in seven languages.
+            label = f"{label} {l10n.t('times_count', language).replace('%1', str(result.count))}"
+        return l10n.t(key, language).replace("%1", label)
 
     def _item_banner(self, result: shop.ItemResult) -> dict:
         """The popup banner for an item use that changed no threshold."""
@@ -786,6 +790,9 @@ class CompanionStore:
                     "owned_count": self.state.inventory.get(e.key, 0),
                     "affordable": spendable >= e.price and not e.owned and not locked,
                     "locked": locked,
+                    # How many the wallet can take in one purchase. An egg is
+                    # always one: it replaces the companion.
+                    "max_buy": 0 if locked else shop.max_buy(self.state, e),
                 }
             )
         return out
@@ -795,6 +802,10 @@ class CompanionStore:
         return [
             {
                 "key": key,
+                # Everything the popup needs to preview a batch of candy
+                # without a round trip, and nothing about how growth works:
+                # the ladder is already rounded to this difficulty and boost.
+                **({"candy": self._candy_payload()} if key == "rareCandy" else {}),
                 "label": self._item_words(key)[0],
                 "description": self._item_words(key)[1],
                 "effect": self._item_words(key)[2],
@@ -808,6 +819,25 @@ class CompanionStore:
             for key, count in sorted(self.state.inventory.items())
             if count > 0
         ]
+
+    def _candy_payload(self) -> dict:
+        """The stage ladder a candy batch is measured against.
+
+        The popup steps the quantity locally, so the preview arithmetic happens
+        there; what it cannot work out for itself — what each remaining stage
+        costs at this difficulty, and how much of the current one is already
+        paid for — comes from here.
+        """
+        return {
+            "xp": balance.RARE_CANDY_XP,
+            "xp_text": _compact(balance.RARE_CANDY_XP),
+            # "+%1 XP" unsubstituted: the popup fills in the batch's own total,
+            # and "XP" is not the same word in every language.
+            "effect_template": l10n.t("item_rare_candy_effect", self.state.language),
+            "max_use": shop.max_candy_uses(self.state),
+            "stage_costs": shop.candy_stage_costs(self.state),
+            "used_at_stage": self.state.active.used_at_stage if self.state.active else 0,
+        }
 
     def dex_payload(self) -> list[dict]:
         """Species-level collection — ports dexSpecies.

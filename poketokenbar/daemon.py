@@ -236,12 +236,18 @@ class Daemon:
                 except (TypeError, ValueError) as exc:
                     errors.append(f"inspect: {exc}")
             elif name in ("buy", "use") and self.companion_store is not None:
-                key = (command.get("args") or {}).get("key", "")
+                args = command.get("args") or {}
+                key = args.get("key", "")
                 try:
+                    # A missing or unreadable count is one, the old behaviour.
+                    try:
+                        count = max(1, int(args.get("count", 1)))
+                    except (TypeError, ValueError):
+                        count = 1
                     if name == "buy":
-                        message = self.companion_store.buy(key)
+                        message = self.companion_store.buy(key, count)
                     else:
-                        message = self.companion_store.use_item(key)
+                        message = self.companion_store.use_item(key, count)
                     if self.notifier is not None:
                         self.notifier._send("PokeTokenBar", message)
                 except Exception as exc:
