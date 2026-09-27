@@ -56,14 +56,18 @@ class CompanionStore:
         rng: random.Random | None = None,
         detail_loader=None,
     ) -> None:
-        self.save_path = save_path
+        # Resolved here rather than left as None: save() falls back to the
+        # default path on its own, so a store built without one still had a
+        # file — but everything that has to name that file (restore points,
+        # most of all) saw None and quietly did nothing.
+        self.save_path = save_path or save.default_path()
         # Restore points, described once and kept until this process changes
         # them; the popup asks for them on every poll.
         self._snapshot_rows: list[dict] | None = None
         # A save that will not parse is rebuilt from the newest restore point
         # rather than started over (upstream 13e3bf2).
         self.state: CompanionState = save.load(
-            save_path, recover=snapshots.latest_valid if save_path is not None else None)
+            self.save_path, recover=snapshots.latest_valid)
         self.migrate_profiles()
         self.api = api
         # Fetches species details in the background; None means only what is

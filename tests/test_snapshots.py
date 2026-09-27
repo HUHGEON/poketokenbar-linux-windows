@@ -219,3 +219,20 @@ def test_the_listing_is_not_rebuilt_on_every_poll(tmp_path, monkeypatch):
     store.snapshot_rows()
     store.snapshot_rows()
     assert len(reads) == before + 1
+
+
+def test_a_store_built_without_a_path_still_has_one(tmp_path, monkeypatch):
+    """save() falls back to the default path on its own, so a store built
+    without one still had a file — but everything that has to *name* that file
+    saw None and did nothing, which is how the daemon ran for a while taking no
+    restore points at all."""
+    from poketokenbar import companion_store as module
+    from poketokenbar.companion_store import CompanionStore
+
+    monkeypatch.setattr(module.save, "default_path", lambda: tmp_path / "companion.json")
+    store = CompanionStore(api=None, sprite_store=None)
+    assert store.save_path == tmp_path / "companion.json"
+
+    store.state = _state(tokens=1234)
+    store._persist()
+    assert [row["id"] for row in store.snapshot_rows()], "a restore point was taken"
