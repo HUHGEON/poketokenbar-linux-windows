@@ -221,3 +221,32 @@ def test_only_an_egg_with_something_to_release_carries_the_release_note(tmp_path
     s.state.active = None
     rows = {row["key"]: row for row in s.shop_payload()}
     assert rows["egg"]["release_note"] == ""
+
+
+def test_an_egg_that_could_not_hatch_tries_again_on_the_next_poll(tmp_path):
+    """A ready egg whose species could not be fetched — offline, or the API
+    failed — used to wait for the next token delta to try again. On a machine
+    that has stopped for the day that delta never arrives, and the egg sits
+    ready for ever (upstream 2ecf7d2)."""
+    api = FakeAPI(broken=True)
+    s = _store(tmp_path, api=api)
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 7}, today="2026-08-18")
+    assert s.state.active is None, "the species could not be fetched"
+    assert s.state.egg_usage >= s.state.egg_hatch_threshold
+
+    api.broken = False
+    # No new tokens at all: the same totals as the poll before.
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 7}, today="2026-08-18")
+    assert s.state.active is not None
+    # The tokens banked past the threshold are credited once, to the stage.
+    assert s.state.active.used_at_stage == 7
+    assert s.state.egg_usage == 0
+
+
+def test_a_quiet_poll_with_no_egg_waiting_still_does_nothing(tmp_path):
+    s = _store(tmp_path)
+    s.update({"claude_code": 5}, today="2026-08-18")
+    before = s.state.used_since_install
+    s.update({"claude_code": 5}, today="2026-08-18")
+    assert s.state.used_since_install == before
+    assert s.state.active is None

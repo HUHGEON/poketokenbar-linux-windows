@@ -324,11 +324,22 @@ class CompanionStore:
                 delta += total - previous
             claimed[provider_id] = total
 
-        if delta <= 0:
+        waiting_to_hatch = (
+            self.state.active is None
+            and self.state.egg_usage >= self.state.egg_hatch_threshold
+        )
+        if delta <= 0 and not waiting_to_hatch:
             self._persist()
             return
 
+        # An egg that has earned its hatch but could not be given a species —
+        # offline, or the API failed — used to wait for the next token delta to
+        # try again. On a machine that has stopped working for the day that
+        # never comes, and the egg sits ready for ever (upstream 2ecf7d2).
         line = self._line_for_egg() if self.state.active is None else None
+        if delta <= 0 and line is None:
+            self._persist()
+            return
         events = companion.apply_usage(
             self.state, delta, line_for_egg=line, rng=self.rng
         )

@@ -502,8 +502,11 @@ def apply_usage(
     immediately advance a stage rather than being clipped.
     """
     events = GrowthEvents()
-    if tokens <= 0:
+    if tokens < 0:
         return events
+    # Zero is not a no-op: a ready egg whose species could not be fetched last
+    # time is hatched here, with the tokens it has already banked. Everything
+    # below adds nothing when there is nothing to add.
     rng = rng or random.Random()
 
     state.used_since_install += tokens
