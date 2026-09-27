@@ -14,7 +14,8 @@ import unicodedata
 from datetime import date as _date
 from pathlib import Path
 
-from . import balance, companion, l10n, pokeapi, profile, save, shop, sprites
+from . import (balance, companion, l10n, pokeapi, profile, save, shop, snapshots,
+               sprites, transfer)
 from .companion import CompanionState
 from .format import compact as _compact
 
@@ -56,7 +57,13 @@ class CompanionStore:
         detail_loader=None,
     ) -> None:
         self.save_path = save_path
-        self.state: CompanionState = save.load(save_path)
+        # Restore points, described once and kept until this process changes
+        # them; the popup asks for them on every poll.
+        self._snapshot_rows: list[dict] | None = None
+        # A save that will not parse is rebuilt from the newest restore point
+        # rather than started over (upstream 13e3bf2).
+        self.state: CompanionState = save.load(
+            save_path, recover=snapshots.latest_valid if save_path is not None else None)
         self.migrate_profiles()
         self.api = api
         # Fetches species details in the background; None means only what is
@@ -1092,3 +1099,63 @@ class CompanionStore:
 
     def _persist(self) -> None:
         save.save(self.state, self.save_path)
+        self._auto_snapshot()
+
+    # --- restore points (upstream 13e3bf2) -----------------------------------
+
+    def _auto_snapshot(self) -> None:
+        """A restore point every twelve hours, taken as the save is written."""
+        if self.save_path is None:
+            return
+        if snapshots.auto(self.state, self.save_path) is not None:
+            self._snapshot_rows = None
+
+    def snapshot_rows(self) -> list[dict]:
+        """Every restore point, newest first, described for the settings page.
+
+        Cached: the popup asks for this on every poll, and the answer only
+        changes when this process takes or restores one.
+        """
+        if self.save_path is None:
+            return []
+        if self._snapshot_rows is not None:
+            return self._snapshot_rows
+        language = self.state.language
+        out = []
+        for snapshot in snapshots.listing(self.save_path):
+            out.append({
+                "id": snapshot.id,
+                "taken_at": snapshot.taken_at,
+                "dex_count": snapshot.dex_count,
+                "used_text": _compact(snapshot.used_since_install),
+                "summary": l10n.fill(
+                    "snapshot_summary", language,
+                    str(snapshot.dex_count), _compact(snapshot.used_since_install)),
+                "sprite_path": (
+                    str(self.sprites.path(snapshot.species_id, animated=False,
+                                          shiny=snapshot.is_shiny) or "")
+                    if self.sprites is not None and snapshot.species_id else ""
+                ),
+            })
+        self._snapshot_rows = out
+        return out
+
+    def create_snapshot(self) -> str:
+        """Take a restore point now, and say so in the user's language."""
+        if self.save_path is None:
+            raise transfer.TransferError("this store has no file to snapshot")
+        snapshots.create(self.state, self.save_path)
+        self._snapshot_rows = None
+        return l10n.t("snapshot_created", self.state.language)
+
+    def restore_snapshot(self, snapshot_id: str) -> str:
+        """Put one restore point back, keeping what it replaces as another."""
+        if self.save_path is None:
+            raise transfer.TransferError("this store has no file to restore into")
+        self.state = snapshots.restore(snapshot_id, self.save_path)
+        self._snapshot_rows = None
+        self.migrate_profiles()
+        self.state.reconcile_representative()
+        return l10n.fill(
+            "snapshot_restored", self.state.language,
+            str(len(self.state.dex)), _compact(self.state.used_since_install))

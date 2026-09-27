@@ -12,7 +12,7 @@ def main(argv: list[str] | None = None) -> int:
     if not argv:
         print("usage: poketokenctl {set <key> <value>|scan-roots <provider> <paths>|"
               "represent <species-id|none>|refresh|buy <key> [count]|use <key> [count]|"
-              "export <path>|import <path>|restore}",
+              "export <path>|import <path>|restore|snapshot|restore-snapshot <name>}",
               file=sys.stderr)
         return 2
 
@@ -69,6 +69,17 @@ def main(argv: list[str] | None = None) -> int:
             print("usage: poketokenctl restore", file=sys.stderr)
             return 2
         commands.enqueue("restore", {})
+        return 0
+
+    if action == "snapshot":
+        commands.enqueue("snapshot", {})
+        return 0
+
+    if action == "restore-snapshot":
+        if len(rest) != 1:
+            print("usage: poketokenctl restore-snapshot <snapshot-file-name>", file=sys.stderr)
+            return 2
+        commands.enqueue("restore_snapshot", {"id": rest[0]})
         return 0
 
     if action in ("buy", "use"):

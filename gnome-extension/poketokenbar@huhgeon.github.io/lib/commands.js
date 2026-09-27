@@ -82,3 +82,6 @@ export const importSave = path => enqueue('import', {path});
 // The way back from an import that replaced the wrong save. No path: the
 // daemon restores from the backup it took when it overwrote the file.
 export const undoImport = () => enqueue('restore', {});
+// Local restore points: take one now, or put one back by its file name.
+export const snapshot = () => enqueue('snapshot', {});
+export const restoreSnapshot = id => enqueue('restore_snapshot', {id});

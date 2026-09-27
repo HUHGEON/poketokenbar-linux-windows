@@ -248,6 +248,8 @@ def _transfer_payload(described: dict | None) -> dict:
         "undo_goes_backwards": undo_used is not None
         and current_used is not None
         and undo_used < current_used,
+        # Local restore points, newest first, already described by the store.
+        "snapshots": described.get("snapshots") or [],
     }
 
 

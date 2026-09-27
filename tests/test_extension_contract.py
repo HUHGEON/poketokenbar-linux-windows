@@ -13,6 +13,7 @@ running the extension on a real desktop — nothing here proves an actor renders
 """
 
 import re
+import tempfile
 import time
 from pathlib import Path
 
@@ -134,8 +135,20 @@ def full_payload() -> dict:
             "undo_taken_at": 1767312000.0,
             "undo_dex_count": 5,
             "undo_used_since_install": 10**7,
+            # Built by the store rather than written out here: the settings
+            # page reads these fields, so they have to be the real ones.
+            "snapshots": _snapshot_rows(),
         },
     )
+
+
+def _snapshot_rows() -> list[dict]:
+    """One real restore point, described as the daemon describes them."""
+    folder = Path(tempfile.mkdtemp(prefix="ptb-snapshots-"))
+    store = CompanionStore(save_path=folder / "companion.json", api=None, sprite_store=None)
+    store.state = CompanionState(used_since_install=10**6)
+    store.create_snapshot()
+    return store.snapshot_rows()
 
 
 _LINE_COMMENT = re.compile(r"//[^\n]*")
@@ -292,6 +305,7 @@ ROW_ACCESSORS = {
     "monthTrend": "month_trend",
     "trendDay": "month_trend_day",
     "todayRow": "month_trend_day",
+    "snapshotRow": "snapshot",
     "individual": "detail_individual",
     "statRow": "detail_stat",
     "knownMove": "detail_known_move",
@@ -340,6 +354,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "snapshot":
+        return set(payload["transfer"]["snapshots"][0])
     if name == "bag_candy":
         return set(next(r for r in payload["bag"] if r["key"] == "rareCandy")["candy"])
     if name == "month_trend":

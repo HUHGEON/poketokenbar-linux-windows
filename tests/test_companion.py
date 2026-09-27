@@ -61,8 +61,16 @@ def test_hatching_consumes_a_premium_egg_guarantee():
 
 
 def _hatched(forms=3, rarity=Rarity.COMMON):
+    """A hatched companion that is definitely itself.
+
+    Seeded: a common line of two or more forms has a 1 in 128 chance of
+    hatching a disguised Ditto, whose chain and graduation are deliberately not
+    the line's — which made every test built on this fixture fail about once in
+    a hundred runs for reasons that had nothing to do with it.
+    """
     s = _state()
-    apply_usage(s, balance.EGG_HATCH_THRESHOLD, line_for_egg=_line(forms, rarity))
+    apply_usage(s, balance.EGG_HATCH_THRESHOLD, line_for_egg=_line(forms, rarity),
+                rng=random.Random(0))
     return s
 
 

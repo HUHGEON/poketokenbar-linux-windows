@@ -281,7 +281,14 @@ def encode(state: CompanionState) -> dict:
     }
 
 
-def load(path: Path | None = None) -> CompanionState:
+def load(path: Path | None = None, recover=None) -> CompanionState:
+    """The save at `path`, a recovered one, or a fresh state.
+
+    `recover(path)` is asked for a replacement when the file is there but
+    unreadable — months of growth is worth more than a clean slate, and the
+    caller is the layer that knows where restore points are kept. The corrupt
+    file is preserved either way.
+    """
     path = path or default_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -289,11 +296,21 @@ def load(path: Path | None = None) -> CompanionState:
         return CompanionState()
     except (OSError, ValueError):
         _quarantine(path)
-        return CompanionState()
+        return _recovered(path, recover)
     if not isinstance(raw, dict):
         _quarantine(path)
-        return CompanionState()
+        return _recovered(path, recover)
     return decode(raw)
+
+
+def _recovered(path: Path, recover) -> CompanionState:
+    if recover is None:
+        return CompanionState()
+    try:
+        state = recover(path)
+    except Exception:
+        return CompanionState()
+    return state if state is not None else CompanionState()
 
 
 def _quarantine(path: Path) -> None:

@@ -1450,11 +1450,14 @@ class SettingsSection extends Section {
         // 'undo'; and a notice for an import that cannot start.
         this._pending = '';
         this._transferNotice = '';
+        // The restore point waiting on a confirmation, by file name.
+        this._pendingSnapshot = '';
     }
 
     release() {
         this._pending = '';
         this._transferNotice = '';
+        this._pendingSnapshot = '';
         super.release();
     }
 
@@ -1505,6 +1508,7 @@ class SettingsSection extends Section {
             t('difficulty_hint')}`);
 
         this._addTransfer(state, t);
+        this._addSnapshots(state, t);
         this._addAdvanced(state, t);
     }
 
@@ -1677,6 +1681,68 @@ class SettingsSection extends Section {
             button(t('cancel'), dismiss),
         ]));
         this.add_child(card(parts, 'poketokenbar-confirm'));
+    }
+
+    // --- restore points (upstream 13e3bf2) ---------------------------------------
+
+    _addSnapshots(state, t) {
+        const rows = state?.transfer?.snapshots ?? [];
+        const items = [
+            this._item(t('create_snapshot'), borderedButton(t('create_snapshot'), () => {
+                Commands.snapshot();
+                this._pendingSnapshot = '';
+                this.update(this._state);
+            }), t('create_snapshot_hint')),
+        ];
+        if (rows.length === 0) {
+            items.push(this._item('', caption(t('no_snapshots_yet'), 'tertiary')));
+        }
+        for (const snapshotRow of rows) {
+            const sprite = new Sprite({size: 24});
+            sprite.setPath(snapshotRow.sprite_path || null);
+            const elapsed = Math.max(0, Date.now() / 1000 - (snapshotRow.taken_at ?? 0));
+            const when = label(ago(elapsed, t), 'poketokenbar-caption poketokenbar-strong');
+            const line = column([when, caption(snapshotRow.summary ?? '', 'secondary')]);
+            line.x_expand = true;
+            const restore = button(t('restore_snapshot'), () => {
+                // Asked before it happens: a restore replaces the save.
+                this._pendingSnapshot = snapshotRow.id;
+                this.update(this._state);
+            }, 'poketokenbar-valuepill');
+            items.push(row([
+                new St.Bin({child: sprite, y_align: Clutter.ActorAlign.CENTER}),
+                line, restore,
+            ], 'poketokenbar-group-line'));
+        }
+        this._group(t('section_snapshots'), items);
+        this._addSnapshotPrompt(rows, t);
+    }
+
+    _addSnapshotPrompt(rows, t) {
+        if (!this._pendingSnapshot)
+            return;
+        const chosen = rows.find(snapshotRow => snapshotRow.id === this._pendingSnapshot);
+        if (chosen === undefined) {
+            this._pendingSnapshot = '';
+            return;
+        }
+        const dismiss = () => {
+            this._pendingSnapshot = '';
+            this.update(this._state);
+        };
+        this.add_child(card([
+            label(t('snapshot_confirm'), 'poketokenbar-confirm-title'),
+            paragraph(chosen.summary ?? '', 'poketokenbar-confirm-detail'),
+            paragraph(t('snapshot_confirm_detail'), 'poketokenbar-confirm-detail'),
+            row([
+                spacer(),
+                button(t('restore_snapshot'), () => {
+                    Commands.restoreSnapshot(chosen.id);
+                    dismiss();
+                }, 'poketokenbar-button-bordered poketokenbar-danger'),
+                button(t('cancel'), dismiss),
+            ]),
+        ], 'poketokenbar-confirm'));
     }
 
     // --- advanced: extra scan folders -------------------------------------------

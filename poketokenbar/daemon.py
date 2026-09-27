@@ -147,6 +147,8 @@ class Daemon:
         # The undo overwrites the save too, so it is described as fully as the
         # import is; a button that quietly restores a week-old backup is the
         # same trap in the other direction.
+        # Restore points, so the settings page can list them without asking.
+        described["snapshots"] = self.companion_store.snapshot_rows()
         undo = transfer.describe_backup(self._save_path())
         described["can_undo"] = undo["exists"]
         described["undo_taken_at"] = undo["taken_at"]
@@ -235,6 +237,18 @@ class Daemon:
                     self.companion_store.inspect(species_id, retry=bool(args.get("retry")))
                 except (TypeError, ValueError) as exc:
                     errors.append(f"inspect: {exc}")
+            elif name in ("snapshot", "restore_snapshot") and self.companion_store is not None:
+                args = command.get("args") or {}
+                try:
+                    if name == "snapshot":
+                        message = self.companion_store.create_snapshot()
+                    else:
+                        message = self.companion_store.restore_snapshot(
+                            str(args.get("id") or ""))
+                    if self.notifier is not None:
+                        self.notifier._send("PokeTokenBar", message)
+                except Exception as exc:
+                    errors.append(f"{name}: {exc}")
             elif name in ("buy", "use") and self.companion_store is not None:
                 args = command.get("args") or {}
                 key = args.get("key", "")
