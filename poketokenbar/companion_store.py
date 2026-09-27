@@ -803,6 +803,13 @@ class CompanionStore:
                     # How many the wallet can take in one purchase. An egg is
                     # always one: it replaces the companion.
                     "max_buy": 0 if locked else shop.max_buy(self.state, e),
+                    # Only an egg releases anything, and only while there is a
+                    # companion to release.
+                    "release_note": (
+                        l10n.t("egg_release_note", self.state.language)
+                        if e.kind == "egg" and self.state.active is not None
+                        else ""
+                    ),
                 }
             )
         return out

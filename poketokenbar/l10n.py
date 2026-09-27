@@ -441,6 +441,45 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "egg_rare": ("Rare Egg", "희귀 알", "レアのタマゴ", "Huevo raro",
         "Œuf rare", "Ovo raro", "Seltenes Ei",
     ),
+    # What a release actually costs. The description above says a Pokémon is
+    # sent off, which reads as losing it from the Pokédex too — it is not, and
+    # the same species can hatch again at the same odds (upstream c951492).
+    "egg_release_note": (
+        "A released Pokémon stays in your Pokédex and can hatch again at the same odds — only the growth progress is lost.",
+        "놓아준 포켓몬도 도감에 남고, 같은 확률로 다시 만날 수 있어요. 키운 진행도만 사라져요.",
+        "手放したポケモンも図鑑に残り、同じ確率でまた出会えます。失われるのは育てた進み具合だけです。",
+        "El Pokémon liberado permanece en la Pokédex y puede volver a salir con la misma probabilidad; solo se pierde el progreso de crianza.",
+        "Un Pokémon relâché reste dans le Pokédex et peut réapparaître avec la même probabilité ; seule la progression est perdue.",
+        "O Pokémon solto continua na Pokédex e pode voltar a aparecer com a mesma chance; só o progresso de criação se perde.",
+        "Ein freigelassenes Pokémon bleibt im Pokédex und kann mit gleicher Wahrscheinlichkeit wieder schlüpfen; nur der Aufzuchtfortschritt geht verloren.",
+    ),
+    # The second confirmation an egg needs when the companion it would discard
+    # is shiny or legendary (upstream b4ff5de). A rare one is not guarded: they
+    # are common enough that the extra tap becomes reroll fatigue.
+    "fresh_egg_shiny_warning": (
+        "⚠️ This one is shiny! Really send it off?",
+        "⚠️ 이로치 포켓몬이에요! 정말 놓아줄까요?",
+        "⚠️ 色違いです！本当に手放しますか？",
+        "⚠️ ¡Este es variocolor! ¿Seguro que quieres soltarlo?",
+        "⚠️ Celui-ci est chromatique ! Vraiment le laisser partir ?",
+        "⚠️ Esse é shiny! Quer mesmo soltar?",
+        "⚠️ Dieses Pokémon ist schillernd! Wirklich verabschieden?",
+    ),
+    "fresh_egg_legendary_warning": (
+        "⚠️ This is a Legendary Pokémon! Really send it off?",
+        "⚠️ 전설 포켓몬이에요! 정말 놓아줄까요?",
+        "⚠️ 伝説のポケモンです！本当に手放しますか？",
+        "⚠️ ¡Es un Pokémon legendario! ¿Seguro que quieres soltarlo?",
+        "⚠️ C'est un Pokémon légendaire ! Vraiment le laisser partir ?",
+        "⚠️ Esse é um Pokémon lendário! Quer mesmo soltar?",
+        "⚠️ Dieses Pokémon ist legendär! Wirklich verabschieden?",
+    ),
+    "fresh_egg_discard_shiny": ("Send shiny off", "이로치 놓아주기", "手放す", "Soltar variocolor",
+        "Laisser partir le chromatique", "Soltar o shiny", "Schillerndes Pokémon verabschieden",
+    ),
+    "fresh_egg_discard_valuable": ("Send off", "놓아주기", "手放す", "Soltar",
+        "Laisser partir", "Soltar", "Verabschieden",
+    ),
     "egg_desc_fresh": ("Send off your current Pokémon and start fresh with a new egg.", "지금 포켓몬을 놓아주고 새 알로 다시 시작해요.", "いまのポケモンを手放して新しいタマゴからやり直します。", "Suelta a tu Pokémon actual y empieza de nuevo con un huevo nuevo.",
         "Laisse partir ton Pokémon actuel et repars de zéro avec un nouvel œuf.", "Solte seu Pokémon atual e recomece com um ovo novo.", "Verabschiede dein aktuelles Pokémon und starte mit einem neuen Ei.",
     ),

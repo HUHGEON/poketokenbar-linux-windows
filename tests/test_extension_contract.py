@@ -378,7 +378,7 @@ def test_row_fields_read_in_the_extension_exist(variable, block, payload):
 LIST_ROW_FIELDS = {
     "shop": {"key", "kind", "price", "price_text", "label", "description", "badge",
              "sprite_path", "emoji", "owned", "owned_count", "affordable", "locked",
-             "max_buy"},
+             "max_buy", "release_note"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",

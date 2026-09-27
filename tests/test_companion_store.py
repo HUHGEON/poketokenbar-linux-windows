@@ -205,3 +205,19 @@ def test_a_batch_says_how_many_it_bought_or_used(tmp_path):
     assert s.state.inventory["rareCandy"] == 5
     assert "×2" in s.use_item("rareCandy", 2)
     assert s.state.inventory["rareCandy"] == 3
+
+
+def test_only_an_egg_with_something_to_release_carries_the_release_note(tmp_path):
+    """The description says a Pokémon is sent off, which reads as losing it from
+    the Pokédex; it is not, and this is the line that says so (upstream
+    c951492)."""
+    s = _hatched(tmp_path)
+    rows = {row["key"]: row for row in s.shop_payload()}
+    assert rows["egg"]["release_note"] != ""
+    assert rows["rareCandy"]["release_note"] == ""
+
+    # During the egg stage there is nothing to release, and nothing to reassure
+    # anyone about.
+    s.state.active = None
+    rows = {row["key"]: row for row in s.shop_payload()}
+    assert rows["egg"]["release_note"] == ""

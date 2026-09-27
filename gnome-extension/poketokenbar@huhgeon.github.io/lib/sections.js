@@ -518,6 +518,9 @@ class ShopSection extends Section {
         // The item whose Buy is waiting on a second tap, as upstream's
         // two-step confirm. An egg throws the companion away.
         this._confirming = null;
+        // The egg whose Buy has passed the first confirm and is now asking
+        // again, because the companion it would discard is shiny or legendary.
+        this._preciousConfirming = null;
         // How many of each item the stepper is set to. Kept here rather than in
         // the daemon: it is a pending choice, not saved state, and it must
         // answer the tap without waiting for a poll.
@@ -526,6 +529,7 @@ class ShopSection extends Section {
 
     release() {
         this._confirming = null;
+        this._preciousConfirming = null;
         this._quantity.clear();
         super.release();
     }
@@ -539,6 +543,13 @@ class ShopSection extends Section {
     update(state) {
         this.clear();
         const t = key => this._reader.text(key);
+        // Whether an egg would throw away something hard to replace. Judged
+        // from the companion the popup is already showing, so a disguised Ditto
+        // keeps its secret (upstream b4ff5de).
+        const companion = state?.companion ?? {};
+        this._precious = Boolean(companion.is_shiny) || companion.rarity === 'legendary';
+        this._companionIsShiny = Boolean(companion.is_shiny);
+        this._companionIsLegendary = companion.rarity === 'legendary';
 
         this.add_child(card([
             caption(t('spendable_tokens'), 'secondary'),
@@ -564,6 +575,10 @@ class ShopSection extends Section {
             const top = row([itemIcon(shopItem.sprite_path, shopItem.emoji, shopItem.kind === 'egg'), text]);
             top.style = 'spacing: 10px;';
 
+            // What a release keeps, right where the reader has just been told
+            // what they give up (upstream c951492).
+            if (shopItem.release_note)
+                text.add_child(paragraph(shopItem.release_note, 'poketokenbar-caption2 poketokenbar-tertiary'));
             const parts = [top, this._controls(shopItem, t)];
             // An egg during the egg stage: the reason the button is off.
             if (shopItem.locked)
@@ -579,10 +594,40 @@ class ShopSection extends Section {
         }
         const count = this._quantityFor(shopItem);
         const times = n => t('times_count').replace('%1', String(n));
+        // A shiny or legendary companion is worth one more question. A rare one
+        // is not: they are common enough that the extra tap is just fatigue.
+        if (this._preciousConfirming === shopItem.key) {
+            const send = borderedButton(
+                this._companionIsShiny && !this._companionIsLegendary
+                    ? t('fresh_egg_discard_shiny')
+                    : t('fresh_egg_discard_valuable'),
+                () => {
+                    this._preciousConfirming = null;
+                    markSent(send, Commands.buy(shopItem.key));
+                });
+            return column([
+                paragraph(this._companionIsLegendary
+                    ? t('fresh_egg_legendary_warning')
+                    : t('fresh_egg_shiny_warning'), 'poketokenbar-caption poketokenbar-orange'),
+                row([
+                    spacer(),
+                    send,
+                    button(t('cancel'), () => {
+                        this._preciousConfirming = null;
+                        this.update(this._reader.state);
+                    }),
+                ]),
+            ]);
+        }
         if (this._confirming === shopItem.key) {
             const name = shopItem.label || shopItem.key;
             const buy = borderedButton(count > 1 ? `${t('buy')} ${times(count)}` : t('buy'), () => {
                 this._confirming = null;
+                if (shopItem.kind === 'egg' && this._precious) {
+                    this._preciousConfirming = shopItem.key;
+                    this.update(this._reader.state);
+                    return;
+                }
                 markSent(buy, Commands.buy(shopItem.key, count));
             }, true);
             return row([
