@@ -3,6 +3,18 @@ from pathlib import Path
 
 import pytest
 
+
+def pytest_configure(config):
+    """Register the one custom marker.
+
+    Declared here as well as in pyproject: the ini registration is not picked
+    up when pytest is invoked with a different rootdir, and an unregistered
+    mark is a warning on every run.
+    """
+    config.addinivalue_line(
+        "markers",
+        "network: reaches the internet; skips itself when there is none")
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 # Every variable that can move a path this project reads or writes.
@@ -37,12 +49,14 @@ _HOME_VARIABLES = ("HOME", "USERPROFILE")
 # Cleared, the command spool falls back to the shared temporary directory, which
 # every user of the machine and every concurrent run of the suite would share.
 # It gets a directory inside the test home instead.
-_RUNTIME_VARIABLE = "XDG_RUNTIME_DIR"
+# Where the command spool goes, per platform: XDG_RUNTIME_DIR on Linux, TMPDIR
+# on macOS, TEMP or TMP on Windows.
+_RUNTIME_VARIABLES = ("XDG_RUNTIME_DIR", "TMPDIR", "TEMP", "TMP")
 
 
-@pytest.fixture(scope="session", autouse=True)
-def no_live_network():
-    """Nothing in the suite may open a socket.
+@pytest.fixture(autouse=True)
+def no_live_network(request):
+    """Nothing in the suite may open a socket, bar the tests that say they do.
 
     Ports the intent of upstream 671c1ec and d6d24a0: their tests reached the
     real limits endpoint with the developer's own login, and rewrote the real
@@ -52,17 +66,18 @@ def no_live_network():
     """
     import urllib.request
 
-    real = urllib.request.urlopen
+    if request.node.get_closest_marker("network") is not None:
+        yield
+        return
 
-    def refuse(request, *args, **kwargs):
-        url = getattr(request, "full_url", request)
+    def refuse(opened, *args, **kwargs):
+        url = getattr(opened, "full_url", opened)
         raise AssertionError(
             f"a test tried to open {url}; inject a fake instead of calling the network")
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(urllib.request, "urlopen", refuse)
         yield
-    urllib.request.urlopen = real
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -83,7 +98,8 @@ def isolated_session_locations(tmp_path_factory):
             patch.setenv(variable, str(home))
         runtime = home / "run"
         runtime.mkdir(exist_ok=True)
-        patch.setenv(_RUNTIME_VARIABLE, str(runtime))
+        for variable in _RUNTIME_VARIABLES:
+            patch.setenv(variable, str(runtime))
         yield home
 
 
@@ -112,5 +128,42 @@ def isolated_locations(monkeypatch, tmp_path_factory):
         monkeypatch.setenv(variable, str(home))
     runtime = home / "run"
     runtime.mkdir(exist_ok=True)
-    monkeypatch.setenv(_RUNTIME_VARIABLE, str(runtime))
+    # Every variable the command spool can land in, on every platform, not just
+    # the one the suite happens to be running on. XDG_RUNTIME_DIR alone left
+    # Windows resolving the spool into the shared %TEMP%, which is outside the
+    # test home — caught by the guard in test_path_isolation, on the Windows
+    # job, where it is the only place it can be caught.
+    for variable in _RUNTIME_VARIABLES:
+        monkeypatch.setenv(variable, str(runtime))
     return home
+
+
+@pytest.fixture(scope="session")
+def qt_app():
+    """The one QApplication; Qt allows exactly one per process.
+
+    Here rather than in a single test module because more than one file needs
+    it, and a second QApplication is not something a fixture can hand out.
+    Skips the test when PySide6 is absent, which is how the Qt front end stays
+    optional.
+    """
+    pytest.importorskip("PySide6", reason="the Qt front end is optional")
+
+    import os
+    import sys
+
+    # Must be set before a QApplication exists, and it is process-wide.
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    existing = getattr(sys, "_poketokenbar_qt", None)
+    if existing is not None:
+        return existing[0]
+    # Parked on `sys`, not in a module global: Qt segfaults if the application
+    # is destroyed while widgets and their timers are still alive, and at
+    # interpreter shutdown module globals are cleared in an order nothing here
+    # controls. The crash that avoids happens after every test has passed,
+    # which makes it invisible in the report and fatal to the exit code.
+    application = QApplication.instance() or QApplication([])
+    sys._poketokenbar_qt = (application, [])
+    return application

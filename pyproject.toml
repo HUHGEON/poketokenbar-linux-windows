@@ -6,3 +6,6 @@ requires-python = ">=3.12"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "network = tests that reach the internet; they skip themselves when it is absent",
+]

@@ -104,7 +104,15 @@ def user_data_dirs(
     env: Mapping[str, str] | None = None,
     system: str | None = None,
 ) -> list[Path]:
-    """Electron user-data directories for Cursor and Cursor Nightly."""
+    """Electron user-data directories for Cursor and Cursor Nightly.
+
+    Not a convention that happens to work: `app.getPath('userData')` is
+    documented as the `appData` directory plus the app's name, and `appData` is
+    `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` on Linux and
+    `~/Library/Application Support` on macOS — which is exactly what
+    `platform_paths.config_base` returns. Cursor is an Electron application, so
+    all three follow from its own runtime rather than from a guess.
+    """
     env = os.environ if env is None else env
     configured = (env.get("CURSOR_DATA_DIR") or "").strip()
     if configured:

@@ -147,18 +147,35 @@ def test_opencode_rejects_channel_names_outside_the_identifier_set(name):
     assert not opencode._is_channel_database(name)
 
 
-def test_opencode_roots_follow_the_platform(tmp_path):
-    """`system` is pinned, not read: otherwise this asserts whatever the machine
-    running the suite happens to be, and passes there while failing elsewhere."""
-    assert opencode.roots(home=tmp_path, env={}, system="linux") == [
-        tmp_path / ".local" / "share" / "opencode"
-    ]
-    assert opencode.roots(home=tmp_path, env={}, system="darwin") == [
-        tmp_path / "Library" / "Application Support" / "opencode"
-    ]
+def test_opencode_keeps_the_same_shaped_path_on_every_platform(tmp_path):
+    """opencode's own troubleshooting page gives `~/.local/share/opencode/` for
+    macOS *and* Linux and `%USERPROFILE%\\.local\\share\\opencode` for
+    Windows — it does not move to Application Support or to Roaming. Reading
+    the platform directory instead found nothing on two of the three, which is
+    indistinguishable from not having used the tool.
+
+    `system` is pinned, not read: otherwise this asserts whatever the machine
+    running the suite happens to be, and passes there while failing elsewhere.
+    """
+    expected = tmp_path / ".local" / "share" / "opencode"
+    assert opencode.roots(home=tmp_path, env={}, system="linux") == [expected]
+    assert opencode.roots(home=tmp_path, env={}, system="darwin") == [expected]
     assert opencode.roots(
         home=tmp_path, env={"APPDATA": "C:/Roaming"}, system="win32"
-    ) == [Path("C:/Roaming/opencode")]
+    ) == [expected]
+
+
+def test_opencode_still_follows_xdg_where_the_tool_would(tmp_path):
+    """On Linux `~/.local/share` is exactly the default XDG_DATA_HOME names, so
+    a machine that has moved it keeps working."""
+    elsewhere = tmp_path / "xdg"
+    assert opencode.roots(
+        home=tmp_path, env={"XDG_DATA_HOME": str(elsewhere)}, system="linux"
+    ) == [elsewhere / "opencode"]
+    # Not on the platforms that have no XDG base to move.
+    assert opencode.roots(
+        home=tmp_path, env={"XDG_DATA_HOME": str(elsewhere)}, system="darwin"
+    ) == [tmp_path / ".local" / "share" / "opencode"]
 
 
 def test_opencode_data_dir_overrides_every_platform(tmp_path):

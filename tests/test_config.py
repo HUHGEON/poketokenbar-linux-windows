@@ -76,3 +76,15 @@ def test_every_key_the_extension_writes_has_a_default():
         written.update(re.findall(r"""Config\.set\(\s*['"](\w+)['"]""", text))
     unknown = written - set(config.DEFAULTS)
     assert not unknown, f"extension writes settings with no default: {sorted(unknown)}"
+
+
+def test_the_default_language_comes_from_the_desktop(monkeypatch):
+    """It is read at import, from the machine's locale — which means any test
+    that asserts a catalogue string has to say which language it wants, or it
+    asserts whatever the developer's desktop is set to."""
+    from poketokenbar import config, l10n
+
+    assert config.DEFAULTS["language"] in l10n.LANGUAGES
+    assert l10n.system_default("ko_KR.UTF-8") == "ko"
+    assert l10n.system_default("pt_BR") == "pt"
+    assert l10n.system_default("zz_ZZ") == "en", "an unknown locale falls back"

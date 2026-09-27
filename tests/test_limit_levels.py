@@ -40,7 +40,8 @@ def test_level_is_crit_above_crit():
 
 
 def _panel(cfg=None, status=None):
-    values = dict(config.DEFAULTS, show_limit_in_menu=True, show_tokens_in_menu=False)
+    values = dict(config.DEFAULTS, show_limit_in_menu=True, show_tokens_in_menu=False,
+                  language="en")
     values.update(cfg or {})
     payload = state.build(
         {"claude_code": DailyUsage(date="2026-08-18", total_tokens=1)},
@@ -99,7 +100,7 @@ def _live_status(session_percent, seconds_left, span):
 
 
 def _limits(status):
-    values = dict(config.DEFAULTS, show_limit_in_menu=True)
+    values = dict(config.DEFAULTS, show_limit_in_menu=True, language="en")
     return state.build(
         {"claude_code": DailyUsage(date="2026-08-18", total_tokens=1)},
         values, [], limit_status=status,

@@ -220,6 +220,118 @@ class Indicator extends PanelMenu.Button {
         return age === null ? '' : `${t('updated')} ${ago(age, t)}`;
     }
 
+    /** The refresh / export / import row, plus the undo once one is possible. */
+    _renderActions(state) {
+        const t = key => this._reader.text(key);
+        const transfer = state?.transfer ?? {};
+        this._actions.destroy_all_children();
+        this._actions.add_child(button('↻', () => Commands.refresh()));
+        this._actions.add_child(new St.Widget({x_expand: true}));
+        // The daemon has handled these all along; without a control they were
+        // reachable only from poketokenctl, which is not where anyone would
+        // look for "move my Pokedex to another machine".
+        this._actions.add_child(button(t('export_save'), () => {
+            Commands.exportSave(this._savePath(state));
+            this._dismissTransferPrompt();
+        }));
+        // Undoing overwrites the save as thoroughly as importing does, so it
+        // goes through the same prompt rather than acting on the first click.
+        if (transfer.can_undo)
+            this._actions.add_child(button(t('undo_import'), () => this._ask('undo')));
+        this._actions.add_child(button(t('import_save'), () => this._askImport(state)));
+        this._renderTransferPrompt(state);
+    }
+
+    /** Import asks before it overwrites, instead of reporting afterwards.
+     *
+     * It used to fire on the single click, replacing the save with whatever
+     * file happened to be sitting at the export path — usually an older export,
+     * so the button read as "throw away everything since my last backup". The
+     * click now only opens this.
+     */
+    _askImport(state) {
+        const transfer = state?.transfer ?? {};
+        if (!transfer.exists) {
+            this._notice(this._reader.text('import_no_file')
+                .replace('%1', this._savePath(state)));
+        } else if (transfer.error) {
+            this._notice(this._reader.text('import_unreadable'));
+        } else {
+            this._ask('import');
+        }
+    }
+
+    _ask(what) {
+        this._pending = what;
+        this._transferNotice = '';
+        this._renderTransferPrompt(this._reader.state);
+    }
+
+    _notice(message) {
+        this._pending = '';
+        this._transferNotice = message;
+        this._renderTransferPrompt(this._reader.state);
+    }
+
+    _dismissTransferPrompt() {
+        this._pending = '';
+        this._transferNotice = '';
+        if (this._transferPrompt)
+            this._renderTransferPrompt(this._reader.state);
+    }
+
+    _renderTransferPrompt(state) {
+        const t = key => this._reader.text(key);
+        const transfer = state?.transfer ?? {};
+        this._transferPrompt.destroy_all_children();
+        this._transferPrompt.visible = this._pending !== '' || this._transferNotice !== '';
+        if (!this._transferPrompt.visible)
+            return;
+
+        if (this._transferNotice !== '') {
+            this._transferPrompt.add_child(
+                paragraph(this._transferNotice, 'poketokenbar-confirm-detail'));
+            this._transferPrompt.add_child(row([
+                new St.Widget({x_expand: true}),
+                button(t('cancel'), () => this._dismissTransferPrompt()),
+            ]));
+            return;
+        }
+
+        const undoing = this._pending === 'undo';
+        this._transferPrompt.add_child(label(
+            t(undoing ? 'undo_confirm' : 'import_confirm'), 'poketokenbar-confirm-title'));
+        // What is in the incoming save, and what it would replace — the two
+        // halves of the decision, both already formatted by the daemon.
+        this._transferPrompt.add_child(paragraph(
+            t(undoing ? 'undo_file_detail' : 'import_file_detail')
+                .replace('%1', undoing ? transfer.undo_taken_text : transfer.exported_text)
+                .replace('%2', String(
+                    (undoing ? transfer.undo_dex_count : transfer.dex_count) ?? 0))
+                .replace('%3', undoing ? transfer.undo_used_text : transfer.used_text),
+            'poketokenbar-confirm-detail'));
+        this._transferPrompt.add_child(paragraph(
+            t('import_current_detail')
+                .replace('%1', String(transfer.current_dex_count ?? 0))
+                .replace('%2', transfer.current_used_text),
+            'poketokenbar-confirm-detail'));
+        if (undoing ? transfer.undo_goes_backwards : transfer.goes_backwards) {
+            this._transferPrompt.add_child(paragraph(
+                t('import_goes_backwards'), 'poketokenbar-confirm-warning'));
+        }
+        this._transferPrompt.add_child(row([
+            new St.Widget({x_expand: true}),
+            button(t(undoing ? 'restore' : 'replace'), () => {
+                if (undoing)
+                    Commands.undoImport();
+                else
+                    Commands.importSave(this._savePath(state));
+                this._dismissTransferPrompt();
+            }, 'poketokenbar-button poketokenbar-danger'),
+            button(t('cancel'), () => this._dismissTransferPrompt()),
+        ]));
+    }
+
     /** Paint everything from the latest snapshot. */
     _render() {
         const state = this._reader.state;

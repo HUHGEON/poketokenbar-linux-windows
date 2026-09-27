@@ -121,7 +121,15 @@ def seed_logs(home):
     )
 
 
-def run_one_poll(home):
+def run_one_poll(home, language: str = "en"):
+    """One poll, with the language pinned.
+
+    The default is derived from the machine's locale, so a test that reads a
+    catalogue string without saying which language it wants asserts whatever
+    the developer's desktop happens to be set to — passing on an English CI
+    runner and failing on a Korean laptop.
+    """
+    config.set_value(config.default_path(), "language", language)
     daemon = Daemon(
         state_path=state.default_path(),
         config_path=config.default_path(),
@@ -195,3 +203,4 @@ def test_the_written_file_is_valid_json_with_a_schema_version(fake_home):
     assert payload["schema_version"] == state.SCHEMA_VERSION
     assert payload["updated_at"] > 0
     assert "strings" in payload and payload["strings"]["home"] == "Home"
+    assert payload["config"]["language"] == "en"

@@ -34,7 +34,7 @@ jobs:
       # These execute extension code rather than reading it, so a failure here
       # is a real behavioural regression, not a naming one.
       - name: JavaScript unit tests
-        run: node --test tests/js/
+        run: node --test tests/js/*.test.mjs
 
       - name: The JavaScript checks actually ran
         # A skip here is indistinguishable from a pass in the summary, and the
@@ -148,7 +148,7 @@ jobs:
             Write-Host "$name compiles"
           }
 
-      - name: Both launchers and the login entries are in place
+      - name: Both launchers, the login entries and the shortcuts are in place
         shell: pwsh
         run: |
           $root = Join-Path $env:LOCALAPPDATA 'PokeTokenBar'
@@ -157,16 +157,34 @@ jobs:
             if (-not (Test-Path (Join-Path $root "$name.vbs"))) { throw "$name.vbs missing" }
             if (-not (Test-Path (Join-Path $startup "$name.lnk"))) { throw "$name.lnk missing" }
           }
+          # Somewhere to start it by hand. A shortcut that resolves to nothing
+          # looks fine in Explorer and does nothing when double-clicked, so the
+          # target is followed rather than just checking the file exists.
+          $shell = New-Object -ComObject WScript.Shell
+          foreach ($folder in @('Programs', 'Desktop')) {
+            $link = Join-Path ([Environment]::GetFolderPath($folder)) 'PokeTokenBar.lnk'
+            if (-not (Test-Path $link)) { throw "$folder shortcut missing" }
+            $target = $shell.CreateShortcut($link).TargetPath
+            if (-not (Test-Path $target)) { throw "$folder shortcut points at nothing: $target" }
+            $icon = $shell.CreateShortcut($link).IconLocation
+            if ($icon -notmatch 'poketokenbar\.ico') { throw "$folder shortcut has no icon: $icon" }
+            Write-Host "$folder -> $target ($icon)"
+          }
           # The venv the shims point at has to be able to import the package.
           & (Join-Path $root 'venv\Scripts\python.exe') -c "import sys; sys.path.insert(0, r'$root\app'); import poketokenbar.daemon, poketokenbar.ui.app; print('both modules import')"
 
-      - name: The uninstaller runs and leaves the save behind
+      - name: The uninstaller takes everything it put down, and nothing else
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path (Join-Path $env:APPDATA 'poketokenbar') | Out-Null
           Set-Content (Join-Path $env:APPDATA 'poketokenbar\companion.json') '{"dex":[]}'
           ./packaging/windows/uninstall.ps1
           if (Test-Path (Join-Path $env:LOCALAPPDATA 'PokeTokenBar')) { throw 'install root survived' }
+          foreach ($folder in @('Programs', 'Desktop')) {
+            $link = Join-Path ([Environment]::GetFolderPath($folder)) 'PokeTokenBar.lnk'
+            if (Test-Path $link) { throw "$folder shortcut was left behind" }
+          }
+          # A Pokedex must not vanish because someone removed the viewer.
           if (-not (Test-Path (Join-Path $env:APPDATA 'poketokenbar\companion.json'))) {
             throw 'the save was deleted'
           }

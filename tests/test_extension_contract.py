@@ -24,7 +24,7 @@ from poketokenbar import limits, profile, providers, state
 from poketokenbar.balance import Rarity
 from poketokenbar.companion import CompanionState, DexEntry, MonState, migrate_profiles
 from poketokenbar.companion_store import CompanionStore
-from poketokenbar.models import DailyUsage
+from poketokenbar.models import BlockUsage, DailyUsage
 
 class _StubSprites:
     """Enough of SpriteStore for the payload builders to fill their sprite rows."""
@@ -105,11 +105,25 @@ def full_payload() -> dict:
         catch_counts=store.catch_rarity_counts(),
         periods={"week": {"tokens": 1, "cost": 0.0}, "month": {"tokens": 2, "cost": 0.0},
                  "month_daily": {time.strftime("%Y-%m-01"): {"tokens": 2, "cost": 0.0}}},
-        burn={"session": {"rate_per_minute": 1.0, "minutes_to_full": 5, "eta_text": "x"}},
+        burn={"session": {"rate_per_minute": 1.0, "minutes_to_full": 5, "eta_text": "x",
+                          "before_reset": False}},
+        update={"supported": True, "installed": "a" * 40, "installed_short": "aaaaaaa",
+                "available": "b" * 40, "available_short": "bbbbbbb", "error": ""},
+        blocks={"claude_code": BlockUsage(
+            id="b", start_time="2026-09-03T00:00:00+00:00",
+            end_time="2026-09-03T05:00:00+00:00", is_active=True,
+            total_tokens=362_500_000, cost_usd=1.0, tokens_per_minute=50_000.0)},
         limit_status=limits.LimitStatus(
             session=limits.LimitWindow(utilization=42.0, resets_at="2h", severity="warn"),
             weekly=limits.LimitWindow(utilization=10.0, resets_at="5d", severity="ok"),
+            # The model-scoped weekly window, which arrives only in limits[] —
+            # the row a front end reading session/weekly alone is short of.
+            scoped=[limits.ScopedWindow(
+                kind="weekly_scoped", model="Fable",
+                window=limits.LimitWindow(utilization=0.4, resets_at="6d",
+                                          severity="ok"))],
             subscription_type="max",
+            rate_limit_tier="default_claude_max_5x",
             account={"email": "x@example.com"},
         ),
         # The real shape from StatusChecker.get(). Healthy providers are
@@ -303,6 +317,7 @@ BLOCK_ACCESSORS = {
     "transfer": r"transfer(?:\?)?\.(\w+)",
     "detail": r"detail(?:\?)?\.(\w+)",
     "recap": r"recap(?:\?)?\.(\w+)",
+    "update": r"update(?:\?)?\.(\w+)",
 }
 
 
@@ -348,6 +363,8 @@ ROW_ACCESSORS = {
     "providerRow": "settings_provider",
     "usageRow": "provider_usage",
     "burnRow": "burn_window",
+    "forecast": "burn_window",
+    "block": "active_block",
     "providerStatus": "provider_status",
     "config": "config",
     "dexRow": "dex",
@@ -366,6 +383,7 @@ ROW_ACCESSORS = {
     "baseStat": "detail_base_stat",
     "species": "detail_species",
     "speciesMove": "detail_species_move",
+    "update": "update",
 }
 
 
@@ -379,10 +397,14 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(payload["providers"]["claude_code"])
     if name == "burn_window":
         return set(payload["burn"]["session"])
+    if name == "active_block":
+        return set(payload["blocks"]["claude_code"])
     if name == "provider_status":
         return set(payload["provider_status"]["anthropic"])
     if name == "settings_provider":
         return set(payload["settings"]["providers"][0])
+    if name == "update":
+        return set(payload["update"])
     if name == "config":
         # Not the fixture's config, which is a stub: the real defaults, because
         # config.load drops any key that has no default and the setting would
@@ -460,7 +482,7 @@ def test_row_fields_read_in_the_extension_exist(variable, block, payload):
 
 LIST_ROW_FIELDS = {
     "shop": {"key", "kind", "price", "price_text", "label", "description", "badge",
-             "sprite_path", "emoji", "owned", "owned_count", "affordable", "locked",
+             "sprite_path", "emoji", "owned", "owned_count", "affordable", "locked", "rarity",
              "max_buy", "release_note"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
@@ -583,6 +605,10 @@ _NOT_PAYLOAD = {
     "payload", "obj", "parsed", "metadata", "css", "source", "text", "label",
     "pattern", "found", "out", "stem", "dir", "connection", "doc", "left",
     "details", "store", "currentRow", "summary", "buttons",
+    # GLib.TimeVal's own fields. It is a boxed type the sprite decoder drives
+    # by hand, not anything the daemon emits — and it is snake_case like every
+    # payload field, which is the only reason it lands here.
+    "timeVal",
     # Top-level access has its own test; repeating it here would only duplicate
     # the failure message.
     "state",
@@ -656,3 +682,79 @@ def test_every_daemon_setting_is_reachable_from_the_ui():
     }
     missing = set(config_module.DEFAULTS) - reachable - not_for_the_ui
     assert not missing, f"settings with no control anywhere in the UI: {sorted(missing)}"
+
+
+# MARK: the rows the popup is expected to draw
+#
+# Reading a field is not the same as drawing it, and these went missing the
+# other way round: the daemon shipped them and the extension read none of them,
+# so a GNOME user saw less than a Windows user from the same state.json.
+
+
+def test_the_popup_reads_every_limit_window_the_account_has(payload):
+    """seven_day_opus and seven_day_sonnet are null now, so a model's weekly
+    limit arrives only in limits[]. Reading session and weekly alone is a row
+    short of what is actually in force."""
+    source = "\n".join(source_code(strip_strings=True))
+    assert "limits.scoped" in source, "the model-scoped weekly windows are not read"
+    assert payload["limits"]["scoped"], "the fixture has no scoped window to read"
+
+
+def test_the_popup_names_the_plan_the_way_the_daemon_built_it(payload):
+    """Upper-casing the raw type printed "MAX" and lost the 5x, which is the
+    part that says how many tokens the percentage is."""
+    source = "\n".join(source_code(strip_strings=True))
+    assert "limits.plan_text" in source
+    assert "limits.plan" not in source.replace("limits.plan_text", ""), (
+        "the plan is being built in the front end")
+    assert "limits.account_text" in source
+
+
+def test_the_popup_draws_the_rolling_block(payload):
+    """What has been spent inside the current window, and where the forecast's
+    rate comes from."""
+    source = "\n".join(source_code(strip_strings=True))
+    assert "blocks" in source
+    assert payload["blocks"]["claude_code"]["total_tokens_compact"]
+
+
+def test_the_popup_renders_both_forecast_outcomes(payload):
+    """Reaching the limit is a warning with a time on it; not reaching it is
+    the reassurance shown most of the time. Only the first was drawn, so the
+    row was blank in the ordinary case."""
+    source = "\n".join(source_code(strip_strings=True))
+    assert "before_reset" in source
+    assert "no_limit_before_reset" in "\n".join(source_code())
+    assert "before_reset" in payload["burn"]["session"]
+
+
+def test_the_pokedex_can_release_a_pin_as_well_as_set_one(payload):
+    """Tapping a cell only ever pinned, so the way back to the companion was
+    the settings dropdown — and nothing in the grid said which species was
+    pinned in the first place."""
+    source = "\n".join(source_code(strip_strings=True))
+    # Which species holds the panel: the grid badges its cell, and Home names
+    # it. Either is enough for the question "why is the panel showing that?"
+    assert "is_pinned" in source or "representative_species_id" in source, (
+        "nothing reads which species is pinned")
+    with_strings = "\n".join(source_code())
+    assert re.search(r"Commands\.represent\(\s*(pinned \? )?(null|'')", with_strings), (
+        "there is no release; null is what the daemon reads as "
+        "'follow the companion again'"
+    )
+    assert "representative_id" in payload["panel"]
+
+
+def test_the_popup_offers_the_update_the_daemon_can_apply(payload):
+    """Without it a fix means finding the repo again and re-running install.sh,
+    which is enough friction that one nobody installs may as well not exist."""
+    source = "\n".join(source_code(strip_strings=True))
+    assert "update.available" in source
+    assert "update.installed_short" in source
+    with_strings = "\n".join(source_code())
+    assert "enqueue('update'" in with_strings, "nothing asks the daemon to apply it"
+    assert "update.supported" in source, (
+        "a checkout cannot be updated by overwriting it, and a button that "
+        "refuses is worse than a sentence saying why"
+    )
+    assert set(payload["update"]) >= {"supported", "installed_short", "available_short"}

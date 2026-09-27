@@ -11,7 +11,7 @@ import json
 import os
 from pathlib import Path
 
-from . import platform_paths
+from . import l10n, platform_paths
 
 DEFAULTS: dict[str, object] = {
     "refresh_interval": 120,
@@ -24,6 +24,19 @@ DEFAULTS: dict[str, object] = {
     # Whether limit percentages read as used ("15%") or remaining ("85% left"),
     # everywhere they are shown. Upstream's limitDisplayMode; used is its default.
     "limit_value_mode": "used",
+    "launch_at_login": False,
+    # What happens to a pin once the Pokemon it names has graduated.
+    #
+    # "keep"    — the panel goes on showing the species you pinned. "Pin" read
+    #             literally, and a graduated species is still in your Pokedex.
+    #             The default, because it is what pressing the star says.
+    # "release" — the pin is let go and the panel follows the companion again:
+    #             the next egg, its hatch and its evolutions all appear.
+    #
+    # Neither is wrong, so it is a choice rather than a rule — and a named
+    # choice rather than a switch, because "off" does not say which of the two
+    # it means.
+    "pin_on_graduation": "keep",
     "limit_notifications": True,
     "companion_notifications": True,
     "status_checks_enabled": True,
@@ -35,7 +48,10 @@ DEFAULTS: dict[str, object] = {
     "floating_pet_x": 80,
     "floating_pet_y": 80,
     "floating_pet_bubble_alerts": True,
-    "language": "en",
+    # Filled at import from the system locale, as upstream does: a fresh
+    # install reading English on a Korean machine is a setting nobody goes
+    # looking for.
+    "language": l10n.system_default(),
     # How smoothly the panel sprite and the desktop pet animate: "off",
     # "saver", "balanced" or "smooth". A frame costs a recomposite, so this is
     # a real power setting, and the default matches upstream's. "off" holds the

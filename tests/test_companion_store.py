@@ -190,7 +190,7 @@ def test_an_item_use_is_saved_immediately(tmp_path):
     grown = s.state.active.used_at_stage
 
     reopened = CompanionStore(save_path=tmp_path / "companion.json", api=FakeAPI())
-    assert reopened.state.inventory["rareCandy"] == 0
+    assert reopened.state.inventory.get("rareCandy", 0) == 0
     assert reopened.state.active.used_at_stage == grown
 
 

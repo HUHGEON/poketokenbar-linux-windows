@@ -247,21 +247,43 @@ export {compact, grouped} from './format.js';
  * than an answer to "how long have I got".
  */
 export function resetsIn(iso, strings) {
-    if (!iso)
-        return '';
-    const remaining = new Date(iso).getTime() - Date.now();
-    if (Number.isNaN(remaining))
+    const remaining = remainingSeconds(iso);
+    if (remaining === null)
         return '';
     if (remaining <= 0)
         return strings('resetting_now');
-    const minutes = Math.floor(remaining / 60000);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-    if (days > 0)
-        return `${days}d ${hours % 24}h`;
-    if (hours > 0)
-        return `${hours}h ${minutes % 60}m`;
-    return `${minutes}m`;
+    return duration(remaining, strings);
+}
+
+/** Seconds until an ISO-8601 instant, or null if it is not one. */
+export function remainingSeconds(iso) {
+    if (!iso)
+        return null;
+    const remaining = new Date(iso).getTime() - Date.now();
+    return Number.isNaN(remaining) ? null : remaining / 1000;
+}
+
+/** A coarse "two units" countdown, the way the popover writes one.
+ *
+ * Two units at most and never a smaller beside a larger: "6일 2시간",
+ * "2시간 36분", "26초". Through the catalogue, because it used to build
+ * "6d 2h" out of English letters — so a Korean install counted down in
+ * English under a Korean label.
+ */
+export function duration(seconds, strings) {
+    const total = Math.max(0, Math.floor(seconds));
+    const days = Math.floor(total / 86400);
+    const hours = Math.floor((total % 86400) / 3600);
+    const minutes = Math.floor((total % 3600) / 60);
+    const secs = total % 60;
+    const unit = (key, value) => strings(key).replace('%1', String(value));
+    if (days)
+        return hours ? `${unit('unit_day', days)} ${unit('unit_hour', hours)}` : unit('unit_day', days);
+    if (hours)
+        return minutes ? `${unit('unit_hour', hours)} ${unit('unit_minute', minutes)}` : unit('unit_hour', hours);
+    if (minutes)
+        return secs ? `${unit('unit_minute', minutes)} ${unit('unit_second', secs)}` : unit('unit_minute', minutes);
+    return unit('unit_second', secs);
 }
 
 /** "just now" / "3 min ago" for the footer's freshness line.

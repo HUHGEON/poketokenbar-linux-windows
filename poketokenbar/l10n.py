@@ -73,8 +73,9 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "egg": ("Egg", "알", "タマゴ", "Huevo",
         'Œuf', 'Ovo', 'Ei',
     ),
-    "final_form": ("Final form", "최종 형태", "最終形態", "Forma final",
-        'Forme finale', 'Forma final', 'Endform',
+    "final_form": (
+        "Final form", "최종 진화체", "最終進化", "Forma final", "Forme finale",
+        "Forma final", "Letzte Entwicklungsstufe",
     ),
     "graduation": ("graduation", "졸업", "卒業", "graduación",
         'diplôme', 'formatura', 'Abschluss',
@@ -119,8 +120,10 @@ STRINGS: dict[str, tuple[str, ...]] = {
         'Il a grandi !', 'Cresceu!', 'Es ist gewachsen!',
     ),
     # shop / bag
-    "spendable_tokens": ("Spendable tokens", "사용 가능한 토큰", "使用可能なトークン", "Tokens disponibles",
-        'Jetons disponibles', 'Tokens disponíveis', 'Verfügbare Tokens',
+    "spendable_tokens": (
+        "Spendable tokens", "쓸 수 있는 토큰", "使えるトークン",
+        "Tokens disponibles", "Tokens disponibles", "Tokens disponíveis",
+        "Verfügbare Tokens",
     ),
     "spend_hint": (
         "Spend the tokens you've used on items.", "사용한 토큰으로 아이템을 살 수 있어요.",
@@ -690,8 +693,9 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "quality_smooth": ("Smooth", "부드럽게", "滑らか", "Fluido",
         "Fluide", "Fluido", "Flüssig",
     ),
-    "setting_limit_display": ("Limit display", "한도 표시 방식", "上限の表示", "Visualización del límite",
-        "Affichage de la limite", "Exibição do limite", "Limit-Anzeige",
+    "setting_limit_display": (
+        "Limits shown", "표시할 한도 창", "表示する上限", "Límites mostrados",
+        "Limites affichées", "Limites exibidos", "Angezeigte Limits",
     ),
     "limits_both": ("Both", "둘 다", "両方", "Ambos",
         "Les deux", "Ambos", "Beide",
@@ -891,6 +895,265 @@ STRINGS: dict[str, tuple[str, ...]] = {
     ),
     "updated": ("Updated", "갱신", "更新", "Actualizado",
         "Mis à jour", "Atualizado", "Aktualisiert",
+    ),
+    "open": ("Open", "열기", "開く", "Abrir", "Ouvrir", "Abrir", "Öffnen"),
+    "quit": ("Quit", "종료", "終了", "Salir", "Quitter", "Sair", "Beenden"),
+    "setting_scan_folders": (
+        "Extra scan folders", "추가 스캔 폴더", "追加スキャンフォルダ",
+        "Carpetas adicionales", "Dossiers supplémentaires", "Pastas adicionais",
+        "Zusätzliche Ordner",
+    ),
+    "scan_folders_hint": (
+        "comma or newline separated, * allowed", "쉼표나 줄바꿈으로 구분, * 사용 가능",
+        "カンマか改行で区切り、* 使用可", "separadas por comas o saltos de línea, * permitido",
+        "séparés par des virgules ou des retours à la ligne, * autorisé",
+        "separadas por vírgula ou quebra de linha, * permitido",
+        "durch Komma oder Zeilenumbruch getrennt, * erlaubt",
+    ),
+    "waiting_for_daemon": (
+        "Waiting for poketokend…", "poketokend 기다리는 중…", "poketokend を待っています…",
+        "Esperando a poketokend…", "En attente de poketokend…",
+        "Aguardando o poketokend…", "Warte auf poketokend…",
+    ),
+    "cannot_read_state": (
+        "Cannot read state file", "상태 파일을 읽을 수 없음", "状態ファイルを読めません",
+        "No se puede leer el archivo de estado", "Impossible de lire le fichier d'état",
+        "Não foi possível ler o arquivo de estado", "Statusdatei nicht lesbar",
+    ),
+    "updated_just_now": (
+        "Updated just now", "방금 갱신", "たった今更新", "Actualizado ahora mismo",
+        "Mis à jour à l'instant", "Atualizado agora mesmo", "Gerade aktualisiert",
+    ),
+    "updated_minutes_ago": (
+        "Updated %1 min ago", "%1분 전 갱신", "%1分前に更新", "Actualizado hace %1 min",
+        "Mis à jour il y a %1 min", "Atualizado há %1 min", "Vor %1 Min. aktualisiert",
+    ),
+    "species_count": (
+        "%1 species", "%1종", "%1種", "%1 especies", "%1 espèces", "%1 espécies",
+        "%1 Spezies",
+    ),
+    "catches_total": (
+        "%1 total", "총 %1마리", "全%1匹", "%1 en total", "%1 au total",
+        "%1 no total", "%1 insgesamt",
+    ),
+    "token_breakdown": (
+        "in %1 · out %2 · cache w %3 · r %4",
+        "입력 %1 · 출력 %2 · 캐시 쓰기 %3 · 읽기 %4",
+        "入力 %1 · 出力 %2 · キャッシュ書込 %3 · 読込 %4",
+        "entrada %1 · salida %2 · caché esc. %3 · lec. %4",
+        "entrée %1 · sortie %2 · cache écr. %3 · lec. %4",
+        "entrada %1 · saída %2 · cache esc. %3 · leit. %4",
+        "Eingabe %1 · Ausgabe %2 · Cache-Schr. %3 · Les. %4",
+    ),
+    "plan": ("Plan", "플랜", "プラン", "Plan", "Forfait", "Plano", "Tarif"),
+    "account": ("Account", "계정", "アカウント", "Cuenta", "Compte", "Conta", "Konto"),
+    "setting_pin_on_graduation": (
+        "When a pinned Pokemon graduates", "고정한 포켓몬이 졸업하면",
+        "固定したポケモンが卒業したら", "Cuando se gradúa un Pokemon fijado",
+        "Quand un Pokemon épinglé est diplômé",
+        "Quando um Pokemon fixado se forma",
+        "Wenn ein angeheftetes Pokemon seinen Abschluss macht",
+    ),
+    "pin_keep": ("Keep", "고정", "固定のまま", "Mantener", "Garder", "Manter", "Behalten"),
+    "pin_release": (
+        "Move on", "변경", "次へ移る", "Cambiar", "Passer au suivant", "Mudar",
+        "Weiterziehen",
+    ),
+    "setting_launch_at_login": (
+        "Launch at login", "로그인 시 자동 시작", "ログイン時に自動起動",
+        "Iniciar al arrancar sesión", "Lancer à l'ouverture de session",
+        "Abrir ao iniciar sessão", "Bei der Anmeldung starten",
+    ),
+    "setting_limit_percent": (
+        "Limit display", "한도 표시 방식", "上限の表示", "Visualización del límite",
+        "Affichage de la limite", "Exibição do limite", "Limit-Anzeige",
+    ),
+    "percent_remaining": (
+        "%1 left", "%1 남음", "残り%1", "%1 restante", "%1 restant", "%1 restante",
+        "%1 übrig",
+    ),
+    "unit_day": ("%1d", "%1일", "%1日", "%1 d", "%1 j", "%1 d", "%1 T"),
+    "unit_hour": ("%1h", "%1시간", "%1時間", "%1 h", "%1 h", "%1 h", "%1 Std."),
+    "unit_minute": ("%1m", "%1분", "%1分", "%1 min", "%1 min", "%1 min", "%1 Min."),
+    "unit_second": ("%1s", "%1초", "%1秒", "%1 s", "%1 s", "%1 s", "%1 Sek."),
+    "nature_hardy": ("Hardy", "노력", "がんばりや", "Fuerte", "Hardi", "Esforçada", "Robust"),
+    "nature_lonely": ("Lonely", "외로움", "さみしがり", "Huraña", "Solo", "Carente", "Solo"),
+    "nature_brave": ("Brave", "용감", "ゆうかん", "Audaz", "Brave", "Corajosa", "Mutig"),
+    "nature_adamant": ("Adamant", "고집", "いじっぱり", "Firme", "Rigide", "Teimosa", "Hart"),
+    "nature_naughty": ("Naughty", "개구쟁이", "やんちゃ", "Pícara", "Mauvais", "Levada", "Frech"),
+    "nature_bold": ("Bold", "대담", "ずぶとい", "Osada", "Assuré", "Ousada", "Kühn"),
+    "nature_docile": ("Docile", "온순", "すなお", "Dócil", "Docile", "Dócil", "Sanft"),
+    "nature_relaxed": ("Relaxed", "무사태평", "のんき", "Plácida", "Relax", "Descontraída", "Locker"),
+    "nature_impish": ("Impish", "장난꾸러기", "わんぱく", "Agitada", "Malin", "Travessa", "Pfiffig"),
+    "nature_lax": ("Lax", "촐랑", "のうてんき", "Floja", "Lâche", "Despreocupada", "Lasch"),
+    "nature_timid": ("Timid", "겁쟁이", "おくびょう", "Miedosa", "Timide", "Medrosa", "Scheu"),
+    "nature_hasty": ("Hasty", "성급", "せっかち", "Activa", "Pressé", "Apressada", "Hastig"),
+    "nature_serious": ("Serious", "성실", "まじめ", "Seria", "Sérieux", "Séria", "Ernst"),
+    "nature_jolly": ("Jolly", "명랑", "ようき", "Alegre", "Jovial", "Alegre", "Froh"),
+    "nature_naive": ("Naive", "천진난만", "むじゃき", "Ingenua", "Naïf", "Ingênua", "Naiv"),
+    "nature_modest": ("Modest", "조심", "ひかえめ", "Modesta", "Modeste", "Modesta", "Mäßig"),
+    "nature_mild": ("Mild", "의젓", "おっとり", "Afable", "Doux", "Meiga", "Mild"),
+    "nature_quiet": ("Quiet", "냉정", "れいせい", "Mansa", "Discret", "Discreta", "Ruhig"),
+    "nature_bashful": ("Bashful", "수줍음", "てれや", "Tímida", "Pudique", "Tímida", "Zaghaft"),
+    "nature_rash": ("Rash", "덜렁", "うっかりや", "Alocada", "Foufou", "Impulsiva", "Hitzig"),
+    "nature_calm": ("Calm", "차분", "おだやか", "Serena", "Calme", "Calma", "Still"),
+    "nature_gentle": ("Gentle", "얌전", "おとなしい", "Amable", "Gentil", "Gentil", "Zart"),
+    "nature_sassy": ("Sassy", "건방", "なまいき", "Grosera", "Malpoli", "Atrevida", "Forsch"),
+    "nature_careful": ("Careful", "신중", "しんちょう", "Cauta", "Prudent", "Cautelosa", "Sacht"),
+    "nature_quirky": ("Quirky", "변덕", "きまぐれ", "Rara", "Bizarre", "Excêntrica", "Kauzig"),
+    "update": ("Update", "업데이트", "アップデート", "Actualizar", "Mise à jour",
+               "Atualizar", "Aktualisieren"),
+    "update_available": (
+        "A new version is available", "새 버전이 있어요", "新しいバージョンがあります",
+        "Hay una versión nueva", "Une nouvelle version est disponible",
+        "Há uma versão nova", "Eine neue Version ist verfügbar",
+    ),
+    "update_current": (
+        "Up to date (%1)", "최신 버전이에요 (%1)", "最新です（%1）",
+        "Está actualizado (%1)", "À jour (%1)", "Está atualizado (%1)",
+        "Aktuell (%1)",
+    ),
+    "update_now": ("Update now", "지금 업데이트", "今すぐ更新", "Actualizar ahora",
+                   "Mettre à jour", "Atualizar agora", "Jetzt aktualisieren"),
+    "update_restart": (
+        "Restart to finish", "다시 시작하면 적용돼요", "再起動で反映されます",
+        "Reinicia para terminar", "Redémarre pour terminer",
+        "Reinicie para concluir", "Zum Abschluss neu starten",
+    ),
+    "restart": ("Restart", "다시 시작", "再起動", "Reiniciar", "Redémarrer",
+                "Reiniciar", "Neu starten"),
+    "update_unsupported": (
+        "Installed from a checkout — update it with git",
+        "체크아웃에서 실행 중 — git으로 업데이트하세요",
+        "チェックアウトから実行中 — git で更新してください",
+        "Ejecutando desde un checkout: actualiza con git",
+        "Lancé depuis un checkout — mets-le à jour avec git",
+        "Rodando de um checkout — atualize com git",
+        "Läuft aus einem Checkout — mit git aktualisieren",
+    ),
+    "weekly_model": (
+        "Weekly %1", "주간 %1", "週間 %1", "Semanal %1", "Hebdo %1", "Semanal %1",
+        "%1 – wöchentlich",
+    ),
+    "claude_current_block": (
+        "Claude current 5h block", "Claude 현재 5h 블록", "Claude 現在の5hブロック",
+        "Bloque actual de 5h de Claude", "Bloc 5 h actuel de Claude",
+        "Bloco atual de 5h do Claude", "Aktueller 5-Stunden-Block von Claude",
+    ),
+    "reset": ("reset", "리셋", "リセット", "reinicio", "réinit.", "reinício", "Reset"),
+    "plan_label": (
+        "Plan %1", "플랜 %1", "プラン %1", "Plan %1", "Forfait %1", "Plano %1", "Tarif %1",
+    ),
+    "account_label": (
+        "Account %1", "계정 %1", "アカウント %1", "Cuenta %1", "Compte %1", "Conta %1",
+        "Konto %1",
+    ),
+    "forecast_reach": (
+        "At current rate, limit hit at %1", "현재 속도면 %1 한도 도달",
+        "現在のペースで %1 に上限到達", "Al ritmo actual, límite alcanzado a las %1",
+        "À ce rythme, limite atteinte à %1", "No ritmo atual, limite atingido às %1",
+        "Bei diesem Tempo erreichst du das Limit um %1",
+    ),
+    "spendable_tokens_hint": (
+        "Spend the tokens you have used on items.",
+        "사용한 토큰으로 아이템을 살 수 있어요.",
+        "使ったトークンでアイテムを買えます。",
+        "Gasta los tokens que has usado en objetos.",
+        "Dépense les jetons déjà utilisés en objets.",
+        "Gaste os tokens já usados em itens.",
+        "Gib die verbrauchten Tokens für Gegenstände aus.",
+    ),
+    "insufficient_tokens": (
+        "Not enough tokens", "토큰이 부족해요", "トークンが足りません",
+        "No hay tokens suficientes", "Jetons insuffisants", "Tokens insuficientes",
+        "Nicht genug Tokens",
+    ),
+    "owned_now": ("Owned", "보유 중", "所持中", "En posesión", "Possédé", "Em posse", "Im Besitz"),
+    "graduation_remaining": (
+        "%1 to graduation", "졸업까지 %1", "卒業まで %1", "%1 para graduarse",
+        "%1 avant la remise de diplôme", "%1 para a formatura", "%1 bis zum Abschluss",
+    ),
+    "evolution_remaining": (
+        "%1 to next evolution", "다음 진화까지 %1", "次の進化まで %1",
+        "%1 para la próxima evolución", "%1 avant la prochaine évolution",
+        "%1 para a próxima evolução", "%1 bis zur nächsten Entwicklung",
+    ),
+    "back": ("Back", "뒤로", "戻る", "Atrás", "Retour", "Voltar", "Zurück"),
+    "show_in_panel": (
+        "Show in the panel", "메뉴바에 표시", "メニューバーに表示", "Mostrar en el panel",
+        "Afficher dans le panneau", "Mostrar no painel", "In der Leiste anzeigen",
+    ),
+    "panel_all_off_hint": (
+        "With all of these off only the character is shown",
+        "전부 끄면 캐릭터만 표시됩니다",
+        "すべてオフにするとキャラクターのみ表示されます",
+        "Con todo desactivado solo se muestra el personaje",
+        "Tout désactivé, seul le personnage est affiché",
+        "Com tudo desligado só o personagem aparece",
+        "Wenn alles aus ist, wird nur die Figur angezeigt",
+    ),
+    "floating_pet": (
+        "Floating pet", "플로팅 펫", "フローティングペット", "Mascota flotante",
+        "Compagnon flottant", "Mascote flutuante", "Schwebender Begleiter",
+    ),
+    "floating_pet_hint": (
+        "The Pokemon floats above your screen — drag it to move it",
+        "포켓몬이 화면 위에 떠 있어요 — 드래그로 위치를 옮길 수 있어요",
+        "ポケモンが画面上に浮かびます — ドラッグで移動できます",
+        "El Pokemon flota sobre la pantalla: arrástralo para moverlo",
+        "Le Pokemon flotte sur l'écran — glisse-le pour le déplacer",
+        "O Pokemon flutua sobre a tela — arraste para mover",
+        "Das Pokemon schwebt über dem Bildschirm — zum Bewegen ziehen",
+    ),
+    "size": ("Size", "크기", "サイズ", "Tamaño", "Taille", "Tamanho", "Größe"),
+    "warn_at": ("Warning", "경고", "警告", "Aviso", "Alerte", "Aviso", "Warnung"),
+    "crit_at": ("Critical", "임박", "危険", "Crítico", "Critique", "Crítico", "Kritisch"),
+    "animation_hint": (
+        "Smoother uses more battery", "부드러울수록 배터리를 더 씁니다",
+        "なめらかにするほどバッテリーを消費します",
+        "Cuanto más suave, más batería", "Plus c'est fluide, plus ça consomme",
+        "Quanto mais suave, mais bateria", "Flüssiger verbraucht mehr Akku",
+    ),
+    "status_checks_hint": (
+        "Shows Claude/OpenAI outages in the popup (not a notification)",
+        "Claude·OpenAI 장애를 팝오버에 표시 (알림 아님)",
+        "Claude・OpenAI の障害をポップオーバーに表示（通知ではありません）",
+        "Muestra incidencias de Claude/OpenAI en el panel (sin notificar)",
+        "Affiche les pannes Claude/OpenAI dans le panneau (sans notification)",
+        "Mostra falhas do Claude/OpenAI no painel (sem notificação)",
+        "Zeigt Claude/OpenAI-Störungen im Panel (keine Benachrichtigung)",
+    ),
+    "usage": ("Used", "사용량", "使用量", "Usado", "Utilisé", "Usado", "Verbraucht"),
+    "remaining": ("Remaining", "남은 양", "残量", "Restante", "Restant", "Restante", "Verbleibend"),
+    "representative": (
+        "Representative Pokemon", "대표 포켓몬", "代表ポケモン", "Pokemon representativo",
+        "Pokemon representatif", "Pokemon representativo", "Repräsentatives Pokemon",
+    ),
+    "follow_current": (
+        "Follow the current Pokemon", "현재 포켓몬 따라가기", "現在のポケモンに従う",
+        "Seguir al Pokemon actual", "Suivre le Pokemon actuel",
+        "Seguir o Pokemon atual", "Dem aktuellen Pokemon folgen",
+    ),
+    "weekly_scoped": (
+        "Weekly (scoped)", "주간 (모델별)", "週間（モデル別）", "Semanal (por modelo)",
+        "Hebdo (par modèle)", "Semanal (por modelo)", "Wöchentlich (pro Modell)",
+    ),
+    "active_block": (
+        "current 5h block", "현재 5h 블록", "現在の5h ブロック", "bloque actual de 5 h",
+        "bloc de 5 h en cours", "bloco atual de 5 h", "aktueller 5-Std.-Block",
+    ),
+    "resets_in": (
+        "resets in %1", "리셋 %1", "%1 後にリセット", "se reinicia en %1",
+        "réinitialisation dans %1", "reinicia em %1", "Reset in %1",
+    ),
+    "no_limit_before_reset": (
+        "will not reach the limit before it resets",
+        "현재 속도로는 리셋 전 한도 도달 없음",
+        "現在のペースではリセット前に上限に達しません",
+        "a este ritmo no se alcanzará el límite antes del reinicio",
+        "à ce rythme, la limite ne sera pas atteinte avant la réinitialisation",
+        "neste ritmo o limite não será atingido antes do reinício",
+        "erreicht das Limit vor dem Reset nicht",
     ),
 }
 
@@ -1171,3 +1434,78 @@ def day_stamp(day: str, language: str = "en") -> str:
 def catalogue(language: str = "en") -> dict[str, str]:
     """Every string resolved for one language, for shipping in state.json."""
     return {key: t(key, language) for key in STRINGS}
+
+
+def system_default(preferred: str | None = None) -> str:
+    """The language to start in — ports AppLanguage.systemDefault.
+
+    A fresh install defaulting to English left a Korean user reading English
+    until they found the setting, which most people will not go looking for.
+    Matched on the first two letters, as upstream does: "ko_KR.UTF-8",
+    "ko-KR" and "ko" all mean the same thing.
+
+    The environment is consulted in POSIX order, then Windows' own UI language.
+    `locale.getdefaultlocale` is deliberately not used: it is deprecated, and on
+    Windows it reports the *format* locale, which someone can set to Korean
+    dates while running an English interface — or the reverse.
+    """
+    candidates = []
+    if preferred:
+        candidates.append(preferred)
+    else:
+        import os
+
+        for name in ("LC_ALL", "LC_MESSAGES", "LANG", "LANGUAGE"):
+            value = (os.environ.get(name) or "").strip()
+            if value and value not in ("C", "POSIX"):
+                candidates.append(value)
+        candidates.append(_windows_ui_language() or "")
+
+    for candidate in candidates:
+        code = candidate.replace("-", "_").split("_")[0].split(".")[0].lower()
+        if code in LANGUAGES:
+            return code
+    return "en"
+
+
+def _windows_ui_language() -> str | None:
+    """The Windows *interface* language, or None anywhere else.
+
+    Wrapped in its own function so the import cost and the failure are both
+    contained: this is called once, at first run, and a machine without the DLL
+    should get English rather than a traceback.
+    """
+    try:
+        import ctypes
+
+        lcid = ctypes.windll.kernel32.GetUserDefaultUILanguage()  # type: ignore[attr-defined]
+        import locale
+
+        return locale.windows_locale.get(lcid)
+    except Exception:
+        return None
+
+
+# Each language written in itself. Someone who has landed on the wrong one has
+# to recognise theirs, and "ko" in a list of two-letter codes is not something
+# to recognise — which is what the language dropdown actually showed.
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ko": "한국어",
+    "ja": "日本語",
+    "es": "Español",
+    "fr": "Français",
+    "pt": "Português",
+    "de": "Deutsch",
+}
+
+
+LANGUAGE_NAMES = {
+    "en": "English",
+    "ko": "한국어",
+    "ja": "日本語",
+    "es": "Español",
+    "fr": "Français",
+    "pt": "Português",
+    "de": "Deutsch",
+}

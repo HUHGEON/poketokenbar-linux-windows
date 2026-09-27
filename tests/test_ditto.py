@@ -15,7 +15,11 @@ class Rigged(random.Random):
     def randrange(self, n):
         if n == balance.DITTO_DISGUISE_DENOMINATOR:
             return 0 if self._ditto else 1
-        return 1  # never shiny
+        # Every other roll: anything but zero, so the hatch is never shiny —
+        # but still a valid index, which `randrange` guarantees and this used
+        # not to. Choosing an evolution branch calls randrange(1), and a stub
+        # answering 1 there indexes past the end of a one-child pool.
+        return 1 % n if n else 0
 
 
 def _line(forms=2, rarity=Rarity.COMMON):

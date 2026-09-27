@@ -20,7 +20,7 @@ from pathlib import Path
 
 from . import l10n, profile as profiles
 from .balance import DITTO_SPECIES_ID, Rarity
-from .companion import EvoLine
+from .companion import EvoLine, EvoNode
 
 REST_BASE = "https://pokeapi.co/api/v2"
 GRAPHQL_URL = "https://graphql.pokeapi.co/v1beta2"
@@ -279,19 +279,16 @@ class PokeAPI:
             raise PokeAPIError(f"bad evolution chain url for {base_species_id}")
         chain = _get_json(chain_url)
 
-        path: list[int] = []
-        node = chain.get("chain")
-        while node:
-            species_ref = node.get("species") or {}
-            species_id = _id_from_url(species_ref.get("url", ""))
-            if species_id is None or species_id > MAX_SPECIES_ID:
-                break
-            path.append(species_id)
-            nxt = node.get("evolves_to") or []
-            node = nxt[0] if nxt else None
-
-        if not path:
+        tree = _tree_from_chain(chain.get("chain"))
+        if tree is None:
             raise PokeAPIError(f"empty evolution path for {base_species_id}")
+        # Species without an animated sprite go, and their branches with them,
+        # so a plan can never route through a form that cannot be drawn.
+        tree = tree.keeping_animated() or EvoNode(base_species_id)
+        # The default straight route. A companion's actual route is chosen per
+        # hatch, from the whole tree — following this one for everybody is what
+        # made seven of Eevee's eight evolutions unreachable.
+        path = _first_route(tree)
 
         rarity = Rarity.classify(
             int(base.get("capture_rate") or 255),
@@ -299,7 +296,10 @@ class PokeAPI:
             bool(base.get("is_mythical")),
         )
         names: dict[int, dict[str, str]] = {}
-        for sid in path:
+        # Every species in the tree, not only the default route: any of them can
+        # be the form this companion grows into, and a missing name renders as
+        # "#134".
+        for sid in _species_in(tree):
             try:
                 entry = self.species(sid)
             except PokeAPIError:
@@ -310,7 +310,8 @@ class PokeAPI:
                 if code in LANG_CODES
             }
 
-        evo = EvoLine(base_id=base_species_id, path_ids=path, rarity=rarity, names=names)
+        evo = EvoLine(base_id=base_species_id, path_ids=path, rarity=rarity,
+                      names=names, tree=tree)
         self._lines[base_species_id] = evo
         return evo
 
@@ -419,3 +420,33 @@ def _id_from_url(url: str) -> int | None:
         return int(parts[-1])
     except ValueError:
         return None
+
+
+def _tree_from_chain(node) -> "EvoNode | None":
+    """PokeAPI's nested `chain` as an EvoNode, branches and all."""
+    if not isinstance(node, dict):
+        return None
+    species_id = _id_from_url((node.get("species") or {}).get("url", ""))
+    if species_id is None:
+        return None
+    children = [
+        child for child in
+        (_tree_from_chain(entry) for entry in node.get("evolves_to") or [])
+        if child is not None
+    ]
+    return EvoNode(species_id, children)
+
+
+def _first_route(node: "EvoNode") -> list[int]:
+    route = [node.species_id]
+    while node.children:
+        node = node.children[0]
+        route.append(node.species_id)
+    return route
+
+
+def _species_in(node: "EvoNode") -> list[int]:
+    found = [node.species_id]
+    for child in node.children:
+        found += _species_in(child)
+    return found

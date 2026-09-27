@@ -94,6 +94,8 @@ export const undoImport = () => enqueue('restore', {});
 // (0 is the current one, negative is the past). A null scope closes it.
 export const recap = (scope, offset = 0) =>
     enqueue('recap', {scope: scope === null ? 'none' : scope, offset});
+// Fetch and apply the published update the daemon has already found.
+export const update = () => enqueue('update', {});
 // Local restore points: take one now, or put one back by its file name.
 export const snapshot = () => enqueue('snapshot', {});
 export const restoreSnapshot = id => enqueue('restore_snapshot', {id});

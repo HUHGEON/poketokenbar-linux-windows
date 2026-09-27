@@ -281,41 +281,44 @@ def test_a_ditto_reveal_does_not_move_the_pin_either():
     assert state.representative_species_id == 4
 
 
-# MARK: a pin outlives the companion, on purpose
+# MARK: a pin outlives the companion unless the setting says otherwise
 
 
-def graduate_now(state):
-    """Feed the final form enough to complete it."""
+def graduate_now(state, release_pin=False):
+    """Feed the final form enough to complete it.
+
+    `release_pin` is the setting, not a default: whether a pin on the
+    graduating form is let go is a choice, and these tests are about the
+    behaviour when it is. The other setting has tests of its own below.
+    """
     from poketokenbar import balance, companion
 
     mon = state.active
     threshold = balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
-    return companion.apply_usage(state, threshold - mon.used_at_stage)
+    return companion.apply_usage(state, threshold - mon.used_at_stage,
+                                 release_pin_on_graduation=release_pin)
 
 
-def test_a_graduation_does_not_release_the_pin():
-    """Keeping a favourite on the panel through the egg stage is what pinning
-    is for.
+def test_a_pin_following_the_companion_is_released_when_the_setting_says_so():
+    """Otherwise the panel keeps the graduated Pokemon through the next egg.
 
-    It used to be released here, because a pin nobody could see or clear kept
-    the graduated Pokemon on the panel through the next egg and looked like a
-    stuck panel. The pin is badged in the Pokedex and has a release button on
-    Home now, so there is no longer a reason to overrule the user.
+    The species is in the dex by then, so reconcile has no reason to drop it,
+    and the pin outlives the thing it was following.
     """
     state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
     state.representative_species_id = 6
 
-    events = graduate_now(state)
+    events = graduate_now(state, release_pin=True)
 
     assert events.graduated is not None
-    assert state.active is None, "the companion still graduates"
-    assert state.representative_species_id == 6
-    assert store(state).panel_species() == (6, False)
+    assert state.representative_species_id is None
+    # Nothing on the panel but the egg, which is the point.
+    assert store(state).panel_species() == (None, False)
 
 
-def test_a_pin_held_through_a_graduation_survives_the_next_hatch():
-    """The panel keeps showing the chosen species while the next one grows;
-    Home shows the newcomer, as it always does."""
+def test_the_panel_shows_the_next_companion_once_the_egg_hatches():
+    """The complaint in full: pin, graduate, hatch — and the panel was still
+    showing the Pokemon from two companions ago."""
     import random
 
     from poketokenbar import companion
@@ -323,7 +326,7 @@ def test_a_pin_held_through_a_graduation_survives_the_next_hatch():
 
     state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
     state.representative_species_id = 6
-    graduate_now(state)
+    graduate_now(state, release_pin=True)
 
     companion.hatch(
         state,
@@ -331,34 +334,22 @@ def test_a_pin_held_through_a_graduation_survives_the_next_hatch():
         random.Random(1),
     )
 
-    subject = store(state)
-    assert subject.panel_species()[0] == 6
-    assert subject.payload()["species_id"] == 270, "Home follows the new companion"
+    assert store(state).panel_species()[0] == 270
+    # And it keeps following: the released pin means "follow", not "empty".
+    from poketokenbar import balance
 
-
-def test_releasing_the_pin_hands_the_panel_to_the_new_companion():
-    """The way out of the above, and the only one needed: one tap on the
-    release button."""
-    import random
-
-    from poketokenbar import companion
-    from poketokenbar.companion import EvoLine
-
-    state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
-    state.representative_species_id = 6
-    graduate_now(state)
-    companion.hatch(
+    mon = state.active
+    companion.apply_usage(
         state,
-        EvoLine(base_id=270, path_ids=[270, 271, 272], rarity=Rarity.COMMON),
-        random.Random(1),
+        balance.phase_threshold(mon.rarity, mon.total_forms, mon.stage_index)
+        - mon.used_at_stage,
     )
-
-    subject = store(state)
-    subject.set_representative(None)
-    assert subject.panel_species()[0] == 270
+    assert store(state).panel_species()[0] == 271
 
 
 def test_a_pin_on_a_different_species_survives_a_graduation():
+    """Same rule as the evolution handoff: a pin on anything but the current
+    form names a species chosen over the companion, and stays chosen."""
     state = CompanionState(
         dex=[graduated(chain=(1, 2, 3))], active=raising(path=(4, 5, 6), stage=2)
     )
@@ -371,6 +362,8 @@ def test_a_pin_on_a_different_species_survives_a_graduation():
 
 
 def test_a_pin_on_an_outgrown_form_of_the_same_companion_survives():
+    """Pinning 4 while raising its final form can only be a deliberate choice —
+    the handoff would have moved a following pin along with the evolutions."""
     state = CompanionState(active=raising(path=(4, 5, 6), stage=2))
     state.representative_species_id = 4
 

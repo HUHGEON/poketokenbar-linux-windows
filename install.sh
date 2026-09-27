@@ -30,6 +30,15 @@ copy_tree() {
 echo "==> installing python package to $app"
 copy_tree "$here/poketokenbar" "$app/poketokenbar"
 
+# Which commit this install came from, so the app can tell whether GitHub has
+# a newer one without carrying a git checkout around. Unknown is written as
+# empty rather than guessed: an install that cannot say what it is must not be
+# offered an update it cannot verify is newer.
+revision="$(git -C "$here" rev-parse HEAD 2>/dev/null || true)"
+printf '%s' "$revision" > "$app/REVISION"
+
+echo "    revision ${revision:-unknown}"
+
 echo "==> creating venv at $venv"
 [ -d "$venv" ] || python3 -m venv "$venv"
 "$venv/bin/pip" install -q --upgrade pip

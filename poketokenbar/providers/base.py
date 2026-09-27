@@ -25,7 +25,7 @@ from typing import Callable, Iterator, Protocol
 from .. import pricing
 from .. import scan_roots
 from ..cache import ScanCache
-from ..models import CostCoverage, DailyUsage, Entry, ProviderEnrichment
+from ..models import BlockUsage, CostCoverage, DailyUsage, Entry, ProviderEnrichment
 
 try:  # orjson is ~2x faster on this workload but must not be required
     import orjson
@@ -64,6 +64,10 @@ class UsageProvider(Protocol):
 # after parsing and would trap on overflow. Python ints do not overflow, but the
 # clamp still has to match: an uncapped `1e30` from one corrupt record would swamp
 # the day's totals and hand the companion a nonsense lifetime spend.
+# The 5-hour block every provider's burn rate is measured over, matching
+# LocalUsageReader.blockWindow.
+BLOCK_WINDOW = 5 * 60 * 60
+
 MAX_PARSED_TOKEN_VALUE = 1_000_000_000_000_000
 
 
@@ -403,7 +407,46 @@ class ScanningProvider:
                 week["coverage"].merge(coverage)
         return {"week": week, "month": month, "month_daily": month_daily}
 
+    def fetch_active_block(self, now: datetime | None = None) -> BlockUsage | None:
+        """The rolling 5-hour block, and how fast it is being filled.
+
+        A port of LocalUsageReader.activeBlock: the window is the last
+        BLOCK_WINDOW seconds, the block "starts" at the earliest entry inside
+        it, and the rate is that block's tokens over the minutes since. The
+        rate is the input the 5-hour forecast needs — without it the popup can
+        say how full the window is but not when it runs out.
+        """
+        now = now or datetime.now().astimezone()
+        start = now - timedelta(seconds=BLOCK_WINDOW)
+        # Normalised the way local_day already does it: parse_iso returns a
+        # naive datetime for any log line written without an offset, and
+        # comparing one of those against an aware `start` raises rather than
+        # sorting. astimezone() reads a naive value as local, which is the same
+        # assumption the daily totals are already built on.
+        recent = sorted(
+            (e for e in self.scan_entries() if e.date.astimezone() >= start),
+            key=lambda e: e.date.astimezone(),
+        )
+        if not recent:
+            return None
+        first = recent[0].date.astimezone()
+        total = sum(e.total for e in recent)
+        # cost_of answers with (amount, coverage) here; the block only needs
+        # the amount.
+        cost = sum(self.cost_of(e)[0] for e in recent)
+        # Floored at one minute: a block seconds old would otherwise divide by
+        # near-zero and report a rate in the millions.
+        minutes = max(1.0, (now - first).total_seconds() / 60.0)
+        return BlockUsage(
+            id=f"block-{int(first.timestamp())}",
+            start_time=first.isoformat(),
+            end_time=(first + timedelta(seconds=BLOCK_WINDOW)).isoformat(),
+            is_active=True,
+            total_tokens=total,
+            cost_usd=cost,
+            tokens_per_minute=total / minutes,
+        )
+
     def fetch_enrichment(self) -> ProviderEnrichment:
-        # Blocks/burn-rate remain unported; the *_ok flags stay false so callers
-        # keep their previous values rather than zeroing.
-        return ProviderEnrichment()
+        block = self.fetch_active_block()
+        return ProviderEnrichment(active_block=block, blocks_ok=True)

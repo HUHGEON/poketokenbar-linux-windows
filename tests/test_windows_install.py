@@ -183,3 +183,93 @@ def test_ci_actually_runs_the_installer():
     )
     assert "cscript" in workflow, "the generated VBScript is never compiled"
     assert "./packaging/windows/uninstall.ps1" in workflow
+
+
+# MARK: shortcuts
+
+
+def test_there_is_a_way_to_start_it_without_a_terminal():
+    """Quitting the tray used to leave no way back but opening PowerShell and
+    running the installer again."""
+    script = INSTALL.read_text(encoding="utf-8")
+    assert "GetFolderPath('Programs')" in script, "no Start Menu entry"
+    assert "GetFolderPath('Desktop')" in script, "no desktop shortcut"
+    assert "poketokenbar.vbs" in script
+
+
+def test_the_shortcuts_wear_the_app_icon():
+    script = INSTALL.read_text(encoding="utf-8")
+    assert "IconLocation" in script
+    assert "poketokenbar.ico" in script
+
+
+def test_the_icon_is_copied_into_the_install():
+    """Only the package directory is copied, so an icon referenced where it
+    sits in the repo is one the shortcuts lose the moment the repo is deleted
+    — and a shortcut with a missing icon quietly wears the interpreter's."""
+    script = INSTALL.read_text(encoding="utf-8")
+    assert "Copy-Item -Force (Join-Path $PSScriptRoot 'poketokenbar.ico')" in script
+    assert "Join-Path $app 'packaging" not in script, (
+        "the icon is referenced where it is not installed")
+
+
+def test_the_icon_is_a_real_icon_file():
+    """Committed rather than generated at install time, so installing needs no
+    network for it — and a corrupt one would be a blank shortcut nobody
+    notices until they look at their desktop."""
+    import struct
+
+    icon = WINDOWS_DIR / "poketokenbar.ico"
+    assert icon.is_file(), "the icon is missing"
+    raw = icon.read_bytes()
+    reserved, kind, count = struct.unpack("<HHH", raw[:6])
+    assert (reserved, kind) == (0, 1), "not an icon directory"
+    assert count >= 4, "too few sizes; Windows picks badly from a short list"
+    for index in range(count):
+        entry = raw[6 + 16 * index:22 + 16 * index]
+        width, height, _c, _r, _p, _bpp, size, offset = struct.unpack("<BBBBHHII", entry)
+        blob = raw[offset:offset + size]
+        assert blob[:8] == b"\x89PNG\r\n\x1a\n", f"entry {index} is not a PNG"
+        png_width, png_height = struct.unpack(">II", blob[16:24])
+        # 0 in the directory means 256; anything else must match the image.
+        expected = width or 256
+        assert (png_width, png_height) == (expected, expected)
+    assert any(raw[6 + 16 * i] in (16, 32) for i in range(count)), (
+        "no small size, so the taskbar would scale a large one")
+
+
+def test_the_generator_is_kept_with_the_icon():
+    """So the next person can rebuild it rather than guessing how it was made."""
+    generator = WINDOWS_DIR.parent.parent / "tools" / "make_icon.py"
+    assert generator.is_file()
+    assert "poketokenbar.ico" in generator.read_text(encoding="utf-8")
+
+
+def test_the_uninstaller_takes_the_shortcuts_with_it():
+    script = UNINSTALL.read_text(encoding="utf-8")
+    assert "GetFolderPath('Programs')" in script
+    assert "GetFolderPath('Desktop')" in script
+
+
+def test_the_windows_check_exercises_the_pet():
+    """The pet vanishing when clicked was a Windows-only windowing behaviour,
+    so the click path has to run on a Windows runner."""
+    check = WINDOWS_DIR.parent.parent / "tools" / "windows_check_tray.py"
+    source = check.read_text(encoding="utf-8")
+    assert "WindowDoesNotAcceptFocus" in source
+    assert "toggle_window()" in source
+
+
+def test_the_windows_checks_print_nothing_the_console_cannot_encode():
+    """The Windows console is cp1252. A single emoji in a print() takes the
+    whole check down with a UnicodeEncodeError, which is a red build over a
+    log line."""
+    tools = (WINDOWS_DIR.parent.parent / "tools").glob("windows_check_*.py")
+    for path in tools:
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            if "print(" not in line:
+                continue
+            try:
+                line.encode("cp1252")
+            except UnicodeEncodeError:
+                raise AssertionError(f"{path.name}:{number} prints non-cp1252 text")

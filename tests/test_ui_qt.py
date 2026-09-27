@@ -39,6 +39,15 @@ _APPLICATION = QApplication.instance() or QApplication([])
 sys._poketokenbar_qt = (_APPLICATION, [])
 
 
+def _page(window, name):
+    """The panel behind a page name — settings is not one of the tabs."""
+    return window.settings if name == "settings" else window.panels[name]
+
+
+def _tab_text(window, key: str) -> str:
+    return window.tabs._buttons[key].text()
+
+
 def keep(widget):
     """Hold a Qt object for the life of the process. See above."""
     sys._poketokenbar_qt[1].append(widget)
@@ -50,12 +59,6 @@ from poketokenbar.ui.reader import StateReader  # noqa: E402
 from poketokenbar.ui.widgets import Sprite, level_colour, meter  # noqa: E402
 
 from test_extension_contract import full_payload  # noqa: E402
-
-
-@pytest.fixture(scope="session")
-def qt_app():
-    """The one QApplication; Qt allows exactly one per process."""
-    return _APPLICATION
 
 
 @pytest.fixture(scope="module")
@@ -79,7 +82,7 @@ PANEL_NAMES = ("home", "shop", "bag", "collection", "settings")
 @pytest.mark.parametrize("name", PANEL_NAMES)
 def test_every_panel_renders_a_full_payload(qt_app, reader, payload, name):
     window = keep(Window(reader))
-    panel = window.panels[name]
+    panel = _page(window, name)
     panel.update(payload)
     assert panel.layout_.count() > 0, f"{name} produced no widgets"
 
@@ -90,8 +93,8 @@ def test_every_panel_survives_an_empty_state(qt_app, name):
     sees. A front end that raises here never shows anything at all."""
     empty = StateReader()
     window = keep(Window(empty))
-    window.panels[name].update(None)
-    window.panels[name].update({})
+    _page(window, name).update(None)
+    _page(window, name).update({})
 
 
 @pytest.mark.parametrize("name", PANEL_NAMES)
@@ -99,7 +102,7 @@ def test_updating_twice_does_not_double_the_contents(qt_app, reader, payload, na
     """A widget removed from a layout is still parented and still painted until
     Qt collects it, so a rebuild without an explicit delete shows both."""
     window = keep(Window(reader))
-    panel = window.panels[name]
+    panel = _page(window, name)
     panel.update(payload)
     first = panel.layout_.count()
     panel.update(payload)
@@ -156,7 +159,7 @@ def test_the_footer_reports_a_stale_daemon(qt_app, payload):
 def test_only_the_visible_tab_is_rebuilt(qt_app, reader, payload):
     """The others would throw their children away again before anyone saw them."""
     window = keep(Window(reader))
-    window.tabs.setCurrentIndex(0)
+    window.show_tab("home")
     window.refresh(payload)
     assert window.panels["home"].layout_.count() > 0
     assert window.panels["shop"].layout_.count() == 0
@@ -187,12 +190,29 @@ def test_the_tooltip_falls_back_to_the_app_name(qt_app):
     assert tray.tray.toolTip() == "PokeTokenBar"
 
 
-def test_the_tray_menu_offers_open_refresh_and_quit(qt_app):
-    tray = keep(TrayApp(qt_app, StateReader()))
+def test_the_tray_menu_offers_open_refresh_and_quit(qt_app, payload):
+    subject = StateReader()
+    subject.state = payload
+    tray = keep(TrayApp(qt_app, subject))
+    tray._relabel_menu()
     labels = [action.text() for action in tray.tray.contextMenu().actions()]
-    assert labels[0] == "Open"
-    assert "Refresh" in labels
-    assert "Quit" in labels
+    assert labels[0] == payload["strings"]["open"]
+    assert payload["strings"]["refresh"] in labels
+    assert payload["strings"]["quit"] in labels
+
+
+def test_the_tray_menu_is_relabelled_once_the_catalogue_arrives(qt_app, payload):
+    """A menu is built once and never rebuilt, so a menu labelled before the
+    first read keeps the raw keys for the life of the process."""
+    from poketokenbar import l10n
+
+    subject = StateReader()
+    tray = keep(TrayApp(qt_app, subject))
+    assert tray._menu_actions["open"].text() == "open", "no catalogue yet"
+
+    subject.state = dict(payload, strings=l10n.catalogue("ko"))
+    tray._relabel_menu()
+    assert tray._menu_actions["open"].text() == l10n.catalogue("ko")["open"]
 
 
 def test_polling_an_absent_state_file_does_not_raise(qt_app, tmp_path):
@@ -247,11 +267,26 @@ def test_resets_in_counts_down_rather_than_printing_a_timestamp():
     fail on the microseconds between building the input and reading it."""
     from datetime import datetime, timedelta, timezone
 
+    from poketokenbar import l10n
+
+    english = lambda key: l10n.t(key, "en")  # noqa: E731
     soon = (datetime.now(timezone.utc) + timedelta(hours=2, minutes=15)).isoformat()
-    assert panels.resets_in(soon, lambda k: k) in ("2h 15m", "2h 14m")
+    assert panels.resets_in(soon, english) in ("2h 15m", "2h 14m")
 
     later = (datetime.now(timezone.utc) + timedelta(days=3, hours=4)).isoformat()
-    assert panels.resets_in(later, lambda k: k).startswith("3d ")
+    assert panels.resets_in(later, english).startswith("3d ")
+
+
+def test_a_countdown_never_shows_more_than_two_units():
+    """"6일 2시간", not "6일 2시간 13분 4초" — a full breakdown of a week-long
+    window is noise, and it is what the popover shows."""
+    from poketokenbar import l10n
+
+    english = lambda key: l10n.t(key, "en")  # noqa: E731
+    assert panels.duration(6 * 86400 + 2 * 3600 + 13 * 60 + 4, english) == "6d 2h"
+    assert panels.duration(2 * 3600 + 36 * 60, english) == "2h 36m"
+    assert panels.duration(26, english) == "26s"
+    assert panels.duration(0, english) == "0s"
 
 
 def test_a_past_reset_says_so():
@@ -263,10 +298,14 @@ def test_an_unparseable_reset_is_blank_not_an_error():
         assert panels.resets_in(value, lambda k: k) == ""
 
 
-def test_ago_reads_as_english():
-    assert panels.ago(5) == "just now"
-    assert panels.ago(600) == "10 min ago"
-    assert panels.ago(None) == ""
+def test_ago_is_resolved_through_the_catalogue():
+    """Hardcoding it here is what left a Korean install reading English."""
+    from poketokenbar import l10n
+
+    korean = lambda key: l10n.t(key, "ko")  # noqa: E731
+    assert panels.ago(5, korean) == l10n.t("updated_just_now", "ko")
+    assert "10" in panels.ago(600, korean)
+    assert panels.ago(None, korean) == ""
 
 
 # MARK: settings coverage
@@ -302,8 +341,23 @@ def test_every_settings_key_has_a_daemon_default():
 def test_the_language_choice_matches_the_daemon_catalogue():
     from poketokenbar import l10n
 
-    choices = dict((key, options) for key, _label, options in panels.SettingsPanel.CHOICES)
+    choices = {key: options for key, _label, options, _shown in panels.SettingsPanel.CHOICES}
     assert list(choices["language"]) == list(l10n.LANGUAGES)
+
+
+def test_every_settings_label_is_a_catalogue_key():
+    """A literal here is a label that never translates, which is exactly how the
+    settings page ended up entirely in English."""
+    from poketokenbar import l10n
+
+    keys = {label for _key, label in panels.SettingsPanel.TOGGLES}
+    keys |= {label for _key, label, *_ in panels.SettingsPanel.SPINS}
+    keys |= {label for _key, label, *_ in panels.SettingsPanel.CHOICES}
+    for _key, _label, _options, shown in panels.SettingsPanel.CHOICES:
+        if shown:
+            keys |= set(shown)
+    unknown = keys - set(l10n.STRINGS)
+    assert not unknown, f"labels that are not catalogue keys: {sorted(unknown)}"
 
 
 def test_tab_labels_arrive_with_the_catalogue(qt_app, payload):
@@ -313,12 +367,12 @@ def test_tab_labels_arrive_with_the_catalogue(qt_app, payload):
     """
     subject = StateReader()
     window = keep(Window(subject))
-    assert window.tabs.tabText(0) == "home", "no catalogue yet, so the key stands in"
+    assert _tab_text(window, "home") == "home", "no catalogue yet, so the key stands in"
 
     subject.state = payload
     window.refresh(payload)
-    assert window.tabs.tabText(0) == payload["strings"]["home"]
-    assert window.tabs.tabText(0) != "home"
+    assert _tab_text(window, "home") == payload["strings"]["home"]
+    assert _tab_text(window, "home") != "home"
 
 
 def test_tab_labels_follow_a_language_change(qt_app, payload):
@@ -330,21 +384,44 @@ def test_tab_labels_follow_a_language_change(qt_app, payload):
     subject.state = payload
     window = keep(Window(subject))
     window.refresh(payload)
-    english = window.tabs.tabText(0)
+    english = _tab_text(window, "home")
 
     subject.state = dict(payload, strings=l10n.catalogue("ko"))
     window.refresh(subject.state)
-    assert window.tabs.tabText(0) != english
-    assert window.tabs.tabText(0) == l10n.catalogue("ko")["home"]
+    assert _tab_text(window, "home") != english
+    assert _tab_text(window, "home") == l10n.catalogue("ko")["home"]
 
 
-def test_the_settings_tab_keeps_its_own_name(qt_app, payload):
-    """It is the extension's own word, not one the daemon ships."""
+def test_settings_is_a_page_not_a_fifth_tab(qt_app, payload):
+    """The popover reaches it from the footer gear and leaves by a back button,
+    so the four tabs stay the four things someone switches between."""
     subject = StateReader()
     subject.state = payload
     window = keep(Window(subject))
     window.refresh(payload)
-    assert window.tabs.tabText(window.tabs.count() - 1) == "Settings"
+    assert list(window.panels) == ["home", "shop", "bag", "collection"]
+
+    window.show_settings()
+    assert window.stack.currentWidget() is window.settings
+    assert window.settings_bar.isVisibleTo(window)
+    assert not window.tab_bar.isVisibleTo(window)
+
+    window.show_tab("home")
+    assert window.stack.currentWidget() is window.panels["home"]
+    assert window.tab_bar.isVisibleTo(window)
+
+
+def test_the_settings_header_is_translated_too(qt_app, payload):
+    """It used to be the one label spelled out in English on purpose, which is
+    what someone reading a Korean install saw first."""
+    from poketokenbar import l10n
+
+    subject = StateReader()
+    subject.state = dict(payload, strings=l10n.catalogue("ko"))
+    window = keep(Window(subject))
+    window.refresh(subject.state)
+    assert window.settings_title.text() == l10n.catalogue("ko")["settings"]
+    assert window.back_label.text() == l10n.catalogue("ko")["back"]
 
 
 # MARK: the desktop pet
@@ -534,15 +611,88 @@ class _StubMovie:
 # MARK: save transfer
 
 
-def test_the_tray_menu_offers_save_transfer(qt_app):
+def test_the_tray_menu_offers_save_transfer(qt_app, payload):
     """Handled by the daemon all along, and reachable only from poketokenctl —
     which is not where anyone looks to move their Pokedex."""
-    tray = keep(TrayApp(qt_app, StateReader()))
+    subject = StateReader()
+    subject.state = payload
+    tray = keep(TrayApp(qt_app, subject))
+    tray._relabel_menu()
     labels = [action.text() for action in tray.tray.contextMenu().actions()]
-    assert "Export save" in labels
-    assert "Import save" in labels
+    assert payload["strings"]["export_save"] in labels
+    assert payload["strings"]["import_save"] in labels
 
 
 def test_the_save_path_is_predictable(qt_app):
     tray = keep(TrayApp(qt_app, StateReader()))
     assert tray.save_path().name == "poketokenbar-save.json"
+
+
+# MARK: the pet coming back
+#
+# It vanished when clicked on Windows: a tool window is owned by whichever
+# window of the application was last active, so a pet that took activation
+# became owned by the popup and went with it. The flags that stop that cannot
+# be tested off Windows — macOS does not reproduce it, the unfixed version
+# survives there too — but the recovery can be, and it does not depend on
+# knowing what hid the window or why.
+
+
+def test_the_pet_refuses_activation(qt_app):
+    """The mechanism, stated as a property rather than as a behaviour: a pet
+    that never becomes the active window is never owned by the popup."""
+    from PySide6.QtCore import Qt
+
+    from poketokenbar.ui.pet import DesktopPet
+
+    pet = keep(DesktopPet())
+    assert pet.windowFlags() & Qt.WindowDoesNotAcceptFocus
+    assert pet.testAttribute(Qt.WA_ShowWithoutActivating)
+    assert pet.focusPolicy() == Qt.NoFocus
+
+
+def test_a_hidden_pet_is_back_on_the_next_poll(qt_app, payload):
+    """Whatever hid it — a compositor, a session change, the platform
+    reacting to the popup — it used to be permanent: the pet still existed, so
+    nothing showed it again and it was gone until the app restarted."""
+    subject = StateReader()
+    subject.state = payload
+    tray = keep(TrayApp(qt_app, subject))
+    state = dict(payload, config=dict(payload["config"], floating_pet_enabled=True))
+    tray._sync_pet(state)
+    assert tray.pet is not None
+
+    tray.pet.hide()
+    assert not tray.pet.isVisible()
+
+    tray._sync_pet(state)
+    assert tray.pet.isVisible(), "the pet was left hidden"
+
+
+def test_toggling_the_popup_puts_the_pet_back(qt_app, payload):
+    """The moment it went missing, so recovery cannot wait for the next poll:
+    two seconds of no pet after every click is the bug in slower form."""
+    subject = StateReader()
+    subject.state = payload
+    tray = keep(TrayApp(qt_app, subject))
+    tray._sync_pet(dict(payload, config=dict(payload["config"],
+                                             floating_pet_enabled=True)))
+    for _ in range(4):
+        tray.pet.hide()
+        tray.toggle_window()
+        assert tray.pet.isVisible(), "closing or opening the popup lost the pet"
+
+
+def test_the_reassert_does_not_ask_whether_it_is_needed(qt_app, payload):
+    """Qt cannot see a window the platform hid on its own — isVisible() still
+    reports true — so a reassert guarded by that check would do nothing in the
+    one case it exists for."""
+    import inspect
+
+    from poketokenbar.ui import app as app_module
+
+    # The docstring says why it does not check, so only the code is scanned.
+    source = inspect.getsource(app_module.TrayApp._reassert_pet)
+    body = source[source.index('"""', source.index('"""') + 3) + 3:]
+    assert "isVisible" not in body, "the reassert is guarded by a check that lies"
+    assert "show()" in body

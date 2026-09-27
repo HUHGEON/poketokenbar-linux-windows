@@ -17,6 +17,23 @@ Write-Host "==> installing to $root"
 New-Item -ItemType Directory -Force -Path $app | Out-Null
 Copy-Item -Recurse -Force (Join-Path $repo 'poketokenbar') $app
 
+# The shortcut icon travels with the install: only the package directory is
+# copied, so an icon left in the repo is one the shortcuts cannot point at
+# once the repo is deleted — and a shortcut whose icon is missing silently
+# falls back to the interpreter's.
+$icon = Join-Path $root 'poketokenbar.ico'
+Copy-Item -Force (Join-Path $PSScriptRoot 'poketokenbar.ico') $icon
+
+# Which commit this install came from, so the app can tell whether GitHub has a
+# newer one without carrying a git checkout around. Unknown is written as empty
+# rather than guessed: an install that cannot say what it is must not be
+# offered an update it cannot verify is newer.
+$revision = ''
+try { $revision = (& git -C $repo rev-parse HEAD 2>$null) } catch { }
+if ($LASTEXITCODE -ne 0) { $revision = '' }
+[IO.File]::WriteAllText((Join-Path $app 'REVISION'), "$revision".Trim())
+Write-Host "    revision $(if ($revision) { $revision.Trim() } else { 'unknown' })"
+
 Write-Host "==> creating venv"
 if (-not (Test-Path $venv)) { python -m venv $venv }
 $py = Join-Path $venv 'Scripts\python.exe'
@@ -58,15 +75,36 @@ foreach ($name in $launchers.Keys) {
   Write-Host "    wrote $target"
 }
 
+# The icon the shortcuts wear — the companion's own egg, built by
+# tools/make_icon.py and committed, so installing needs no network for it.
+if (-not (Test-Path $icon)) { $icon = $pyw }
+
+function New-Shortcut($path, $target, $iconPath) {
+  $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($path)
+  $shortcut.TargetPath = $target
+  $shortcut.WorkingDirectory = Split-Path $target
+  $shortcut.IconLocation = "$iconPath,0"
+  $shortcut.Description = 'PokeTokenBar'
+  $shortcut.Save()
+  Write-Host "    $path"
+}
+
 Write-Host "==> registering both at login"
 $startup = [Environment]::GetFolderPath('Startup')
 foreach ($name in $launchers.Keys) {
-  $link = Join-Path $startup ($name -replace '\.vbs$', '.lnk')
-  $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut($link)
-  $shortcut.TargetPath = Join-Path $root $name
-  $shortcut.WorkingDirectory = $root
-  $shortcut.Save()
-  Write-Host "    $link"
+  New-Shortcut (Join-Path $startup ($name -replace '\.vbs$', '.lnk')) `
+               (Join-Path $root $name) $icon
+}
+
+# Somewhere to start it by hand. Without these the only way back after
+# quitting the tray was to open PowerShell and run the installer again.
+Write-Host "==> making shortcuts"
+$programs = Join-Path ([Environment]::GetFolderPath('Programs')) 'PokeTokenBar.lnk'
+$desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) 'PokeTokenBar.lnk'
+foreach ($link in @($programs, $desktop)) {
+  # Starts the tray, which is the half with a window; the daemon is already
+  # running from login and starting a second one is harmless but pointless.
+  New-Shortcut $link (Join-Path $root 'poketokenbar.vbs') $icon
 }
 
 Write-Host "==> starting"

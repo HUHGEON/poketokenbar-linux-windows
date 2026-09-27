@@ -705,12 +705,12 @@ class HomeSection extends Section {
                 refresh,
             ]));
         }
-        if (limits.plan)
-            this.add_child(caption(t('plan_label').replace('%1', String(limits.plan).toUpperCase()), 'tertiary'));
-        const account = limits.account ?? {};
-        const who = account.email || account.name;
-        if (who)
-            this.add_child(caption(t('account_label').replace('%1', who), 'tertiary'));
+        if (limits.plan_text)
+            this.add_child(caption(t('plan_label').replace('%1', limits.plan_text), 'tertiary'));
+        // Which account these belong to. Someone signed into two is otherwise
+        // reading a bar that belongs to the other one.
+        if (limits.account_text)
+            this.add_child(caption(t('account_label').replace('%1', limits.account_text), 'tertiary'));
 
         // Several Claude logins: one tab each, the default account first
         // (upstream e5b4800). With one login there are no tabs and this is the
@@ -735,14 +735,20 @@ class HomeSection extends Section {
         }
 
         const mode = state?.config?.limit_value_mode;
-        for (const [key, name] of [['session', 'five_hour_session'], ['weekly', 'weekly']]) {
-            const limitWindow = shownAccount[key];
+        const rows = [
+            ['session', t('five_hour_session'), shownAccount.session],
+            ['weekly', t('weekly'), shownAccount.weekly],
+            // Model-scoped weeklies ("Weekly Fable") arrive only in limits[],
+            // so session and weekly alone are a row short of what is in force.
+            ...(limits.scoped ?? []).map(entry => [entry.kind, entry.name, entry]),
+        ];
+        for (const [key, name, limitWindow] of rows) {
             if (!limitWindow)
                 continue;
             const used = limitWindow.utilization ?? 0;
             const shown = mode === 'remaining' ? Math.max(0, 100 - used) : used;
             const percent = `${Math.round(shown)}%`;
-            const head = row([label(t(name), 'poketokenbar-callout'), spacer()]);
+            const head = row([label(name, 'poketokenbar-callout'), spacer()]);
             const resets = resetsIn(limitWindow.resets_at, t);
             if (resets) {
                 head.add_child(caption(`${resets}${resetClock(limitWindow.resets_at, t)}`,
@@ -772,10 +778,38 @@ class HomeSection extends Section {
 
             // The forecast belongs to the window it is a forecast for.
             const burnRow = state?.burn?.[key];
-            if (burnRow?.eta_text)
-                this.add_child(caption(`⚠ ${t('at_this_rate').replace('%1', burnRow.eta_text)}`, 'orange'));
+            if (burnRow?.before_reset !== undefined) {
+                this.add_child(burnRow.before_reset
+                    ? caption(`⚠ ${t('at_this_rate').replace('%1', burnRow.eta_text ?? '')}`, 'orange')
+                    : caption(`✓ ${t('no_limit_before_reset')}`, 'tertiary'));
+            } else if (burnRow?.eta_text) {
+                this.add_child(caption(
+                    `⚠ ${t('at_this_rate').replace('%1', burnRow.eta_text)}`, 'orange'));
+            }
         }
+        this._addBlock(state, t);
         return true;
+    }
+
+    /** The rolling five-hour block.
+     *
+     * Not a limit window — it is what has been spent inside the current one,
+     * and where the forecast's rate comes from. Once its five hours are past
+     * there is nothing left to count down to, so the countdown goes.
+     */
+    _addBlock(state, t) {
+        const block = state?.blocks?.claude_code;
+        if (!block)
+            return;
+        const resets = resetsIn(block.end_time, t);
+        const line = row([
+            caption(t('claude_current_block'), 'tertiary'),
+            spacer(),
+            label(block.total_tokens_compact ?? '', 'poketokenbar-caption poketokenbar-strong'),
+        ]);
+        if (resets)
+            line.add_child(caption(resets, 'tertiary'));
+        this.add_child(line);
     }
 });
 
@@ -1707,11 +1741,20 @@ const ANIMATION = {
         {value: 'smooth', string: 'quality_smooth'},
     ],
 };
+const PIN_ON_GRADUATION = {
+    key: 'pin_on_graduation',
+    string: 'setting_pin_on_graduation',
+    options: [
+        {value: 'keep', string: 'pin_keep'},
+        {value: 'release', string: 'pin_release'},
+    ],
+};
 const REFRESH_INTERVAL = {key: 'refresh_interval', string: 'setting_refresh_interval',
     presets: [60, 120, 300, 600, 900]};
 const PET_TOGGLES = [
     {key: 'floating_pet_enabled', string: 'setting_desktop_pet', hint: 'pet_hint'},
     {key: 'floating_pet_bubble_alerts', string: 'setting_pet_bubbles'},
+    {key: 'launch_at_login', string: 'setting_launch_at_login'},
 ];
 const PET_SIZE = {key: 'floating_pet_size', string: 'setting_pet_size', unit: 'px',
     min: 48, max: 384, step: 12};
@@ -1785,6 +1828,7 @@ class SettingsSection extends Section {
         ]);
 
         this._group(t('section_panel'), [
+            this._choiceItem(PIN_ON_GRADUATION, config, t),
             ...PANEL_TOGGLES.map(spec => this._toggleItem(spec, config, t)),
             this._choiceItem(PANEL_LIMIT_WINDOWS, config, t),
         ], t('all_off_hint'));
@@ -1804,6 +1848,7 @@ class SettingsSection extends Section {
         `${Math.round(DIFFICULTY_STEPS[0] * 100)}%–${Math.round(DIFFICULTY_STEPS.at(-1) * 100)}% · ${
             t('difficulty_hint')}`);
 
+        this._addUpdate(state, t);
         this._addTransfer(state, t);
         this._addSnapshots(state, t);
         this._addAdvanced(state, t);
@@ -1978,6 +2023,32 @@ class SettingsSection extends Section {
             button(t('cancel'), dismiss),
         ]));
         this.add_child(card(parts, 'poketokenbar-confirm'));
+    }
+
+    // --- the update the daemon can apply -----------------------------------------
+
+    _addUpdate(state, t) {
+        const update = state?.update ?? {};
+        // Running from a git checkout. Overwriting one would throw away
+        // whatever is being worked on, so the daemon refuses — and a button
+        // that refuses is worse than a sentence saying why.
+        if (!update.supported) {
+            this._group(t('update'), [this._item('', caption(t('update_unsupported'), 'tertiary'))]);
+            return;
+        }
+        if (!update.available) {
+            const rows = [this._item('', caption(
+                t('update_current').replace('%1', update.installed_short || '?'), 'tertiary'))];
+            if (update.error)
+                rows.push(this._item('', caption(update.error, 'orange')));
+            this._group(t('update'), rows);
+            return;
+        }
+        const apply = borderedButton(t('update_now'), () => markSent(apply, Commands.update()));
+        this._group(t('update'), [
+            this._item(t('update_available'), apply,
+                `${update.installed_short || ''} → ${update.available_short || ''}`),
+        ]);
     }
 
     // --- restore points (upstream 13e3bf2) ---------------------------------------

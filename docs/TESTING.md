@@ -109,14 +109,37 @@ not have, which is worse than a missing feature: the switch flipped and nothing
 happened. They are level now, and both agree with the daemon on what the three
 animation presets mean.
 
+## Verified by hand
+
+Nothing above proves an actor appears, that a GNOME API exists, or that a popup
+is laid out sensibly. That needs a desktop and a person, and both front ends
+have now had one.
+
+**The GNOME extension**, on Rocky Linux 10 with GNOME Shell 47–48. What that
+found — rendering stopping on a reused destroyed actor, a closed popup
+re-decoding every sprite every two seconds, a sprite decoded as two copies of
+its first frame — is the measure of what the mechanical checks cannot see.
+
+**The Windows tray UI**, on Windows 10: the pet survives a click, the tray icon
+animates, and all four popup tabs render. This one mattered because two of the
+fixes behind it — the pet's window flags and the animated tray icon — were made
+by removing their cause rather than by reproducing the symptom. macOS was tried
+as a stand-in for the first and does not reproduce it; the unfixed version
+survives there too. So the CI run said the fix broke nothing, and nothing about
+whether it worked. That gap is closed by someone having looked, not by a test.
+
 ## Not verified
 
-**Rendering.** Nothing here proves an actor appears, that a GNOME API exists, or
-that the popup is laid out sensibly. That needs a GNOME desktop.
+**Another desktop, another shell version.** The two runs above are two machines.
+A GNOME 45 session, a tiling compositor falling back to the tray app, and
+Windows 11 are all still unseen.
 
-**Two provider paths.** Cursor's and Kiro's SQLite stores are the only two whose
-Linux location is not pinned by an upstream test; they follow the Electron and
-XDG conventions. `CURSOR_DATA_DIR` and `KIRO_CLI_HOME` override them.
+**One provider path.** Kiro's SQLite store is the only location left without a
+source: its documentation says `~/.kiro/` while another source puts the macOS
+database under Application Support, so both are searched. Cursor's follows
+Electron's documented `app.getPath('userData')`, and OpenCode's is stated
+per-platform by its own troubleshooting page. `KIRO_CLI_HOME`, `KIRO_HOME`,
+`CURSOR_DATA_DIR` and `OPENCODE_DATA_DIR` override all of them.
 
 **Cursor's dashboard API.** Not ported. The local store is the fallback that
 path already uses, so usage reads offline; usage that never touched this machine
@@ -131,8 +154,13 @@ shipping a network path that could not be verified from this machine.
 ## Running them
 
 ```bash
-python -m pytest -q      # node must be on PATH, or the JavaScript checks skip
+python -m pytest -q               # node must be on PATH, or the JS checks skip
+node --test tests/js/*.test.mjs   # the checks that execute extension code
 ```
+
+The Qt front-end tests skip themselves when PySide6 is absent, so the count
+depends on the environment: CI's ubuntu job runs 932 and the Windows job, which
+installs PySide6, runs all 990.
 
 CI fails if those checks skip: a skip and a pass look identical in the summary,
 and they are the only thing covering the extension.

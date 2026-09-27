@@ -15,7 +15,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
@@ -69,9 +69,25 @@ class LimitWindow:
 
 
 @dataclass(slots=True)
+class ScopedWindow:
+    """A limits[] entry the legacy five_hour/seven_day fields cannot carry.
+
+    Model-scoped weekly limits arrive only here, as kind="weekly_scoped" with
+    the model under scope.model.display_name — which is what the popup renders
+    as "Weekly Fable". seven_day_opus/seven_day_sonnet are null now, so a
+    front end reading only the legacy fields shows one row too few.
+    """
+
+    kind: str | None
+    model: str | None
+    window: LimitWindow
+
+
+@dataclass(slots=True)
 class LimitStatus:
     session: LimitWindow | None = None
     weekly: LimitWindow | None = None
+    scoped: list = field(default_factory=list)
     subscription_type: str | None = None
     rate_limit_tier: str | None = None
     account: dict | None = None
@@ -197,10 +213,21 @@ def parse(payload: dict) -> LimitStatus:
             )
             if window is None:
                 continue
-            if entry.get("kind") == "session":
+            kind = entry.get("kind")
+            if kind == "session":
                 status.session = window
-            elif entry.get("kind") == "weekly_all":
+            elif kind == "weekly_all":
                 status.weekly = window
+            else:
+                # Everything the legacy fields cannot express. Matching
+                # scopedLimitEntries: the filter is on kind, not on a list of
+                # known scoped kinds, so a window Anthropic adds later still
+                # appears instead of being silently dropped.
+                scope = entry.get("scope")
+                model = None
+                if isinstance(scope, dict) and isinstance(scope.get("model"), dict):
+                    model = scope["model"].get("display_name") or None
+                status.scoped.append(ScopedWindow(kind=kind, model=model, window=window))
 
     if status.session is None:
         legacy = payload.get("five_hour")
@@ -262,23 +289,24 @@ def format_percent(value: float) -> str:
     return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
 
 
-def _format(window: LimitWindow | None, label: str) -> str:
+def _format(window: LimitWindow | None, label: str, percent_mode: str = "used") -> str:
     if window is None:
         return ""
-    value = window.utilization
-    text = f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
-    return f"{label} {text}"
+    # No "left" suffix on the panel: it is a narrow surface and the direction is
+    # the setting the reader chose, the way a battery percentage works. The
+    # self-explaining suffix belongs on the popup rows.
+    return f"{label} {format_percent(display_percent(window.utilization, percent_mode))}"
 
 
-def panel_text(status: LimitStatus | None, mode: str) -> str:
+def panel_text(status: LimitStatus | None, mode: str, percent_mode: str = "used") -> str:
     """Panel string, e.g. '5h 91% · 7d 17%'."""
     if status is None:
         return ""
     parts: list[str] = []
     if mode in ("session", "both"):
-        parts.append(_format(status.session, "5h"))
+        parts.append(_format(status.session, "5h", percent_mode))
     if mode in ("weekly", "both"):
-        parts.append(_format(status.weekly, "7d"))
+        parts.append(_format(status.weekly, "7d", percent_mode))
     return " · ".join(p for p in parts if p)
 
 
@@ -311,3 +339,43 @@ def fetch_status(path: Path | None = None) -> LimitStatus:
     status.rate_limit_tier = credential.rate_limit_tier
     status.account = read_account()
     return status
+
+
+def plan_display(status: LimitStatus | None) -> str | None:
+    """"Max 5x" from subscription_type="max" and a tier carrying a multiplier.
+
+    Ported from OAuthUsage.planDisplay: the multiplier is appended whenever the
+    tier has one, not only for Max — and when it has none the grade stands
+    alone ("Pro"). Upper-casing the whole thing, which is what this used to do,
+    printed "MAX" and lost the 5x entirely.
+    """
+    grade = (status.subscription_type or "").strip() if status else ""
+    if not grade:
+        return None
+    label = grade[:1].upper() + grade[1:]
+    multiplier = _tier_multiplier(status.rate_limit_tier or "")
+    return f"{label} {multiplier}" if multiplier else label
+
+
+def _tier_multiplier(tier: str) -> str | None:
+    for part in tier.split("_"):
+        if part.endswith("x") and part[:-1].isdigit() and len(part) > 1:
+            return part
+    return None
+
+
+def account_display(status: LimitStatus | None) -> str | None:
+    """"email · organisation", dropping a personal plan's generated org name.
+
+    A personal organisation is named "<email>'s Organization", so printing it
+    repeats the email. No email means no label at all: an organisation on its
+    own does not identify which login these limits belong to.
+    """
+    account = (status.account if status else None) or {}
+    email = (account.get("email") or "").strip()
+    if not email:
+        return None
+    organization = (account.get("organization") or "").strip()
+    if not organization or email in organization:
+        return email
+    return f"{email} · {organization}"

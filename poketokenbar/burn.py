@@ -94,3 +94,71 @@ class BurnTracker:
                 "eta_text": forecast.eta_text,
             }
         return out
+
+
+# Below this the block is too small a sample for the tokens-per-percent
+# estimate to mean anything, and below 5% utilization the divisor is noise.
+MIN_BLOCK_RATE = 10_000
+MIN_UTILIZATION = 5
+# A projection further out than a day says nothing useful about a 5-hour window.
+MAX_MINUTES_AHEAD = 60 * 24
+
+
+@dataclass(slots=True)
+class Depletion:
+    """When the 5-hour window is projected to reach 100%, and whether that
+    lands before it resets anyway."""
+
+    minutes: float
+    epoch: float
+    before_reset: bool
+
+    @property
+    def eta_text(self) -> str:
+        return time.strftime("%H:%M", time.localtime(self.epoch))
+
+
+def depletion_forecast(
+    utilization: float | None,
+    resets_at_epoch: float | None,
+    block_tokens: int,
+    tokens_per_minute: float | None,
+    now: float | None = None,
+) -> Depletion | None:
+    """Project the 5-hour limit forward — a port of UsageStore.forecastDepletion.
+
+    The token→percent mapping is not published, so it is estimated from what
+    is known: the active block's tokens divided by the utilization the API
+    reports gives tokens-per-percent, and the block's own rate turns the
+    remaining percent into minutes.
+
+    This replaces sampling utilization over time as the source of the forecast
+    row. The sampler needed three polls spread over minutes before it could say
+    anything, so a freshly opened window showed no forecast at all — while this
+    answers on the first poll, from figures that are already on hand.
+    """
+    if utilization is None:
+        return None
+    moment = time.time() if now is None else now
+    if utilization >= 100:
+        # Already out. Reported as depleted now rather than as no forecast.
+        return Depletion(minutes=0.0, epoch=moment, before_reset=True)
+    if (
+        utilization < MIN_UTILIZATION
+        or block_tokens <= 0
+        or not tokens_per_minute
+        or tokens_per_minute < MIN_BLOCK_RATE
+    ):
+        return None
+
+    tokens_per_percent = block_tokens / utilization
+    minutes = (100 - utilization) * tokens_per_percent / tokens_per_minute
+    if minutes != minutes or minutes in (float("inf"), float("-inf")):
+        return None
+    if minutes >= MAX_MINUTES_AHEAD:
+        return None
+    epoch = moment + minutes * 60
+    # No reset time means nothing to be "before": treated as reachable, which
+    # is the cautious reading of a limit with an unknown reset.
+    before = True if resets_at_epoch is None else epoch < resets_at_epoch
+    return Depletion(minutes=minutes, epoch=epoch, before_reset=before)

@@ -381,27 +381,40 @@ def test_a_kiro_home_with_only_jsonl_still_yields_usage(tmp_path):
     assert entries[0].explicit_cost is None
 
 
-def test_sqlite_root_follows_the_platform(tmp_path):
-    """An application-data directory, so it moves. Like Cursor's, none of the
-    three is pinned by an upstream test."""
+def test_sqlite_root_searches_both_places_the_database_is_known_to_live(tmp_path):
+    """Kiro's session-management page says only "SQLite database in `~/.kiro/`",
+    while its macOS install puts one at
+    `~/Library/Application Support/kiro-cli/data.sqlite3`. Neither statement
+    covers all three platforms, so both are searched rather than one being
+    guessed — an empty root costs a directory check, and picking the wrong one
+    reads as "this provider has no usage"."""
     from pathlib import Path
 
     assert kiro.sqlite_roots(home=tmp_path, env={}, system="linux") == [
-        tmp_path / ".local" / "share" / "kiro-cli"
+        tmp_path / ".local" / "share" / "kiro-cli", tmp_path / ".kiro",
     ]
     assert kiro.sqlite_roots(home=tmp_path, env={}, system="darwin") == [
-        tmp_path / "Library" / "Application Support" / "kiro-cli"
+        tmp_path / "Library" / "Application Support" / "kiro-cli", tmp_path / ".kiro",
     ]
     assert kiro.sqlite_roots(
         home=tmp_path, env={"APPDATA": "C:/Roaming"}, system="win32"
-    ) == [Path("C:/Roaming/kiro-cli")]
+    ) == [Path("C:/Roaming/kiro-cli"), tmp_path / ".kiro"]
+
+
+def test_the_dotfile_root_follows_kiro_home(tmp_path):
+    moved = tmp_path / "elsewhere"
+    roots = kiro.sqlite_roots(home=tmp_path, env={"KIRO_HOME": str(moved)}, system="linux")
+    assert moved in roots
+    assert kiro.session_roots(home=tmp_path, env={"KIRO_HOME": str(moved)}) == [
+        moved / "sessions"
+    ]
 
 
 def test_sqlite_root_overrides(tmp_path):
     elsewhere = tmp_path / "xdg"
     assert kiro.sqlite_roots(
         home=tmp_path, env={"XDG_DATA_HOME": str(elsewhere)}, system="linux"
-    ) == [elsewhere / "kiro-cli"]
+    ) == [elsewhere / "kiro-cli", tmp_path / ".kiro"]
     custom = tmp_path / "custom"
     for system in ("linux", "darwin", "win32"):
         assert kiro.sqlite_roots(

@@ -418,24 +418,35 @@ def sqlite_roots(
     env: Mapping[str, str] | None = None,
     system: str | None = None,
 ) -> list[Path]:
-    """`$KIRO_CLI_HOME`, else the platform's application-data directory.
+    """`$KIRO_CLI_HOME`, else both places the database is known to live.
 
-    Like Cursor's, this is not pinned by an upstream test; the environment
-    variable is the escape hatch.
+    Kiro's own session-management page says only "SQLite database in
+    `~/.kiro/`", while its macOS install puts one at
+    `~/Library/Application Support/kiro-cli/data.sqlite3`. Neither statement
+    covers all three platforms, so both are searched rather than one being
+    guessed — an empty root costs a directory check, and picking the wrong one
+    reads as "this provider has no usage".
     """
     env = os.environ if env is None else env
     configured = (env.get("KIRO_CLI_HOME") or "").strip()
     if configured:
         return [Path(configured).expanduser()]
-    return [platform_paths.data_base(home=home, env=env, system=system) / "kiro-cli"]
+    return [
+        platform_paths.data_base(home=home, env=env, system=system) / "kiro-cli",
+        _kiro_home(home, env),
+    ]
+
+
+def _kiro_home(home: Path | None, env: Mapping[str, str] | None) -> Path:
+    """`$KIRO_HOME`, else `~/.kiro` — a dotfile, the same on every platform."""
+    env = os.environ if env is None else env
+    configured = (env.get("KIRO_HOME") or "").strip()
+    return Path(configured).expanduser() if configured else (home or Path.home()) / ".kiro"
 
 
 def session_roots(home: Path | None = None, env: Mapping[str, str] | None = None) -> list[Path]:
     """`$KIRO_HOME/sessions`, else `~/.kiro/sessions` — a dotfile, unchanged."""
-    env = os.environ if env is None else env
-    configured = (env.get("KIRO_HOME") or "").strip()
-    base = Path(configured).expanduser() if configured else (home or Path.home()) / ".kiro"
-    return [base / "sessions"]
+    return [_kiro_home(home, env) / "sessions"]
 
 
 class KiroProvider(SQLiteProvider):

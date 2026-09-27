@@ -103,7 +103,9 @@ def test_the_letter_draw_leaves_every_other_roll_where_it_was():
         apply_usage(state, balance.EGG_HATCH_THRESHOLD, line_for_egg=line, rng=random.Random(7))
         return state.active
 
-    ordinary = hatch(EvoLine(base_id=1, path_ids=[1, 2, 3], rarity=Rarity.COMMON))
+    # Against a line of the same shape: choosing a branch draws from the rng
+    # too, so a three-form line would differ for that reason alone.
+    ordinary = hatch(EvoLine(base_id=132, path_ids=[132], rarity=Rarity.RARE))
     letters = hatch(_unown_line())
     assert ordinary.is_shiny == letters.is_shiny
     assert ordinary.nature == letters.nature

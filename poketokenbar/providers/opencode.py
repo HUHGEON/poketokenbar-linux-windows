@@ -18,6 +18,7 @@ file cannot steer the read somewhere unintended.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 from typing import Mapping
 
@@ -115,17 +116,29 @@ def roots(
     env: Mapping[str, str] | None = None,
     system: str | None = None,
 ) -> list[Path]:
-    """`$OPENCODE_DATA_DIR`, else the platform's application-data directory.
+    """`$OPENCODE_DATA_DIR`, else `~/.local/share/opencode` on every platform.
 
-    The Linux path (`~/.local/share/opencode`) is the one upstream names. The
-    others follow the same convention the tool's own runtime would, and like
-    Cursor and Kiro they are unverified — the variable overrides them.
+    Home-relative, not the platform's application-data directory — opencode's
+    own troubleshooting page gives `~/.local/share/opencode/` for macOS *and*
+    Linux and `%USERPROFILE%\\.local\\share\\opencode` for Windows, so it
+    keeps the XDG-shaped path everywhere rather than moving to Roaming or to
+    Application Support. Reading the platform directory instead found nothing
+    on two of the three platforms, which is indistinguishable from not having
+    used the tool.
+
+    XDG_DATA_HOME is still honoured where the tool would honour it: on Linux
+    `~/.local/share` *is* the default that variable overrides, so a machine
+    that has moved it keeps working.
     """
     env = os.environ if env is None else env
     configured = (env.get("OPENCODE_DATA_DIR") or "").strip()
     if configured:
         return [Path(configured).expanduser()]
-    return [platform_paths.data_base(home=home, env=env, system=system) / "opencode"]
+    base = (home or Path.home()) / ".local" / "share" / "opencode"
+    if (system or sys.platform) not in ("win32", "darwin"):
+        # Linux: the XDG base is what "~/.local/share" means, and it can move.
+        return [platform_paths.data_base(home=home, env=env, system=system) / "opencode"]
+    return [base]
 
 
 class OpenCodeProvider(SQLiteProvider):

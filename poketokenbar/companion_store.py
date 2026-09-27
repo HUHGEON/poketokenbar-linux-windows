@@ -68,6 +68,11 @@ class CompanionStore:
         # rather than started over (upstream 13e3bf2).
         self.state: CompanionState = save.load(
             self.save_path, recover=snapshots.latest_valid)
+        # What loading had to put back inside the rules, for the daemon to
+        # report once. A save is repaired in silence otherwise, and the first
+        # sign is a Pokemon that looks wrong. Read straight away: anything that
+        # decodes another save — listing restore points, for one — replaces it.
+        self.save_repairs: list[str] = list(save.last_repairs)
         self.migrate_profiles()
         self.api = api
         # Fetches species details in the background; None means only what is
@@ -75,6 +80,9 @@ class CompanionStore:
         self.detail_loader = detail_loader
         self.sprites = sprite_store
         self.rng = rng or random.Random()
+        # Set by the daemon from config each poll, the way the language is.
+        # False keeps a pin where it is when the Pokemon graduates.
+        self.release_pin_on_graduation = False
         # Held for one poll so the popup can show a celebration banner; the
         # notification fires immediately but the banner needs a render pass.
         self.celebration: dict | None = None
@@ -421,7 +429,8 @@ class CompanionStore:
             self._persist()
             return
         events = companion.apply_usage(
-            self.state, delta, line_for_egg=line, rng=self.rng
+            self.state, delta, line_for_egg=line, rng=self.rng,
+            release_pin_on_graduation=self.release_pin_on_graduation
         )
         self._record_events(events)
         self._note_celebration(events)
@@ -473,8 +482,13 @@ class CompanionStore:
                 "notif_shiny_ditto_body" if shiny else "notif_ditto_body",
                 was)
         elif events.graduated is not None:
+            # From the record, not from the companion: graduating clears the
+            # slot, so by the time this runs there is no active Pokemon left to
+            # take a name from and the banner read "raising — saved to your
+            # Pokedex".
             self.celebration = banner(
-                "graduated", "notif_graduate_title", "notif_graduate_body", label)
+                "graduated", "notif_graduate_title", "notif_graduate_body",
+                self.species_name(events.graduated.final_id, language) or label)
         elif events.evolved_to is not None:
             self.celebration = banner(
                 "evolved", "notif_evolve_title", "notif_evolve_body", label)
@@ -927,7 +941,9 @@ class CompanionStore:
                 label, description, _effect = self._item_words(e.key)
                 badge = ""
             else:
-                sprite = self._item_sprite("egg")
+                # ITEM_SPRITE has no "egg" entry, so asking for one returned
+                # nothing and every egg in the shop was a blank square.
+                sprite = self._egg_sprite()
                 tier = e.key.split(":")[1] if ":" in e.key else None
                 label, description, badge = self._egg_words(tier)
             # An egg stays listed during the egg stage but cannot be bought:
@@ -943,6 +959,10 @@ class CompanionStore:
                     "label": label,
                     "description": description,
                     "badge": badge,
+                    # The tier as a catalogue key, so a front end shows "고급"
+                    # rather than "UNCOMMON". `badge` is the uppercase word and
+                    # is not translatable.
+                    "rarity": tier if e.kind != "item" else None,
                     "sprite_path": sprite,
                     "emoji": {"rareCandy": "\N{CANDY}", "mint": "\N{HERB}",
                               "shinyCharm": "\N{SPARKLES}"}.get(e.key, "\N{EGG}"),

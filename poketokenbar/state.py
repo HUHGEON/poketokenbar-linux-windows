@@ -32,6 +32,7 @@ def _limits_payload(
     warn: float = 80,
     crit: float = 95,
     accounts=None,
+    strings: dict | None = None,
 ) -> dict:
     """Serialise a limits.LimitStatus, or an empty dict when unavailable.
 
@@ -110,11 +111,46 @@ def _limits_payload(
         # Only worth showing when there is more than one; the block above is
         # the default account either way.
         "accounts": rows() if accounts and len(accounts) > 1 else [],
+        # Model-scoped weekly windows ("Weekly Fable"). They arrive only in
+        # limits[], never in the legacy fields, so a front end reading
+        # session/weekly alone is a row short of what the account actually has.
+        "scoped": [
+            {
+                "kind": entry.kind,
+                "model": entry.model,
+                # Resolved here, not in the front end: the name depends on the
+                # catalogue and every front end would otherwise repeat the rule.
+                "name": _scoped_name(entry, strings or {}),
+                **(window(entry.window, entry.kind) or {}),
+            }
+            for entry in (status.scoped or [])
+            if window(entry.window, entry.kind) is not None
+        ],
         "plan": status.subscription_type,
+        "plan_text": limits.plan_display(status),
         "account": status.account or {},
         "stale": bool(freshness.get("stale")),
         "updated_at": freshness.get("updated_at"),
+        "account_text": limits.account_display(status),
     }
+
+
+def _scoped_name(entry, strings: dict) -> str:
+    """The row label for a limits[] entry outside the legacy fields.
+
+    Ported from Localization.claudeLimitEntry: a scoped weekly with a model is
+    "Weekly <model>", and one without falls back to a label that says it is
+    scoped — plain "Weekly" would collide with the legacy weekly row above it.
+    """
+    weekly_scoped = strings.get("weekly_scoped", "Weekly (scoped)")
+    if entry.kind == "weekly_scoped":
+        if not entry.model:
+            return weekly_scoped
+        return strings.get("weekly_model", "Weekly %1").replace("%1", entry.model)
+    base = (entry.kind or "limit").replace("_", " ")
+    return f"{base} {entry.model}" if entry.model else base
+
+
 
 
 def _recap_payload(recap_view, language: str) -> dict:
@@ -356,8 +392,10 @@ def build(
     periods: dict | None = None,
     burn: dict | None = None,
     provider_status: dict | None = None,
+    blocks: dict | None = None,
     celebration: dict | None = None,
     settings: dict | None = None,
+    update: dict | None = None,
     transfer: dict | None = None,
     recap: dict | None = None,
     detail: dict | None = None,
@@ -369,6 +407,7 @@ def build(
     language = config_values.get("language", "en")
     coverage = _combined_coverage(d.cost_coverage for d in daily_by_provider.values())
     cost_text, cost_compact = _cost_texts(total_cost, coverage, language, total_tokens)
+    percent_mode = config_values.get("limit_value_mode", "used")
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -403,6 +442,13 @@ def build(
                 "output_tokens": d.output_tokens,
                 "cache_creation_tokens": d.cache_creation_tokens,
                 "cache_read_tokens": d.cache_read_tokens,
+                # The breakdown line is rendered compact ("cache r 478M"), so
+                # the compact forms belong here beside every other prepared
+                # number rather than being derived again per front end.
+                "input_compact": fmt.compact(d.input_tokens),
+                "output_compact": fmt.compact(d.output_tokens),
+                "cache_creation_compact": fmt.compact(d.cache_creation_tokens),
+                "cache_read_compact": fmt.compact(d.cache_read_tokens),
                 # One session log can carry several models — Pi and its forks
                 # route them all through one file — so the day is broken down
                 # by the model that actually answered.
@@ -417,6 +463,7 @@ def build(
             float(config_values.get("warn_threshold", 80)),
             float(config_values.get("crit_threshold", 95)),
             limit_accounts,
+            l10n.catalogue(language),
         ),
         "companion": companion_payload or {},
         "shop": shop_payload or [],
@@ -432,16 +479,36 @@ def build(
         # The Pokédex page the popup has open, or {} for none.
         "detail": detail or {},
         "burn": burn or {},
+        # The rolling 5-hour block per provider — what the popup's
+        # "current 5h block" row shows, and where the forecast's rate comes
+        # from. Preformatted for the same reason everything else here is.
+        "blocks": {
+            pid: {
+                "total_tokens": block.total_tokens,
+                "total_tokens_text": fmt.grouped(block.total_tokens),
+                "total_tokens_compact": fmt.compact(block.total_tokens),
+                "cost_text": fmt.cost(block.cost_usd),
+                "tokens_per_minute": block.tokens_per_minute,
+                "start_time": block.start_time,
+                "end_time": block.end_time,
+            }
+            for pid, block in (blocks or {}).items()
+        },
         "provider_status": provider_status or {},
         # What the settings page needs that only the daemon can answer: which
         # sources are registered, and how many of a person's extra folders
         # actually survived. Counting their raw patterns instead would report a
         # folder as accepted when it had been dropped for swallowing a default.
         "settings": settings or {},
+        # Whether a newer commit is published, and which one is installed. Only
+        # an installed copy answers; a git checkout reports unsupported, since
+        # overwriting one would throw away whatever is being worked on.
+        "update": update or {"supported": False},
         # The export file the Import button would read, described so the popup
         # can ask before overwriting instead of after.
         "transfer": _transfer_payload(transfer),
         "recap": _recap_payload(recap, language),
+
         # The live config, so a preferences UI renders current values without
         # parsing config.json itself and without the two drifting apart.
         "config": dict(config_values),
@@ -452,7 +519,7 @@ def build(
             "cost_text": cost_compact
             if config_values.get("show_cost_in_menu")
             else "",
-            "limit_text": limits.panel_text(limit_status, limit_mode)
+            "limit_text": limits.panel_text(limit_status, limit_mode, percent_mode)
             if config_values.get("show_limit_in_menu")
             else "",
             # Structured form so the panel can colour each number on its own.
@@ -487,6 +554,11 @@ def build(
             "sprite_path": (companion_payload or {}).get(
                 "panel_sprite_path", (companion_payload or {}).get("sprite_path", "")
             ),
+            # Which species is pinned, so the settings dropdown can show the
+            # current choice rather than always reading "follow the current
+            # Pokemon" — the one state a pin has that nothing else exposes.
+            "representative_id": (companion_payload or {}).get(
+                "representative_species_id") or "",
         },
     }
 

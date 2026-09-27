@@ -13,7 +13,25 @@ from datetime import time as dtime
 from . import (commands, config, l10n, ledger, platform_paths, recap, save, state,
                transfer)
 from .companion_store import CompanionStore
+from . import autostart
+from . import updater as updater_module
+from . import burn as burn_module
 from .burn import BurnTracker
+
+
+def _epoch_of(iso: str | None) -> float | None:
+    """An ISO instant as a POSIX timestamp, or None if it is not one."""
+    if not iso:
+        return None
+    from datetime import datetime, timezone
+
+    try:
+        moment = datetime.fromisoformat(str(iso).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=timezone.utc)
+    return moment.timestamp()
 from .notify import Notifier
 from .status import StatusChecker
 from .limits_source import MultiAccountLimits
@@ -38,7 +56,7 @@ class Daemon:
     def __init__(
         self, state_path: Path, config_path: Path, cache, providers,
         limits_source=None, companion_store=None, notifier=None,
-        burn_tracker=None, status_checker=None,
+        burn_tracker=None, status_checker=None, updater=None,
     ) -> None:
         self.state_path = state_path
         self.config_path = config_path
@@ -49,6 +67,7 @@ class Daemon:
         self.companion_store = companion_store
         self.notifier = notifier
         self.burn = burn_tracker
+        self.updater = updater
         # Which account the last limits belonged to. Switching accounts changes
         # what the percentages mean, so cached limits and burn history from the
         # previous account must not carry over.
@@ -62,6 +81,8 @@ class Daemon:
         self._last_scan: tuple[dict, dict, list[str]] | None = None
         self._limit_status = None
         self._status_payload: dict | None = None
+        # The last scan's 5-hour blocks, for a publish between polls.
+        self._blocks: dict = {}
         self._status_error: str = ""
         self._last_full_poll_at: float = 0.0
         # Day-by-day history behind the usage recap. Providers only report the
@@ -80,6 +101,54 @@ class Daemon:
             return None
         value = configured.get(provider_id)
         return value if isinstance(value, str) and value.strip() else None
+
+    def _burn_payload(self, limit_status, blocks: dict) -> dict:
+        """The forecast rows, from the block rate rather than from sampling.
+
+        The sampler stays as the source for windows with no block behind them —
+        it is the only thing that can say anything about the weekly limit — but
+        the 5-hour row prefers the block estimate, which answers on the first
+        poll instead of after three.
+        """
+        payload = self.burn.payload() if self.burn is not None else {}
+        session = getattr(limit_status, "session", None)
+        block = blocks.get("claude_code")
+        if session is None or block is None:
+            return payload
+
+        forecast = burn_module.depletion_forecast(
+            session.utilization,
+            _epoch_of(session.resets_at),
+            block.total_tokens,
+            block.tokens_per_minute,
+        )
+        if forecast is None:
+            # Nothing projectable. The stale sampled row is dropped rather than
+            # left standing beside a block that no longer supports it.
+            payload.pop("session", None)
+            return payload
+        row = dict(payload.get("session") or {})
+        row.update({
+            "eta_text": forecast.eta_text,
+            "minutes_to_full": round(forecast.minutes),
+            "before_reset": forecast.before_reset,
+        })
+        payload["session"] = row
+        return payload
+
+    def _update_payload(self, errors: list[str]) -> dict:
+        """Whether a newer commit is published. Never fatal.
+
+        A machine with no network has to behave exactly like one that is up to
+        date: an update banner is not worth an error in the panel.
+        """
+        if self.updater is None:
+            return {"supported": False}
+        try:
+            self.updater.check()
+        except Exception as exc:  # pragma: no cover - check() swallows its own
+            errors.append(f"update check: {exc}")
+        return self.updater.payload()
 
     def settings_payload(self) -> dict:
         """Provider rows for the settings page, with live extra-folder counts."""
@@ -278,9 +347,33 @@ class Daemon:
                 # Manual refresh: drop cached limits so the next fetch is live.
                 if self.limits_source is not None:
                     self.limits_source.invalidate()
+            elif name == "update":
+                # Applied by the daemon, not the tray: it is the half that is
+                # always running, and the swap must not race two processes
+                # rewriting the same directory.
+                if self.updater is None:
+                    errors.append("update: not an installed copy")
+                else:
+                    try:
+                        revision = self.updater.apply()
+                        message = f"updated to {revision[:7]}"
+                        if self.notifier is not None:
+                            self.notifier._send("PokeTokenBar", message)
+                        self._pending_restart = True
+                    except Exception as exc:
+                        errors.append(f"update: {exc}")
             elif name == "reload_config":
                 self.config_values = config.load(self.config_path)
                 self._sync_difficulty()
+                # The login entry is a file on disk, so the setting only means
+                # anything if something writes it. The daemon does it rather
+                # than the tray: it is the half that is guaranteed to be
+                # running, and a setting changed through poketokenctl has to
+                # take effect too.
+                try:
+                    autostart.apply(bool(self.config_values.get("launch_at_login")))
+                except OSError as exc:
+                    errors.append(f"autostart: {exc}")
             elif name in ("export", "import", "restore") and self.companion_store is not None:
                 try:
                     self._transfer_command(name, command)
@@ -395,7 +488,23 @@ class Daemon:
         self._last_scan = (daily_by_provider, periods, scan_errors)
         self._last_full_poll_at = time.monotonic()
 
-        self._limit_status = None
+        # The rolling 5-hour block per provider. It carries the tokens/minute
+        # the limit forecast is derived from, so without it the popup can say
+        # how full the window is but not when it runs out. Kept on the daemon
+        # like the last scan is, so a command answered between polls rebuilds
+        # the payload with the same numbers rather than an empty forecast.
+        blocks: dict = {}
+        for provider in self.providers:
+            try:
+                enrichment = provider.fetch_enrichment()
+            except Exception as exc:
+                errors.append(f"{provider.id} block: {exc}")
+                continue
+            if enrichment.blocks_ok and enrichment.active_block is not None:
+                blocks[provider.id] = enrichment.active_block
+        self._blocks = blocks
+
+        limit_status = None
         if self.limits_source is not None:
             # Best effort: limits failing hides that section but must never
             # affect the token counts, which come from local logs.
@@ -452,6 +561,13 @@ class Daemon:
         if limits_error:
             errors.append(limits_error)
 
+        # Said once, on the poll after the save was read: a repaired save that
+        # says nothing is the same silence the repair exists to end.
+        if self.companion_store is not None and self.companion_store.save_repairs:
+            for note in self.companion_store.save_repairs:
+                errors.append(f"save: {note}")
+            self.companion_store.save_repairs = []
+
         companion_payload = None
         if self.companion_store is not None:
             try:
@@ -460,6 +576,8 @@ class Daemon:
                 # popup renders half-translated.
                 self.companion_store.state.language = language
                 self.companion_store.enrich_profiles()
+                self.companion_store.release_pin_on_graduation = (
+                    self.config_values.get("pin_on_graduation") == "release")
                 self.companion_store.update(
                     {pid: d.total_tokens for pid, d in daily_by_provider.items()}
                 )
@@ -554,16 +672,23 @@ class Daemon:
             rarity_counts=self.companion_store.rarity_counts() if self.companion_store else None,
             catch_counts=self.companion_store.catch_rarity_counts() if self.companion_store else None,
             periods=periods,
-            burn=self.burn.payload() if self.burn is not None else None,
+            burn=self._burn_payload(limit_status, self._blocks),
+            blocks=self._blocks,
             provider_status=self._status_payload,
             celebration=self.companion_store.celebration if self.companion_store else None,
             settings=self.settings_payload(),
+            update=self._update_payload(errors),
             transfer=self.transfer_payload(),
             detail=self.companion_store.detail_payload(dex_rows) if self.companion_store else None,
             recap=self.recap_view(),
             provider_names={p.id: p.display_name for p in self.providers or []},
         )
         state.write(self.state_path, payload)
+        if getattr(self, "_pending_restart", False):
+            # After the write, so the tray reads the new revision and can offer
+            # to restart itself too. execv never returns.
+            self._pending_restart = False
+            updater_module.restart_self()
         # Cleared after publishing so the banner shows once rather than
         # persisting until the next hatch.
         if self.companion_store is not None:
@@ -617,6 +742,7 @@ def main() -> int:
         notifier=Notifier(),
         burn_tracker=BurnTracker(),
         status_checker=StatusChecker(),
+        updater=updater_module.Updater(),
     )
     # The daemon owns the live config, so it is what answers the providers'
     # extra-folders lookup — reading it per call, not once at startup.
