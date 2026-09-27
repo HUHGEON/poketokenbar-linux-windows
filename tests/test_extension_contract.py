@@ -29,8 +29,10 @@ from poketokenbar.models import DailyUsage
 class _StubSprites:
     """Enough of SpriteStore for the payload builders to fill their sprite rows."""
 
-    def path(self, species_id, animated=True, shiny=False):
-        return Path(f"/cache/{species_id}{'-sh' if shiny else ''}{'a' if animated else 's'}")
+    def path(self, species_id, animated=True, shiny=False, unown_form=None):
+        letter = f"-{unown_form}" if unown_form and unown_form != "a" else ""
+        return Path(
+            f"/cache/{species_id}{letter}{'-sh' if shiny else ''}{'a' if animated else 's'}")
 
     def item_path(self, item_name):
         return Path(f"/cache/item-{item_name}.png")
@@ -335,6 +337,7 @@ ROW_ACCESSORS = {
     "todayRow": "month_trend_day",
     "snapshotRow": "snapshot",
     "recapBucket": "recap_bucket",
+    "unownForm": "unown_form",
     "graduatedRow": "recap_graduated",
     "individual": "detail_individual",
     "statRow": "detail_stat",
@@ -384,6 +387,13 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "unown_form":
+        store = CompanionStore(api=None, sprite_store=_StubSprites())
+        store.state = CompanionState(
+            dex=[DexEntry(base_id=201, final_id=201, chain_order=[201],
+                          rarity=Rarity.RARE, unown_form="b")])
+        store.inspect(201)
+        return set(store.detail_payload()["unown_forms"][0])
     if name == "recap_bucket":
         return set(payload["recap"]["buckets"][0])
     if name == "recap_graduated":
@@ -432,7 +442,7 @@ LIST_ROW_FIELDS = {
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "has_normal",
-            "is_raising", "is_pinned", "sprite_path", "search"},
+            "is_raising", "is_pinned", "sprite_path", "search", "form_count_text"},
 }
 
 # Fields only some rows in a block carry — the candy ladder belongs to the one

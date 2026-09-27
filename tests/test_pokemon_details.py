@@ -349,7 +349,7 @@ def test_the_page_carries_both_appearances_so_the_picker_can_switch(tmp_path, ne
                      is_shiny=True, profile=P.generate(2), caught_at=1_781_000_000),
         ])
     class Sprites:
-        def path(self, species_id, animated=False, shiny=False):
+        def path(self, species_id, animated=False, shiny=False, unown_form=None):
             return f"/sprites/{species_id}{'-shiny' if shiny else ''}.gif"
 
         def item_path(self, name):

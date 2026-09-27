@@ -374,6 +374,18 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "clear_filters": ("Reset filters", "필터 초기화", "フィルターを解除", "Restablecer filtros",
         "Réinitialiser les filtres", "Redefinir filtros", "Filter zurücksetzen",
     ),
+    # Unown's 28 letters (upstream 10d1a07).
+    "unown_forms_collected": ("Unown forms %1/%2", "안농 모습 %1/%2", "アンノーン %1/%2",
+        "Formas de Unown %1/%2", "Formes de Zarbi %1/%2", "Formas de Unown %1/%2",
+        "Icognito-Formen %1/%2",
+    ),
+    "unown_choose_form": ("Choose a form", "모습 고르기", "姿を選ぶ", "Elige una forma",
+        "Choisir une forme", "Escolha uma forma", "Form wählen",
+    ),
+    "unown_not_collected": ("Not collected yet", "아직 모으지 않았어요", "まだ集めていません",
+        "Aún no coleccionada", "Pas encore collectionnée", "Ainda não coletada",
+        "Noch nicht gesammelt",
+    ),
     "dex_normal_label": ("Normal", "일반", "通常", "Normal", "Normal", "Normal", "Normal"),
     "dex_appearance": ("Appearance", "모습", "姿", "Aspecto", "Apparence", "Aparência", "Aussehen"),
     "dex_appearance_preview": (

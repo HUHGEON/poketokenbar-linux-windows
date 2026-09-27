@@ -462,10 +462,11 @@ def test_pin_messages_are_in_the_users_language():
 class _StubSprites:
     """Enough of SpriteStore to tell which file each surface asked for."""
 
-    def path(self, species_id, animated=True, shiny=False):
+    def path(self, species_id, animated=True, shiny=False, unown_form=None):
         from pathlib import Path
 
-        return Path(f"/cache/{species_id}.gif")
+        letter = f"-{unown_form}" if unown_form and unown_form != "a" else ""
+        return Path(f"/cache/{species_id}{letter}.gif")
 
     def item_path(self, item_name):
         from pathlib import Path

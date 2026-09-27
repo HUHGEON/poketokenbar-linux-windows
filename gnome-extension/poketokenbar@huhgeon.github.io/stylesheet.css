@@ -495,6 +495,24 @@
   color: #ffd60a;
 }
 
+/* One of Unown's 28 letters. Uncollected tiles stay in place, dimmed, so the
+   page shows what is still missing. */
+.poketokenbar-formtile {
+  width: 32px;
+  padding: 4px 0;
+  border-radius: 6px;
+  text-align: center;
+  background-color: rgba(255, 255, 255, 0.07);
+  border: 1px solid transparent;
+}
+
+.poketokenbar-formtile:hover { background-color: rgba(255, 255, 255, 0.14); }
+
+.poketokenbar-formtile-selected {
+  background-color: rgba(10, 132, 255, 0.22);
+  border: 1px solid rgba(10, 132, 255, 0.8);
+}
+
 .poketokenbar-dexcell {
   spacing: 1px;
 }

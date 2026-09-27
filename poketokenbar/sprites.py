@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import platform_paths
+from . import platform_paths, unown
 
 SPRITE_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
 ITEM_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
@@ -24,18 +24,25 @@ MAX_ANIMATED_ID = 649
 EGG_SPRITE_URL = f"{SPRITE_BASE}/egg.png"
 
 
-def cache_key(species_id: int, animated: bool, shiny: bool) -> str:
-    return f"{species_id}-{'sh' if shiny else ''}{'a' if animated else 's'}"
+def cache_key(species_id: int, animated: bool, shiny: bool, unown_form: str | None = None) -> str:
+    """The cached file's name: species, letter, colour and format.
+
+    Unown's A keeps the plain species key, so every sprite cached before
+    letters existed is still the right file for it (upstream 10d1a07).
+    """
+    asset = unown.asset_name(species_id, unown_form) if unown_form else str(species_id)
+    return f"{asset}-{'sh' if shiny else ''}{'a' if animated else 's'}"
 
 
-def sprite_url(species_id: int, animated: bool, shiny: bool) -> str:
+def sprite_url(species_id: int, animated: bool, shiny: bool, unown_form: str | None = None) -> str:
+    asset = unown.asset_name(species_id, unown_form) if unown_form else str(species_id)
     if animated:
         shiny_part = "shiny/" if shiny else ""
         return (
             f"{SPRITE_BASE}/versions/generation-v/black-white/animated/"
-            f"{shiny_part}{species_id}.gif"
+            f"{shiny_part}{asset}.gif"
         )
-    return f"{SPRITE_BASE}/{'shiny/' if shiny else ''}{species_id}.png"
+    return f"{SPRITE_BASE}/{'shiny/' if shiny else ''}{asset}.png"
 
 
 class SpriteStore:
@@ -82,21 +89,23 @@ class SpriteStore:
             return target
         return self._download(EGG_SPRITE_URL, target)
 
-    def path(self, species_id: int, animated: bool = True, shiny: bool = False) -> Path | None:
+    def path(self, species_id: int, animated: bool = True, shiny: bool = False,
+             unown_form: str | None = None) -> Path | None:
         """Local path to the sprite, downloading it once if needed.
 
         Returns None when unavailable so the caller can fall back rather than
-        render a broken image.
+        render a broken image. `unown_form` picks one of Unown's 28 letters;
+        it is ignored for every other species.
         """
         if animated and species_id > MAX_ANIMATED_ID:
             animated = False
 
-        key = cache_key(species_id, animated, shiny)
+        key = cache_key(species_id, animated, shiny, unown_form)
         target = self.dir / f"{key}.{'gif' if animated else 'png'}"
         if target.is_file() and target.stat().st_size > 0:
             return target
 
-        return self._download(sprite_url(species_id, animated, shiny), target)
+        return self._download(sprite_url(species_id, animated, shiny, unown_form), target)
 
     def _download(self, url: str, target: Path) -> Path | None:
         """Fetch one sprite to `target`, or None when it cannot be had."""

@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from . import balance, profile as profiles
+from . import balance, profile as profiles, unown
 from .balance import Rarity
 
 
@@ -48,6 +48,10 @@ class MonState:
     # IVs, gender, ability, level and moves. None only on a save from before
     # profiles, until migrate_profiles gives it one.
     profile: profiles.PokemonProfile | None = None
+    # Unown's letter, for the one species that has 28 of them. None on every
+    # other species, and on an Unown saved before letters existed — which is
+    # read as A, the sprite it was already being drawn with (upstream 10d1a07).
+    unown_form: str | None = None
 
     @property
     def growth_multiplier(self) -> int:
@@ -99,6 +103,8 @@ class DexEntry:
     released_at: float | None = None
     # The individual as it was when it graduated or was released.
     profile: profiles.PokemonProfile | None = None
+    # Which Unown this was. See MonState.unown_form.
+    unown_form: str | None = None
 
     @property
     def is_released(self) -> bool:
@@ -126,6 +132,8 @@ class CompanionState:
     # being raised (or the egg). A species, not an individual: nature and the
     # rest belong to the companion, which Home keeps showing either way.
     representative_species_id: int | None = None
+    # Which letter the pinned Unown is, when the pin is on Unown.
+    representative_unown_form: str | None = None
     dex: list[DexEntry] = field(default_factory=list)
     collected_finals: set[str] = field(default_factory=set)
     language: str = "en"
@@ -180,15 +188,33 @@ class CompanionState:
         prefix = f"{base_id}-"
         return any(key.startswith(prefix) for key in self.collected_finals)
 
-    def owns_species(self, species_id: int) -> bool:
+    def owns_species(self, species_id: int, unown_form: str | None = None) -> bool:
         """Whether a graduation record or the current companion covers this species.
 
         A light path on purpose — checking one species must not build the whole
-        Pokedex display model.
+        Pokedex display model. With a letter, only that Unown counts: the 28
+        forms are collected separately.
         """
+        if unown_form is not None and species_id == unown.SPECIES_ID:
+            return unown_form in self.collected_unown_forms()
         if any(species_id in entry.chain_order for entry in self.dex):
             return True
         return species_id in self.reached_species()
+
+    def collected_unown_forms(self) -> set[str]:
+        """Every Unown letter owned, shiny or not — the 28-form tally."""
+        found = set()
+        for entry in self.dex:
+            if unown.SPECIES_ID in entry.chain_order:
+                letter = unown.resolved(unown.SPECIES_ID, entry.unown_form)
+                if letter is not None:
+                    found.add(letter)
+        mon = self.active
+        if mon is not None and unown.SPECIES_ID in self.reached_species():
+            letter = unown.resolved(unown.SPECIES_ID, mon.unown_form)
+            if letter is not None:
+                found.add(letter)
+        return found
 
     def owns_shiny_species(self, species_id: int) -> bool:
         """Whether the owned copy of this species is shiny.
@@ -212,9 +238,16 @@ class CompanionState:
         would otherwise leave a ghost species on the panel permanently.
         """
         if self.representative_species_id is None:
+            self.representative_unown_form = None
             return
-        if not self.owns_species(self.representative_species_id):
+        letter = unown.resolved(
+            self.representative_species_id, self.representative_unown_form)
+        if not self.owns_species(self.representative_species_id, letter):
             self.representative_species_id = None
+            self.representative_unown_form = None
+        else:
+            # A letter recorded against anything but Unown is not a letter.
+            self.representative_unown_form = letter
 
 
 @dataclass(slots=True)
@@ -323,6 +356,10 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         # Drawn last, so every roll above sees the same sequence it always has.
         profile=profiles.generate(rng.getrandbits(64)),
     )
+    # Unown's letter, drawn only once the species roll has landed on it, so no
+    # other species' sequence or odds change (upstream 10d1a07).
+    if mon.base_id == unown.SPECIES_ID:
+        mon.unown_form = unown.roll(rng, state.collected_unown_forms())
     state.active = mon
     # The guarantee is consumed by the hatch it paid for.
     state.egg_tier = None
@@ -362,6 +399,7 @@ def release(state: CompanionState, mon: MonState, now: float | None = None) -> D
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
         released_at=now,
+        unown_form=mon.unown_form,
         profile=mon.profile,
     )
     state.dex.append(entry)
@@ -474,6 +512,7 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
         profile=mon.profile,
+        unown_form=mon.unown_form,
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}-{mon.current_id}")

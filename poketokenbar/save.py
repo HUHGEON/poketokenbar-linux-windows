@@ -15,9 +15,10 @@ import json
 import os
 from pathlib import Path
 
-from . import balance, platform_paths, profile as profiles
+from . import balance, platform_paths, profile as profiles, unown
 
 from .balance import Rarity
+from . import unown
 from .companion import CompanionState, DexEntry, MonState
 
 
@@ -141,7 +142,19 @@ def _decode_mon(raw) -> MonState | None:
         hatched_at=raw.get("hatched_at") if isinstance(raw.get("hatched_at"), (int, float)) else None,
         has_growth_boost=_lenient(raw, "has_growth_boost", bool, False),
         profile=_decode_profile(raw.get("profile")),
+        unown_form=_unown_form(raw.get("unown_form"), path_ids),
     )
+
+
+def _unown_form(value, species_ids=()) -> str | None:
+    """One of Unown's 28 letters, or None.
+
+    Dropped unless the record is actually Unown's: a letter on another species
+    is meaningless, and an imported or hand-edited save is where one appears.
+    """
+    if not unown.is_form(value):
+        return None
+    return value if unown.SPECIES_ID in species_ids else None
 
 
 def _decode_dex_entry(raw) -> DexEntry | None:
@@ -169,6 +182,7 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         if isinstance(raw.get("released_at"), (int, float))
         else None,
         profile=_decode_profile(raw.get("profile")),
+        unown_form=_unown_form(raw.get("unown_form"), chain),
     )
 
 
@@ -181,6 +195,8 @@ def decode(raw: dict) -> CompanionState:
     state.egg_tier = _optional_rarity(raw.get("egg_tier"))
     representative = raw.get("representative_species_id")
     state.representative_species_id = representative if isinstance(representative, int) else None
+    state.representative_unown_form = _unown_form(
+        raw.get("representative_unown_form"), [state.representative_species_id])
     state.pending_hatch_id = (
         raw.get("pending_hatch_id") if isinstance(raw.get("pending_hatch_id"), int) else None
     )
@@ -243,6 +259,7 @@ def encode(state: CompanionState) -> dict:
             "hatched_at": m.hatched_at,
             "has_growth_boost": m.has_growth_boost,
             "profile": _encode_profile(m.profile),
+            "unown_form": m.unown_form,
         }
 
     return {
@@ -256,6 +273,7 @@ def encode(state: CompanionState) -> dict:
         "last_date": state.last_date,
         "active": mon(state.active),
         "representative_species_id": state.representative_species_id,
+        "representative_unown_form": state.representative_unown_form,
         "dex": [
             {
                 "base_id": d.base_id,
@@ -268,6 +286,7 @@ def encode(state: CompanionState) -> dict:
                 "raised_seconds": d.raised_seconds,
                 "released_at": d.released_at,
                 "profile": _encode_profile(d.profile),
+                "unown_form": d.unown_form,
             }
             for d in state.dex
         ],

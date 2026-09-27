@@ -73,10 +73,18 @@ export const buy = (key, count = 1) => enqueue('buy', {key, count});
 export const use = (key, count = 1) => enqueue('use', {key, count});
 // Open a species' Pokédex page, or close it with null. `retry` asks again for
 // details that failed to load.
-export const inspect = (speciesId, retry = false) =>
-    enqueue('inspect', {species_id: speciesId === null ? 'none' : String(speciesId), retry});
-export const represent = speciesId =>
-    enqueue('represent', {species_id: speciesId === null ? 'none' : String(speciesId)});
+// `unownForm` names one of Unown's 28 letters; every other species ignores it.
+export const inspect = (speciesId, retry = false, unownForm = null) =>
+    enqueue('inspect', {
+        species_id: speciesId === null ? 'none' : String(speciesId),
+        retry,
+        unown_form: unownForm ?? '',
+    });
+export const represent = (speciesId, unownForm = null) =>
+    enqueue('represent', {
+        species_id: speciesId === null ? 'none' : String(speciesId),
+        unown_form: unownForm ?? '',
+    });
 export const exportSave = path => enqueue('export', {path});
 export const importSave = path => enqueue('import', {path});
 // The way back from an import that replaced the wrong save. No path: the

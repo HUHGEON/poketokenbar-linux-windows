@@ -272,7 +272,8 @@ class Daemon:
                 raw = (command.get("args") or {}).get("species_id")
                 try:
                     species_id = None if raw in (None, "", "none") else int(raw)
-                    message = self.companion_store.set_representative(species_id)
+                    message = self.companion_store.set_representative(
+                        species_id, (command.get("args") or {}).get("unown_form") or None)
                     if self.notifier is not None:
                         self.notifier._send("PokeTokenBar", message)
                 except (TypeError, ValueError) as exc:
@@ -282,7 +283,9 @@ class Daemon:
                 raw = args.get("species_id")
                 try:
                     species_id = None if raw in (None, "", "none") else int(raw)
-                    self.companion_store.inspect(species_id, retry=bool(args.get("retry")))
+                    self.companion_store.inspect(
+                        species_id, retry=bool(args.get("retry")),
+                        unown_form=args.get("unown_form") or None)
                 except (TypeError, ValueError) as exc:
                     errors.append(f"inspect: {exc}")
             elif name == "recap":

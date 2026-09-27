@@ -40,6 +40,8 @@ const DEX_SPRITE_SIZE = 44;
 const LOG_PER_PAGE = 20;
 // The periods the recap can be read over, in the order the tabs show them.
 const RECAP_SCOPES = ['week', 'month', 'year'];
+// Unown's 28 letters, laid out seven across: four rows that fit the popup.
+const UNOWN_COLUMNS = 7;
 const DETAIL_SPRITE_SIZE = 82;
 const COMPANION_SPRITE_SIZE = 72;
 // The trend's tallest bar and an empty day's baseline, in pixels. A day with
@@ -1172,14 +1174,17 @@ class CollectionSection extends Section {
         this.add_child(reset);
     }
 
-    _open(speciesId) {
+    _open(speciesId, unownForm = null) {
         this._inspecting = speciesId;
+        // Which of Unown's letters the page is about; the daemon answers with
+        // one that is actually collected.
+        this._unownForm = unownForm;
         this._individualIndex = 0;
         // Which appearance the page is showing: null follows what was caught
         // first, true or false is a choice made on the page.
         this._appearance = null;
         this._showingMoves = false;
-        Commands.inspect(speciesId);
+        Commands.inspect(speciesId, false, unownForm);
         this.update(this._state);
     }
 
@@ -1323,6 +1328,12 @@ class CollectionSection extends Section {
         const name = ellipsized(dexEntry.name || '', 'poketokenbar-dexname');
         name.x_align = Clutter.ActorAlign.CENTER;
         parts.push(name);
+        // Unown is one cell for 28 letters, so the cell says how many are in.
+        if (dexEntry.form_count_text) {
+            const forms = caption(dexEntry.form_count_text, 'tertiary');
+            forms.x_align = Clutter.ActorAlign.CENTER;
+            parts.push(forms);
+        }
 
         // Tapping a cell opens its page, which carries the pin.
         const clickable = new St.Button({
@@ -1422,6 +1433,39 @@ class CollectionSection extends Section {
             caption(`#${this._inspecting}`, 'secondary'),
         ]));
 
+        // Unown's 28 letters: the collected ones open their own page, the rest
+        // are shown dimmed so it is clear what is still missing.
+        const forms = detail.unown_forms ?? [];
+        if (forms.length > 0) {
+            this.add_child(row([
+                caption(t('unown_choose_form'), 'secondary'),
+                spacer(),
+                caption(detail.unown_forms_text ?? '', 'tertiary'),
+            ]));
+            let formRow = null;
+            forms.forEach((unownForm, index) => {
+                if (index % UNOWN_COLUMNS === 0) {
+                    formRow = row([], 'poketokenbar-dexrow');
+                    this.add_child(formRow);
+                }
+                const tile = new St.Button({
+                    style_class: unownForm.selected
+                        ? 'poketokenbar-formtile poketokenbar-formtile-selected'
+                        : 'poketokenbar-formtile',
+                    can_focus: unownForm.collected,
+                    track_hover: unownForm.collected,
+                    child: label(unownForm.symbol ?? '?', 'poketokenbar-caption2 poketokenbar-strong'),
+                });
+                if (!unownForm.collected) {
+                    tile.reactive = false;
+                    tile.opacity = 90;
+                } else {
+                    tile.connect('clicked', () => this._open(this._inspecting, unownForm.form));
+                }
+                formRow.add_child(tile);
+            });
+        }
+
         // Identity: drawn from the grid's own row until the daemon answers.
         const sprite = new Sprite({size: DETAIL_SPRITE_SIZE});
         const spriteBox = new St.Bin({
@@ -1458,7 +1502,8 @@ class CollectionSection extends Section {
             : dexRow.sprite_path) || null);
         const pinned = ready ? detail.is_pinned : dexRow.is_pinned;
         const pin = borderedButton(pinned ? t('unpin') : t('pin_to_panel'), () =>
-            markSent(pin, Commands.represent(pinned ? null : this._inspecting)));
+            markSent(pin, Commands.represent(
+                pinned ? null : this._inspecting, ready ? detail.unown_form || null : null)));
         pin.x_align = Clutter.ActorAlign.START;
         identity.add_child(pin);
         this.add_child(row([spriteBox, identity], 'poketokenbar-companion'));
