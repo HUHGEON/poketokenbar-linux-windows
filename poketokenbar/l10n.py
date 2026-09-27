@@ -264,6 +264,48 @@ STRINGS: dict[str, tuple[str, ...]] = {
     # Where an even burn would sit right now. Short, because it shares a line
     # with the tier name and the delta; upstream has the room for a sentence in
     # a tooltip, a panel popup does not.
+    # The usage recap (upstream 78595ed): what a week, month or year came to.
+    "recap": ("Recap", "돌아보기", "ふりかえり", "Resumen", "Bilan", "Retrospectiva", "Rückblick"),
+    "recap_week": ("Week", "주간", "週", "Semana", "Semaine", "Semana", "Woche"),
+    "recap_month": ("Month", "월간", "月", "Mes", "Mois", "Mês", "Monat"),
+    "recap_year": ("Year", "연간", "年", "Año", "Année", "Ano", "Jahr"),
+    "recap_total": ("Tokens this period", "이 기간의 토큰", "この期間のトークン",
+        "Tokens del periodo", "Jetons de la période", "Tokens do período",
+        "Tokens in diesem Zeitraum",
+    ),
+    "recap_in_progress": ("Still running", "진행 중", "進行中", "En curso", "En cours",
+        "Em andamento", "Läuft noch",
+    ),
+    "recap_vs_previous": ("vs. the period before", "직전 기간 대비", "前の期間と比べて",
+        "frente al periodo anterior", "par rapport à la période précédente",
+        "em relação ao período anterior", "gegenüber dem Zeitraum davor",
+    ),
+    "recap_best_day": ("Busiest day", "가장 많이 쓴 날", "最も使った日", "Día con más uso",
+        "Jour le plus chargé", "Dia de maior uso", "Aktivster Tag",
+    ),
+    "recap_active_days": ("Active days", "사용한 날", "使った日数", "Días activos",
+        "Jours actifs", "Dias ativos", "Aktive Tage",
+    ),
+    "recap_streak": ("Longest streak", "최장 연속", "最長連続", "Racha más larga",
+        "Plus longue série", "Maior sequência", "Längste Serie",
+    ),
+    "recap_days": ("%1 of %2 days", "%2일 중 %1일", "%2日中%1日", "%1 de %2 días",
+        "%1 jours sur %2", "%1 de %2 dias", "%1 von %2 Tagen",
+    ),
+    "recap_day_count": ("%1 days", "%1일", "%1日", "%1 días", "%1 jours", "%1 dias", "%1 Tage"),
+    "recap_graduated": ("Collected in this period", "이 기간에 모은 포켓몬",
+        "この期間に集めたポケモン", "Coleccionados en el periodo",
+        "Collectionnés sur la période", "Coletados no período", "In diesem Zeitraum gesammelt",
+    ),
+    "recap_nothing_yet": (
+        "No history for this period yet — it is recorded from the first refresh onwards.",
+        "이 기간의 기록이 아직 없어요 — 처음 갱신한 날부터 쌓입니다.",
+        "この期間の記録はまだありません — 最初の更新以降に記録されます。",
+        "Aún no hay historial de este periodo: se registra desde la primera actualización.",
+        "Pas encore d'historique pour cette période : l'enregistrement commence au premier rafraîchissement.",
+        "Ainda não há histórico deste período — ele é registrado a partir da primeira atualização.",
+        "Für diesen Zeitraum gibt es noch keine Aufzeichnung – sie beginnt mit der ersten Aktualisierung.",
+    ),
     "pace_hint": ("Pace %1", "페이스 %1", "ペース %1", "Ritmo %1",
         "Rythme %1", "Ritmo %1", "Tempo %1",
     ),
@@ -1005,6 +1047,76 @@ _DAY_STAMP = {
     "pt": "{w}, {d:02d}/{m:02d}",
     "de": "{w}, {d}.{m}.",
 }
+
+
+# Month names for the languages that write them out. Korean and Japanese use
+# the number, so they need none — their pattern below carries it.
+_MONTHS = {
+    "en": ("January", "February", "March", "April", "May", "June", "July",
+           "August", "September", "October", "November", "December"),
+    "es": ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
+           "agosto", "septiembre", "octubre", "noviembre", "diciembre"),
+    "fr": ("janvier", "février", "mars", "avril", "mai", "juin", "juillet",
+           "août", "septembre", "octobre", "novembre", "décembre"),
+    "pt": ("janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
+           "agosto", "setembro", "outubro", "novembro", "dezembro"),
+    "de": ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+           "August", "September", "Oktober", "November", "Dezember"),
+}
+_MONTH_TITLE = {
+    "en": "{name} {y}",
+    "ko": "{y}년 {m}월",
+    "ja": "{y}年{m}月",
+    "es": "{name} de {y}",
+    "fr": "{name} {y}",
+    "pt": "{name} de {y}",
+    "de": "{name} {y}",
+}
+# A day without its weekday, for the two ends of a week.
+_SHORT_DATE = {
+    "en": "{m}/{d}",
+    "ko": "{m}. {d}.",
+    "ja": "{m}/{d}",
+    "es": "{d}/{m}",
+    "fr": "{d}/{m}",
+    "pt": "{d}/{m}",
+    "de": "{d}.{m}.",
+}
+
+
+def short_date(day: str, language: str = "en") -> str:
+    """"9/17" for a yyyy-mm-dd day, in the language's own order."""
+    from datetime import date as _date
+
+    try:
+        parsed = _date.fromisoformat(day)
+    except ValueError:
+        return day
+    code = language if language in _SHORT_DATE else "en"
+    return _SHORT_DATE[code].format(m=parsed.month, d=parsed.day)
+
+
+def month_title(day: str, language: str = "en") -> str:
+    """"September 2026" / "2026년 9월" for the month a day falls in."""
+    from datetime import date as _date
+
+    try:
+        parsed = _date.fromisoformat(day)
+    except ValueError:
+        return day
+    code = language if language in _MONTH_TITLE else "en"
+    names = _MONTHS.get(code) or _MONTHS["en"]
+    return _MONTH_TITLE[code].format(
+        name=names[parsed.month - 1], y=parsed.year, m=parsed.month)
+
+
+def period_title(scope: str, start: str, end: str, language: str = "en") -> str:
+    """What one recap period is called: a week's two ends, a month, a year."""
+    if scope == "year":
+        return start[:4]
+    if scope == "month":
+        return month_title(start, language)
+    return f"{short_date(start, language)} – {short_date(end, language)}"
 
 
 def day_stamp(day: str, language: str = "en") -> str:

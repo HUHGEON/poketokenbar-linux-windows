@@ -38,6 +38,8 @@ const DEX_SPRITE_SIZE = 44;
 // Catch log cards per page. Every card carries a sprite per stage, so a page
 // bounds how many are decoded at once; the log itself is never cut short.
 const LOG_PER_PAGE = 20;
+// The periods the recap can be read over, in the order the tabs show them.
+const RECAP_SCOPES = ['week', 'month', 'year'];
 const DETAIL_SPRITE_SIZE = 82;
 const COMPANION_SPRITE_SIZE = 72;
 // The trend's tallest bar and an empty day's baseline, in pixels. A day with
@@ -122,6 +124,9 @@ class HomeSection extends Section {
             y_align: Clutter.ActorAlign.START,
         });
         this._spriteHolder.set_child(this._sprite);
+        // Which recap period this page has open, or null for the ordinary
+        // Home. The daemon computes it; this is what was asked for.
+        this._recapScope = null;
         this.connect('destroy', () => {
             if (!this._spriteHolder.get_parent())
                 this._spriteHolder.destroy();
@@ -136,6 +141,12 @@ class HomeSection extends Section {
     }
 
     release() {
+        // Leaving Home closes the recap, exactly as leaving the collection
+        // closes a Pokédex page: the daemon stops computing what nobody sees.
+        if (this._recapScope !== null) {
+            this._recapScope = null;
+            Commands.recap(null);
+        }
         super.release();
         this._sprite.setPaused(true);
     }
@@ -143,6 +154,12 @@ class HomeSection extends Section {
     update(state) {
         this.clear();
         const t = key => this._reader.text(key);
+        this._state = state;
+        if (this._recapScope !== null) {
+            this._sprite.setPaused(true);
+            this._buildRecap(state, t);
+            return;
+        }
         const companion = state?.companion;
         this._sprite.setPaused(!companion);
         this._sprite.setQuality(effectiveQuality(
@@ -285,16 +302,16 @@ class HomeSection extends Section {
         if (periods?.week || periods?.month) {
             const line = row([]);
             if (periods.week)
-                line.add_child(this._period(t('this_week'), periods.week));
+                line.add_child(this._period(t('this_week'), periods.week, 'week'));
             if (periods.month)
-                line.add_child(this._period(t('this_month'), periods.month));
+                line.add_child(this._period(t('this_month'), periods.month, 'month'));
             this.add_child(line);
         }
         this._addMonthTrend(state?.month_trend, t);
         this._addProviders(state, t);
     }
 
-    _period(name, periodRow) {
+    _period(name, periodRow, scope) {
         const parts = [
             caption(name, 'tertiary'),
             label(periodRow.tokens_compact ?? '', 'poketokenbar-caption poketokenbar-strong'),
@@ -303,7 +320,213 @@ class HomeSection extends Section {
             parts.push(caption(periodRow.cost_text, 'secondary'));
         const box = row(parts);
         box.style = 'padding-right: 12px;';
-        return box;
+        if (!scope)
+            return box;
+        // The week and month totals are the way into the recap, as upstream's
+        // are: the number is there, the history behind it is one tap away.
+        const clickable = new St.Button({
+            style_class: 'poketokenbar-periodbutton',
+            can_focus: true,
+            track_hover: true,
+            child: box,
+        });
+        clickable.connect('clicked', () => this._openRecap(scope));
+        return clickable;
+    }
+
+    // --- the usage recap (upstream 78595ed) ----------------------------------
+
+    _openRecap(scope, offset = 0) {
+        this._recapScope = scope;
+        Commands.recap(scope, offset);
+        this.update(this._state);
+    }
+
+    _closeRecap() {
+        this._recapScope = null;
+        Commands.recap(null);
+        this.update(this._state);
+    }
+
+    _buildRecap(state, t) {
+        const recap = state?.recap ?? {};
+        const ready = recap.scope === this._recapScope;
+        this.add_child(row([
+            button(`‹ ${t('detail_back')}`, () => this._closeRecap(), 'poketokenbar-link'),
+            spacer(),
+            caption(t('recap'), 'secondary'),
+        ]));
+        // Which period this is about, and the way to the ones around it.
+        this.add_child(segmented(RECAP_SCOPES.map(scope => ({
+            label: t(`recap_${scope}`), value: scope,
+        })), this._recapScope, scope => this._openRecap(scope), {accent: true, expand: false}));
+        if (!ready) {
+            this.add_child(placeholder('…'));
+            return;
+        }
+
+        const back = button('‹', () => this._openRecap(recap.scope, (recap.offset ?? 0) - 1));
+        const forward = button('›', () => this._openRecap(recap.scope, (recap.offset ?? 0) + 1));
+        back.reactive = Boolean(recap.can_go_back);
+        back.opacity = recap.can_go_back ? 255 : 110;
+        forward.reactive = Boolean(recap.can_go_forward);
+        forward.opacity = recap.can_go_forward ? 255 : 110;
+        this.add_child(row([
+            back,
+            label(recap.title ?? '', 'poketokenbar-callout-bold'),
+            forward,
+            spacer(),
+            recap.is_in_progress ? caption(t('recap_in_progress'), 'tertiary') : spacer(),
+        ], 'poketokenbar-pager'));
+
+        this.add_child(caption(t('recap_total'), 'secondary'));
+        const total = row([
+            label(recap.total_text ?? '0', 'poketokenbar-big'),
+            caption(recap.total_grouped ?? '', 'secondary'),
+            spacer(),
+        ]);
+        total.get_children()[1].y_align = Clutter.ActorAlign.END;
+        if (recap.delta_text) {
+            total.add_child(label(recap.delta_text,
+                `poketokenbar-callout poketokenbar-${recap.delta_up ? 'orange' : 'green'}`));
+        }
+        this.add_child(total);
+        if (recap.delta_text)
+            this.add_child(caption(t('recap_vs_previous'), 'tertiary'));
+
+        this._addRecapBars(recap, t);
+
+        // What the period came to. One per line: at popup width three of these
+        // side by side truncate to "가장 …".
+        const stats = [];
+        if (recap.best_day_text) {
+            stats.push(valuePair(t('recap_best_day'),
+                `${recap.best_day_tokens_text} · ${recap.best_day_text}`));
+        }
+        stats.push(valuePair(t('recap_active_days'), t('recap_days')
+            .replace('%1', String(recap.active_days ?? 0))
+            .replace('%2', String(recap.counted_days ?? 0))));
+        stats.push(valuePair(t('recap_streak'),
+            t('recap_day_count').replace('%1', String(recap.best_streak ?? 0))));
+        this.add_child(card(stats));
+
+        const graduated = recap.graduated ?? [];
+        if (graduated.length > 0) {
+            this.add_child(divider());
+            this.add_child(caption(t('recap_graduated'), 'secondary'));
+            let line = null;
+            graduated.forEach((graduatedRow, index) => {
+                if (index % DEX_COLUMNS === 0) {
+                    line = row([], 'poketokenbar-dexrow');
+                    this.add_child(line);
+                }
+                const sprite = new Sprite({size: DEX_SPRITE_SIZE});
+                sprite.setPath(graduatedRow.sprite_path || null);
+                const name = ellipsized(
+                    graduatedRow.is_shiny ? `✨ ${graduatedRow.name}` : graduatedRow.name,
+                    'poketokenbar-dexname');
+                name.x_align = Clutter.ActorAlign.CENTER;
+                line.add_child(column([
+                    new St.Bin({child: sprite, x_align: Clutter.ActorAlign.CENTER}),
+                    name,
+                    caption(graduatedRow.when_text ?? '', 'tertiary'),
+                ], 'poketokenbar-dexcell'));
+            });
+        }
+    }
+
+    /** One bar per day, or per month in the year view. */
+    /** Which species is holding the panel, and the button that releases it. */
+    _addPinRow(companion, t) {
+        const pinned = companion?.representative_species_id;
+        if (!pinned)
+            return;
+        const name = companion.panel_name || `#${pinned}`;
+        const unpin = button(t('unpin'), () => markSent(unpin, Commands.represent(null)),
+            'poketokenbar-link');
+        this.add_child(row([
+            caption(`\u{1F4CC} ${t('pinned_to_panel')}: ${name}`, 'secondary'),
+            spacer(),
+            unpin,
+        ], 'poketokenbar-pinrow'));
+    }
+
+    // --- today (upstream PopoverView.header) ---------------------------------
+
+    _addToday(state, t) {
+        const today = state?.today;
+        this.add_child(caption(t('todays_tokens'), 'secondary'));
+        const total = row([
+            label(today?.tokens_compact ?? '0', 'poketokenbar-big'),
+            caption(today?.tokens_grouped ?? '0', 'secondary'),
+            spacer(),
+        ]);
+        total.get_children()[1].y_align = Clutter.ActorAlign.END;
+        if (today?.cost_text)
+            total.add_child(label(today.cost_text, 'poketokenbar-callout poketokenbar-secondary'));
+        this.add_child(total);
+
+        const periods = state?.periods;
+        if (periods?.week || periods?.month) {
+            const line = row([]);
+            if (periods.week)
+                line.add_child(this._period(t('this_week'), periods.week, 'week'));
+            if (periods.month)
+                line.add_child(this._period(t('this_month'), periods.month, 'month'));
+            this.add_child(line);
+        }
+        this._addMonthTrend(state?.month_trend, t);
+        this._addProviders(state, t);
+    }
+
+    /** One bar per day, or per month in the year view. */
+    _addRecapBars(recap, t) {
+        const buckets = recap.buckets ?? [];
+        if (buckets.length === 0 || (recap.total_tokens ?? 0) === 0) {
+            this.add_child(paragraph(t('recap_nothing_yet'),
+                'poketokenbar-caption poketokenbar-tertiary'));
+            return;
+        }
+        const readout = label('', 'poketokenbar-caption poketokenbar-secondary');
+        const bars = row([], 'poketokenbar-trend');
+        const labels = row([], 'poketokenbar-trend-axis');
+        for (const recapBucket of buckets) {
+            const classes = ['poketokenbar-trend-bar'];
+            if (recapBucket.is_current)
+                classes.push('poketokenbar-trend-today');
+            // A period nobody was recording is left empty rather than drawn at
+            // zero, which would claim a quiet day that may not have been one.
+            if (!recapBucket.has_data)
+                classes.push('poketokenbar-trend-empty');
+            const column_ = verticalBox({
+                x_expand: true, reactive: true, track_hover: true, height: TREND_TRACK,
+            });
+            column_.add_child(new St.Widget({y_expand: true}));
+            column_.add_child(new St.Widget({
+                style_class: classes.join(' '),
+                x_expand: true,
+                height: recapBucket.has_data
+                    ? Math.max(TREND_BASELINE, Math.round((recapBucket.fraction ?? 0) * TREND_TRACK))
+                    : TREND_BASELINE,
+            }));
+            column_.connect('notify::hover', () => {
+                if (column_.hover)
+                    readout.text = `${recapBucket.label} · ${recapBucket.tokens_text}`;
+            });
+            bars.add_child(column_);
+            // The 1st, every 7th and the current one, as the month trend does;
+            // thirty labels in a row are unreadable.
+            const number = Number(recapBucket.label);
+            const regular = buckets.length <= 12
+                || number === 1 || (Number.isFinite(number) && number % 7 === 0);
+            const tick = label(recapBucket.is_current || regular ? recapBucket.label : '',
+                'poketokenbar-caption2 poketokenbar-tertiary');
+            tick.x_expand = true;
+            labels.add_child(tick);
+        }
+        this.add_child(bars);
+        this.add_child(labels);
+        this.add_child(readout);
     }
 
     /**
@@ -1265,7 +1488,7 @@ class CollectionSection extends Section {
             }, {accent: true, expand: false}));
         }
 
-        const shown = individuals.filter(individual => Boolean(individual.is_shiny) === showingShiny);
+        const shown = individuals.filter(individual => Boolean(graduatedRow.is_shiny) === showingShiny);
         const index = Math.min(this._individualIndex, Math.max(0, shown.length - 1));
         if (shown.length > 1) {
             this.add_child(segmented(shown.map((individual, position) => ({

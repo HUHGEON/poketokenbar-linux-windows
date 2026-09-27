@@ -1071,6 +1071,35 @@ class CompanionStore:
             )
         return out
 
+    def graduated_between(self, start: float, end: float) -> list[dict]:
+        """Individuals collected inside a period, newest first.
+
+        For the usage recap: the tokens say how much was spent, and these say
+        what came of it. A released Pokémon is left out — it was not collected,
+        it was let go.
+        """
+        language = self.state.language
+        found = [
+            e for e in self.state.dex
+            if not e.is_released and e.caught_at is not None and start <= e.caught_at < end
+        ]
+        found.sort(key=lambda e: e.caught_at or 0, reverse=True)
+        out = []
+        for entry in found:
+            sprite = ""
+            if self.sprites is not None:
+                path = self.sprites.path(entry.final_id, animated=False, shiny=entry.is_shiny)
+                sprite = str(path) if path else ""
+            out.append({
+                "species_id": entry.final_id,
+                "name": self.species_name(entry.final_id, language) or f"#{entry.final_id}",
+                "rarity": str(entry.rarity),
+                "is_shiny": entry.is_shiny,
+                "sprite_path": sprite,
+                "when_text": _time.strftime("%Y-%m-%d", _time.localtime(entry.caught_at)),
+            })
+        return out
+
     def rarity_counts(self) -> dict:
         """Species counts for the Pokedex filters.
 

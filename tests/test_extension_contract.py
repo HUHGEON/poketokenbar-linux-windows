@@ -14,6 +14,7 @@ running the extension on a real desktop — nothing here proves an actor renders
 
 import re
 import tempfile
+from datetime import timedelta
 import time
 from pathlib import Path
 
@@ -139,7 +140,33 @@ def full_payload() -> dict:
             # page reads these fields, so they have to be the real ones.
             "snapshots": _snapshot_rows(),
         },
+        recap=_recap_view(store),
     )
+
+
+def _recap_view(store) -> dict:
+    """A recap of the month the fixture's catch happened in, as the daemon
+    builds it: a real period, real buckets, and the individual it collected."""
+    from datetime import date, datetime, time as day_start
+
+    from poketokenbar import ledger as ledger_module
+    from poketokenbar import recap as recap_module
+
+    caught = datetime.fromtimestamp(1767312000.0).date()
+    ledger = ledger_module.Ledger()
+    ledger.merge({
+        (caught.replace(day=1) + timedelta(days=index)).isoformat(): (index + 1) * 1000
+        for index in range(5)
+    })
+    period = recap_module.period_of("month", caught)
+    return {
+        "recap": recap_module.make(ledger, period, date.today()),
+        "offset": 0,
+        "graduated": store.graduated_between(
+            datetime.combine(period.start, day_start()).timestamp(),
+            datetime.combine(period.end, day_start()).timestamp(),
+        ),
+    }
 
 
 def _snapshot_rows() -> list[dict]:
@@ -253,6 +280,7 @@ BLOCK_ACCESSORS = {
     "limits": r"limits(?:\?)?\.(\w+)",
     "transfer": r"transfer(?:\?)?\.(\w+)",
     "detail": r"detail(?:\?)?\.(\w+)",
+    "recap": r"recap(?:\?)?\.(\w+)",
 }
 
 
@@ -306,6 +334,8 @@ ROW_ACCESSORS = {
     "trendDay": "month_trend_day",
     "todayRow": "month_trend_day",
     "snapshotRow": "snapshot",
+    "recapBucket": "recap_bucket",
+    "graduatedRow": "recap_graduated",
     "individual": "detail_individual",
     "statRow": "detail_stat",
     "knownMove": "detail_known_move",
@@ -354,6 +384,10 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "recap_bucket":
+        return set(payload["recap"]["buckets"][0])
+    if name == "recap_graduated":
+        return set(payload["recap"]["graduated"][0])
     if name == "snapshot":
         return set(payload["transfer"]["snapshots"][0])
     if name == "bag_candy":

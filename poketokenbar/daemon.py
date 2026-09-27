@@ -6,7 +6,12 @@ import os
 import time
 from pathlib import Path
 
-from . import commands, config, l10n, platform_paths, save, state, transfer
+from datetime import date as _date
+from datetime import datetime
+from datetime import time as dtime
+
+from . import (commands, config, l10n, ledger, platform_paths, recap, save, state,
+               transfer)
 from .companion_store import CompanionStore
 from .burn import BurnTracker
 from .notify import Notifier
@@ -59,6 +64,14 @@ class Daemon:
         self._status_payload: dict | None = None
         self._status_error: str = ""
         self._last_full_poll_at: float = 0.0
+        # Day-by-day history behind the usage recap. Providers only report the
+        # current month, so every poll copies their series into a ledger that
+        # outlives the 1st (upstream 78595ed).
+        self.ledger_path = state_path.with_name("usage-ledger.json")
+        self.ledger = ledger.load(self.ledger_path)
+        # Which recap period the popup has open: {"scope", "offset"}, or None
+        # when it is closed. UI state, so it is not saved.
+        self.recap: dict | None = None
 
     def custom_scan_roots(self, provider_id: str) -> str | None:
         """This provider's extra scan folders, as configured right now."""
@@ -156,6 +169,41 @@ class Daemon:
         described["undo_used_since_install"] = undo["used_since_install"]
         return described
 
+    def _record_ledger(self, periods: dict | None) -> None:
+        """Copy this month's daily totals into the ledger, and prune."""
+        series = (periods or {}).get("month_daily") or {}
+        if not series:
+            return
+        before = (dict(self.ledger.days), self.ledger.covered_since)
+        self.ledger.merge({day: row.get("tokens", 0) for day, row in series.items()})
+        # This year and the one before it: the year view compares against last
+        # year, and no recap reaches further back.
+        today = _date.today()
+        self.ledger.prune(before=f"{today.year - 1}-01-01")
+        if (self.ledger.days, self.ledger.covered_since) != before:
+            try:
+                ledger.save(self.ledger, self.ledger_path)
+            except OSError as exc:
+                # A history that cannot be written is not worth failing a poll.
+                self._status_error = f"usage ledger: {exc}"
+
+    def recap_view(self) -> dict | None:
+        """The open recap period, computed, with what graduated inside it."""
+        if not self.recap:
+            return None
+        scope = self.recap.get("scope", "month")
+        offset = int(self.recap.get("offset", 0))
+        today = _date.today()
+        period = recap.shifted(recap.period_of(scope, today), offset)
+        found = recap.make(self.ledger, period, today)
+        graduated = []
+        if self.companion_store is not None:
+            graduated = self.companion_store.graduated_between(
+                datetime.combine(period.start, dtime()).timestamp(),
+                datetime.combine(period.end, dtime()).timestamp(),
+            )
+        return {"recap": found, "offset": offset, "graduated": graduated}
+
     def poll_once(self) -> dict:
         """One scheduled poll: act on queued commands, read the logs, publish."""
         errors: list[str] = []
@@ -237,6 +285,20 @@ class Daemon:
                     self.companion_store.inspect(species_id, retry=bool(args.get("retry")))
                 except (TypeError, ValueError) as exc:
                     errors.append(f"inspect: {exc}")
+            elif name == "recap":
+                args = command.get("args") or {}
+                scope = str(args.get("scope") or "")
+                if scope in ("", "none"):
+                    self.recap = None
+                elif scope in recap.SCOPES:
+                    try:
+                        offset = int(args.get("offset", 0))
+                    except (TypeError, ValueError):
+                        offset = 0
+                    # The future has nothing to report.
+                    self.recap = {"scope": scope, "offset": min(0, offset)}
+                else:
+                    errors.append(f"recap: unknown scope {scope}")
             elif name in ("snapshot", "restore_snapshot") and self.companion_store is not None:
                 args = command.get("args") or {}
                 try:
@@ -437,6 +499,7 @@ class Daemon:
             errors.append(self._status_error)
 
         dex_rows = self.companion_store.dex_payload() if self.companion_store else None
+        self._record_ledger(periods)
         payload = state.build(
             daily_by_provider,
             self.config_values,
@@ -460,6 +523,7 @@ class Daemon:
             settings=self.settings_payload(),
             transfer=self.transfer_payload(),
             detail=self.companion_store.detail_payload(dex_rows) if self.companion_store else None,
+            recap=self.recap_view(),
             provider_names={p.id: p.display_name for p in self.providers or []},
         )
         state.write(self.state_path, payload)

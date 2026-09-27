@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from . import format as fmt
@@ -85,6 +85,62 @@ def _limits_payload(
         "account": status.account or {},
         "stale": bool(freshness.get("stale")),
         "updated_at": freshness.get("updated_at"),
+    }
+
+
+def _recap_payload(recap_view, language: str) -> dict:
+    """One recap period, every label already in the UI language.
+
+    `recap_view` is what daemon.recap_view() built: the computed recap plus the
+    individuals that graduated inside the period. None when the page is closed.
+    """
+    if not recap_view:
+        return {}
+    found = recap_view["recap"]
+    period = found.period
+    peak = max((bucket.tokens for bucket in found.buckets), default=0)
+    delta = found.delta
+    return {
+        "scope": period.scope,
+        "offset": recap_view.get("offset", 0),
+        "title": l10n.period_title(
+            period.scope, period.start.isoformat(),
+            (period.end - timedelta(days=1)).isoformat(), language),
+        "total_tokens": found.total,
+        "total_text": fmt.compact(found.total),
+        "total_grouped": fmt.grouped(found.total),
+        "buckets": [
+            {
+                "key": bucket.key,
+                "label": (
+                    l10n.month_title(bucket.key, language) if period.scope == "year"
+                    else str(int(bucket.key[-2:]))
+                ),
+                "tokens": bucket.tokens,
+                "tokens_text": fmt.compact(bucket.tokens),
+                "fraction": round(bucket.tokens / peak, 4) if peak > 0 else 0.0,
+                "is_current": bucket.is_current,
+                # A day nobody was recording is drawn as unknown, not as zero.
+                "has_data": bucket.has_data,
+            }
+            for bucket in found.buckets
+        ],
+        "best_day_text": (
+            l10n.day_stamp(found.best_day[0], language) if found.best_day else ""
+        ),
+        "best_day_tokens_text": fmt.compact(found.best_day[1]) if found.best_day else "",
+        "active_days": found.active_days,
+        "counted_days": found.counted_days,
+        "best_streak": found.best_streak,
+        # Only when the period before is fully covered: otherwise days nobody
+        # recorded would count as zero and invent a jump.
+        "delta_text": f"{delta * 100:+.0f}%" if delta is not None else "",
+        "delta_up": bool(delta is not None and delta > 0),
+        "is_in_progress": found.is_in_progress,
+        "can_go_back": found.can_go_back,
+        # The future holds nothing to report.
+        "can_go_forward": recap_view.get("offset", 0) < 0,
+        "graduated": recap_view.get("graduated", []),
     }
 
 
@@ -273,6 +329,7 @@ def build(
     celebration: dict | None = None,
     settings: dict | None = None,
     transfer: dict | None = None,
+    recap: dict | None = None,
     detail: dict | None = None,
     provider_names: dict | None = None,
 ) -> dict:
@@ -353,6 +410,7 @@ def build(
         # The export file the Import button would read, described so the popup
         # can ask before overwriting instead of after.
         "transfer": _transfer_payload(transfer),
+        "recap": _recap_payload(recap, language),
         # The live config, so a preferences UI renders current values without
         # parsing config.json itself and without the two drifting apart.
         "config": dict(config_values),

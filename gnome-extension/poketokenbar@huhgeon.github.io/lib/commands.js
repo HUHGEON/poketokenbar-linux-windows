@@ -82,6 +82,10 @@ export const importSave = path => enqueue('import', {path});
 // The way back from an import that replaced the wrong save. No path: the
 // daemon restores from the backup it took when it overwrote the file.
 export const undoImport = () => enqueue('restore', {});
+// Open the usage recap on a week, a month or a year, `offset` periods back
+// (0 is the current one, negative is the past). A null scope closes it.
+export const recap = (scope, offset = 0) =>
+    enqueue('recap', {scope: scope === null ? 'none' : scope, offset});
 // Local restore points: take one now, or put one back by its file name.
 export const snapshot = () => enqueue('snapshot', {});
 export const restoreSnapshot = id => enqueue('restore_snapshot', {id});
