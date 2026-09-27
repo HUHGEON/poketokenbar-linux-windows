@@ -214,6 +214,10 @@ class HomeSection extends Section {
             lines.add_child(meter);
             lines.add_child(caption(
                 t('egg_to_hatch').replace('%1', companion.egg_remaining_text ?? ''), 'tertiary'));
+            // Ready, but the species could not be fetched: without this the egg
+            // looks stuck at 100% for no stated reason.
+            if (companion.egg_delayed)
+                lines.add_child(caption(t('egg_hatch_delayed'), 'orange'));
         } else {
             const nameRow = row([label(companion.name || `#${companion.species_id}`,
                 'poketokenbar-name')]);

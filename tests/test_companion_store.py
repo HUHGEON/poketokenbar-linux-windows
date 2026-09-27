@@ -272,3 +272,18 @@ def test_the_folding_rule_strips_accents_and_case():
     assert _fold("PIKACHU") == "pikachu"
     # Non-Latin scripts are left as they are; there is nothing to fold.
     assert _fold("나무돌이") == "나무돌이"
+
+
+def test_a_delayed_hatch_says_so_and_stops_saying_it(tmp_path):
+    """A ready egg whose species could not be fetched looks stuck at 100% with
+    no reason given (upstream 2ecf7d2)."""
+    api = FakeAPI(broken=True)
+    s = _store(tmp_path, api=api)
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 1}, today="2026-08-18")
+    assert s.state.active is None
+    assert s.payload()["egg_delayed"] is True
+
+    api.broken = False
+    s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 1}, today="2026-08-18")
+    assert s.state.active is not None
+    assert "egg_delayed" not in s.payload(), "a hatched companion is not an egg"

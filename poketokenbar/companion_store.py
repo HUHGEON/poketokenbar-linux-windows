@@ -720,6 +720,11 @@ class CompanionStore:
                 "egg_remaining_text": _compact(
                     max(0, self.state.egg_hatch_threshold - self.state.egg_usage)),
                 "egg_tier": str(self.state.egg_tier) if self.state.egg_tier else None,
+                # Ready, but still an egg: the species could not be fetched,
+                # so the hatch is waiting on the next poll to try again
+                # (upstream 2ecf7d2). Derived rather than stored — "no
+                # companion and the threshold is already paid" is the state.
+                "egg_delayed": self.state.egg_usage >= self.state.egg_hatch_threshold,
                 # The egg's own picture. This was a hardcoded "", so Home drew
                 # an empty box for the whole egg stage.
                 "sprite_path": self.sprite_path(),
