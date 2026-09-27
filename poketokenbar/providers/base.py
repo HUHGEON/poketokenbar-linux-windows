@@ -317,9 +317,15 @@ class ScanningProvider:
         return 0.0, CostCoverage(unknown=True)
 
     def fetch_daily(self, today: str | None = None) -> DailyUsage | None:
+        """Today's totals, or None when the source did nothing today.
+
+        A record with no tokens is not activity (upstream a910767): a synthetic
+        assistant turn would otherwise surface a provider row reading zero
+        tokens and no cost, as if the tool had been used.
+        """
         day = today or _date.today().strftime("%Y-%m-%d")
         entries = [e for e in self.scan_entries() if e.local_day == day]
-        if not entries:
+        if not any(e.total > 0 for e in entries):
             return None
         return self.aggregate_daily(day, entries)
 

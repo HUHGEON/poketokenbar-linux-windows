@@ -142,3 +142,20 @@ def test_a_codex_total_only_turn_is_counted_but_unpriced(tmp_path):
         _token_count({"total_tokens": 500}, {"total_tokens": 500}),
     )
     assert (turn.model, turn.total, turn.cost_unavailable) == ("gpt-5", 500, True)
+
+
+def test_a_day_of_only_zero_token_records_is_not_activity():
+    """A synthetic assistant turn must not surface a provider row reading zero
+    tokens and no cost, as though the tool had been used (upstream a910767)."""
+    provider = ScanningProvider()
+    provider.scan_entries = lambda: [entry(tokens=0), entry(tokens=0, explicit_cost=0.0)]
+    assert provider.fetch_daily("2026-09-17") is None
+
+
+def test_one_real_record_beside_a_synthetic_one_still_counts_in_full():
+    provider = ScanningProvider()
+    provider.scan_entries = lambda: [entry(tokens=0), entry(tokens=1_000_000)]
+    today = provider.fetch_daily("2026-09-17")
+    assert today is not None
+    assert today.total_tokens == 1_000_000
+    assert today.total_cost == pytest.approx(3.0)
