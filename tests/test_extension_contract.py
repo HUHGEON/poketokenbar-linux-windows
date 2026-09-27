@@ -114,6 +114,7 @@ def full_payload() -> dict:
         ),
         # The real shape from StatusChecker.get(). Healthy providers are
         # dropped there, so every row that reaches here is an incident.
+        limit_accounts=_limit_accounts(),
         provider_status={
             "anthropic": {"label": "Major outage", "severity": "crit",
                           "indicator": "major"},
@@ -144,6 +145,25 @@ def full_payload() -> dict:
         },
         recap=_recap_view(store),
     )
+
+
+def _limit_accounts():
+    """Two Claude logins, as MultiAccountLimits reports them."""
+    class _Source:
+        last_error = "login expired"
+        stale = True
+
+    class _Account:
+        source = _Source()
+
+    default = limits.LimitStatus(
+        session=limits.LimitWindow(utilization=42.0, resets_at="2h", severity="warn"),
+        weekly=limits.LimitWindow(utilization=10.0, resets_at="5d", severity="ok"),
+        subscription_type="max", account={"email": "me@example.com"})
+    other = limits.LimitStatus(
+        session=limits.LimitWindow(utilization=90.0, resets_at="1h", severity="crit"),
+        subscription_type="pro", account={"email": "work@example.com"})
+    return [("default", default, _Account()), (".claude-work", other, _Account())]
 
 
 def _recap_view(store) -> dict:
@@ -338,6 +358,7 @@ ROW_ACCESSORS = {
     "snapshotRow": "snapshot",
     "recapBucket": "recap_bucket",
     "unownForm": "unown_form",
+    "limitAccount": "limit_account",
     "graduatedRow": "recap_graduated",
     "individual": "detail_individual",
     "statRow": "detail_stat",
@@ -387,6 +408,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "limit_account":
+        return set(payload["limits"]["accounts"][0])
     if name == "unown_form":
         store = CompanionStore(api=None, sprite_store=_StubSprites())
         store.state = CompanionState(

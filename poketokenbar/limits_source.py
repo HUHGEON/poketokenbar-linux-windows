@@ -30,10 +30,10 @@ AUTH_BACKOFF = 900.0
 NETWORK_RETRY = 30.0
 
 
-def _credentials_marker() -> object:
-    """(mtime, size) of Claude Code's credentials file, or None without one."""
+def _credentials_marker(path=None) -> object:
+    """(mtime, size) of a Claude credentials file, or None without one."""
     try:
-        stat = limits.default_credentials_path().stat()
+        stat = (path or limits.default_credentials_path()).stat()
     except OSError:
         return None
     return (stat.st_mtime_ns, stat.st_size)
@@ -131,3 +131,117 @@ class LimitsSource:
             self.last_error = str(exc)
 
         return self._cached
+
+
+class AccountLimits:
+    """One account's limits, and who they belong to.
+
+    A thin pairing of a config folder with its own LimitsSource: every account
+    keeps its own cache, its own backoff and its own error, so one expired
+    login cannot blank another account's numbers or pin everyone's refresh.
+    """
+
+    def __init__(self, account, ttl: float = 300.0, source=None) -> None:
+        self.account = account
+        self.source = source or LimitsSource(
+            fetch=lambda: limits.fetch_status(account.credentials),
+            ttl=ttl,
+            login_marker=lambda: _credentials_marker(account.credentials),
+        )
+
+    def get(self):
+        status = self.source.get()
+        if status is not None and not status.account:
+            # Each folder names its own login; the default reader would answer
+            # with the default account for every one of them.
+            status.account = limits.read_account(self.account.account_file)
+        return status
+
+    @property
+    def label(self) -> str:
+        """What to call this account before its own name is known."""
+        status = self.source._cached
+        who = (status.account or {}) if status is not None else {}
+        return who.get("email") or who.get("display_name") or (
+            "" if self.account.is_default else self.account.id)
+
+
+class MultiAccountLimits:
+    """Every logged-in Claude account, with the default one still in front.
+
+    A drop-in for LimitsSource: `get()` answers with the default account, which
+    is what the panel, the companion mood and the forecast follow, and
+    `accounts()` carries the rest for the popup (upstream e5b4800). With one
+    login — which is the normal case — nothing behaves differently.
+    """
+
+    def __init__(self, discover=None, ttl: float = 300.0, factory=None) -> None:
+        from . import accounts as account_discovery
+
+        self._discover = discover or account_discovery.discover
+        self._factory = factory or (lambda account: AccountLimits(account, ttl=ttl))
+        self._ttl = ttl
+        self._sources: dict[str, AccountLimits] = {}
+        self._order: list[str] = []
+        self.extra_config_dirs: list[str] = []
+        self._refresh_accounts()
+
+    def _refresh_accounts(self) -> None:
+        found = self._discover(extra=self.extra_config_dirs)
+        self._order = [account.id for account in found]
+        known = {account.id: account for account in found}
+        for account_id, account in known.items():
+            if account_id not in self._sources:
+                self._sources[account_id] = self._factory(account)
+        # A folder that has gone (a logout, a renamed directory) takes its
+        # cache with it rather than lingering as a tab nobody can refresh.
+        for account_id in list(self._sources):
+            if account_id not in known:
+                del self._sources[account_id]
+
+    @property
+    def _default(self) -> AccountLimits | None:
+        return self._sources.get(self._order[0]) if self._order else None
+
+    def get(self):
+        self._refresh_accounts()
+        for account_id in self._order:
+            source = self._sources.get(account_id)
+            if source is not None:
+                source.get()
+        default = self._default
+        return default.get() if default is not None else None
+
+    def invalidate(self) -> None:
+        for source in self._sources.values():
+            source.source.invalidate()
+
+    @property
+    def stale(self) -> bool:
+        default = self._default
+        return bool(default is not None and default.source.stale)
+
+    @property
+    def updated_at(self):
+        default = self._default
+        return default.source.updated_at if default is not None else None
+
+    @property
+    def offline(self) -> bool:
+        default = self._default
+        return bool(default is not None and default.source.offline)
+
+    @property
+    def last_error(self) -> str:
+        default = self._default
+        return default.source.last_error if default is not None else ""
+
+    def accounts(self) -> list[tuple[str, object, AccountLimits]]:
+        """(id, status, source) per account, the default one first."""
+        out = []
+        for account_id in self._order:
+            source = self._sources.get(account_id)
+            if source is None:
+                continue
+            out.append((account_id, source.source._cached, source))
+        return out

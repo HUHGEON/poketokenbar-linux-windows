@@ -129,6 +129,9 @@ class HomeSection extends Section {
         // Which recap period this page has open, or null for the ordinary
         // Home. The daemon computes it; this is what was asked for.
         this._recapScope = null;
+        // Which Claude login's limits are on screen, when there is more than
+        // one; the default account until something else is picked.
+        this._limitAccount = null;
         this.connect('destroy', () => {
             if (!this._spriteHolder.get_parent())
                 this._spriteHolder.destroy();
@@ -705,9 +708,31 @@ class HomeSection extends Section {
         if (who)
             this.add_child(caption(t('account_label').replace('%1', who), 'tertiary'));
 
+        // Several Claude logins: one tab each, the default account first
+        // (upstream e5b4800). With one login there are no tabs and this is the
+        // same block it has always been.
+        const accountRows = limits.accounts ?? [];
+        // Not `shown`: the loop below binds that name for the percentage.
+        let shownAccount = limits;
+        if (accountRows.length > 1) {
+            const chosen = accountRows.find(limitAccount => limitAccount.id === this._limitAccount)
+                ?? accountRows[0];
+            this._limitAccount = chosen.id;
+            this.add_child(segmented(accountRows.map(limitAccount => ({
+                label: limitAccount.label || limitAccount.id, value: limitAccount.id,
+            })), chosen.id, id => {
+                this._limitAccount = id;
+                this.update(this._state);
+            }, {expand: false}));
+            shownAccount = chosen;
+            // Each login fails on its own; another account's numbers stay good.
+            if (chosen.error)
+                this.add_child(caption(chosen.error, 'orange'));
+        }
+
         const mode = state?.config?.limit_value_mode;
         for (const [key, name] of [['session', 'five_hour_session'], ['weekly', 'weekly']]) {
-            const limitWindow = limits[key];
+            const limitWindow = shownAccount[key];
             if (!limitWindow)
                 continue;
             const used = limitWindow.utilization ?? 0;
@@ -2041,6 +2066,20 @@ class SettingsSection extends Section {
                 items.push(this._scanFolderEntry(providerRow));
         }
         this._group(t('scan_folders'), items, t('setting_scan_roots_hint'));
+
+        // A second Claude login that lives outside ~/.claude-* and is not the
+        // one $CLAUDE_CONFIG_DIR points at (upstream e5b4800).
+        const entry = new St.Entry({
+            style_class: 'poketokenbar-entry',
+            can_focus: true,
+            x_expand: true,
+        });
+        entry.set_text(String(state?.config?.extra_claude_config_dirs ?? ''));
+        entry.clutter_text.connect('activate', () => {
+            Config.set('extra_claude_config_dirs', entry.get_text());
+        });
+        this._group(t('setting_claude_accounts'), [row([entry], 'poketokenbar-group-row')],
+            t('setting_claude_accounts_hint'));
     }
 
     _scanFolderEntry(providerRow) {

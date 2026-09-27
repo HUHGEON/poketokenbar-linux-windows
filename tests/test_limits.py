@@ -184,3 +184,141 @@ def test_without_claude_config_dir_the_home_locations_are_used(tmp_path):
 
     assert limits.default_credentials_path({}) == Path.home() / ".claude" / ".credentials.json"
     assert limits.default_account_path({"CLAUDE_CONFIG_DIR": "  "}) == Path.home() / ".claude.json"
+
+
+# --- several Claude logins (upstream e5b4800) -------------------------------
+
+
+def test_the_default_folder_is_always_the_first_account(tmp_path):
+    from poketokenbar import accounts
+
+    found = accounts.discover(home=tmp_path, env={})
+    assert [a.id for a in found] == ["default"]
+    assert found[0].config_dir == tmp_path / ".claude"
+    assert found[0].is_default
+
+
+def test_a_second_logged_in_folder_is_found(tmp_path):
+    from poketokenbar import accounts
+
+    for name in (".claude", ".claude-work", ".claude_side"):
+        (tmp_path / name).mkdir()
+        (tmp_path / name / ".credentials.json").write_text("{}", encoding="utf-8")
+    # A folder nobody logged in to has nothing to ask the endpoint with.
+    (tmp_path / ".claude-empty").mkdir()
+
+    found = accounts.discover(home=tmp_path, env={})
+    assert [a.id for a in found] == ["default", ".claude-work", ".claude_side"]
+
+
+def test_a_folder_listed_by_hand_is_included(tmp_path):
+    from poketokenbar import accounts
+
+    (tmp_path / ".claude").mkdir()
+    other = tmp_path / "elsewhere"
+    other.mkdir()
+    (other / ".credentials.json").write_text("{}", encoding="utf-8")
+    found = accounts.discover(home=tmp_path, env={}, extra=[str(other)])
+    assert [a.id for a in found] == ["default", "elsewhere"]
+
+
+def test_the_configured_folder_is_the_default_account(tmp_path):
+    from poketokenbar import accounts
+
+    configured = tmp_path / "custom"
+    found = accounts.discover(home=tmp_path, env={"CLAUDE_CONFIG_DIR": str(configured)})
+    assert found[0].config_dir == configured
+    assert found[0].credentials == configured / ".credentials.json"
+
+
+def test_one_account_behaves_exactly_as_before(tmp_path):
+    from poketokenbar.limits_source import MultiAccountLimits
+
+    status = limits.LimitStatus(session=limits.LimitWindow(42.0))
+    source = MultiAccountLimits(
+        discover=lambda extra=(): [_FakeAccount("default", True)],
+        factory=lambda account: _FakeAccountLimits(account, status))
+    assert source.get() is status
+    assert len(source.accounts()) == 1
+    assert source.stale is False and source.last_error == ""
+
+
+def test_each_account_keeps_its_own_numbers_and_its_own_failure():
+    from poketokenbar.limits_source import MultiAccountLimits
+
+    default = limits.LimitStatus(session=limits.LimitWindow(10.0))
+    other = limits.LimitStatus(session=limits.LimitWindow(90.0))
+    sources = {
+        "default": _FakeAccountLimits(_FakeAccount("default", True), default),
+        "work": _FakeAccountLimits(_FakeAccount("work", False), other, error="login expired"),
+    }
+    source = MultiAccountLimits(
+        discover=lambda extra=(): [one.account for one in sources.values()],
+        factory=lambda account: sources[account.id])
+
+    # The default account is what the panel and the mood still follow.
+    assert source.get() is default
+    assert source.last_error == ""
+    rows = source.accounts()
+    assert [row[0] for row in rows] == ["default", "work"]
+    assert rows[1][1].session.utilization == 90.0
+    assert rows[1][2].source.last_error == "login expired"
+
+
+def test_a_folder_that_disappears_takes_its_cache_with_it():
+    from poketokenbar.limits_source import MultiAccountLimits
+
+    listed = [_FakeAccount("default", True), _FakeAccount("work", False)]
+    source = MultiAccountLimits(
+        discover=lambda extra=(): list(listed),
+        factory=lambda account: _FakeAccountLimits(account, limits.LimitStatus()))
+    source.get()
+    assert len(source.accounts()) == 2
+    listed.pop()
+    source.get()
+    assert [row[0] for row in source.accounts()] == ["default"]
+
+
+class _FakeAccount:
+    def __init__(self, name, is_default):
+        from pathlib import Path
+
+        self.id = name
+        self.config_dir = Path(f"/tmp/{name}")
+        self.is_default = is_default
+
+    @property
+    def credentials(self):
+        return self.config_dir / ".credentials.json"
+
+    @property
+    def account_file(self):
+        return self.config_dir / ".claude.json"
+
+
+class _FakeSource:
+    def __init__(self, status, error=""):
+        self._cached = status
+        self.last_error = error
+        self.offline = False
+        self.updated_at = 1.0
+        self.stale = bool(error) and status is not None
+
+    def get(self):
+        return self._cached
+
+    def invalidate(self):
+        self._cached = self._cached
+
+
+class _FakeAccountLimits:
+    def __init__(self, account, status, error=""):
+        self.account = account
+        self.source = _FakeSource(status, error)
+
+    def get(self):
+        return self.source.get()
+
+    @property
+    def label(self):
+        return self.account.id

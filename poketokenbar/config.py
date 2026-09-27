@@ -52,6 +52,11 @@ DEFAULTS: dict[str, object] = {
     # banked progress was earned under.
     "growth_difficulty": 1.0,
     "shop_difficulty": 1.0,
+    # Claude config folders to read limits from besides the ones found on
+    # their own (the default folder, $CLAUDE_CONFIG_DIR, and ~/.claude-* /
+    # ~/.claude_* logins). Comma or newline separated, for a second login that
+    # follows neither convention.
+    "extra_claude_config_dirs": "",
 }
 
 

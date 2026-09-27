@@ -31,6 +31,7 @@ def _limits_payload(
     language: str = "en",
     warn: float = 80,
     crit: float = 95,
+    accounts=None,
 ) -> dict:
     """Serialise a limits.LimitStatus, or an empty dict when unavailable.
 
@@ -78,9 +79,37 @@ def _limits_payload(
             ),
         }
 
+    def rows():
+        """One row per logged-in Claude account, the default one first.
+
+        With a single login this is the same numbers the block already carries,
+        and the popup shows no tabs (upstream e5b4800).
+        """
+        out = []
+        for account_id, account_status, source in accounts or []:
+            who = (account_status.account or {}) if account_status is not None else {}
+            out.append({
+                "id": account_id,
+                "label": who.get("email") or who.get("display_name") or account_id,
+                "is_default": account_id == (accounts[0][0] if accounts else ""),
+                "session": window(
+                    account_status.session if account_status is not None else None, "session"),
+                "weekly": window(
+                    account_status.weekly if account_status is not None else None, "weekly"),
+                "plan": account_status.subscription_type if account_status is not None else None,
+                # Each account fails on its own: an expired login must not make
+                # another account's numbers look wrong.
+                "error": getattr(source.source, "last_error", ""),
+                "stale": bool(getattr(source.source, "stale", False)),
+            })
+        return out
+
     return {
         "session": window(status.session, "session"),
         "weekly": window(status.weekly, "weekly"),
+        # Only worth showing when there is more than one; the block above is
+        # the default account either way.
+        "accounts": rows() if accounts and len(accounts) > 1 else [],
         "plan": status.subscription_type,
         "account": status.account or {},
         "stale": bool(freshness.get("stale")),
@@ -315,6 +344,7 @@ def build(
     errors: list[str],
     scanning: bool = False,
     limit_status=None,
+    limit_accounts=None,
     limits_freshness: dict | None = None,
     companion_payload: dict | None = None,
     shop_payload: list | None = None,
@@ -386,6 +416,7 @@ def build(
             language,
             float(config_values.get("warn_threshold", 80)),
             float(config_values.get("crit_threshold", 95)),
+            limit_accounts,
         ),
         "companion": companion_payload or {},
         "shop": shop_payload or [],

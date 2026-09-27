@@ -133,3 +133,37 @@ def test_the_panel_number_and_the_popup_gauge_share_one_tier():
     status = _live_status(90.0, 3600, "session")
     payload = _limits(status)
     assert payload["panel"]["limit_windows"][0]["tier"] == payload["limits"]["session"]["tier"]
+
+
+def test_the_payload_lists_every_account_only_when_there_is_more_than_one():
+    """One login is the normal case, and a tab strip of one is noise."""
+    class _Source:
+        last_error = ""
+        stale = False
+
+    class _Holder:
+        source = _Source()
+
+    one = _live_status(10.0, 3600, "session")
+    two = limits.LimitStatus(session=limits.LimitWindow(utilization=90.0),
+                             account={"email": "work@example.com"})
+    values = dict(config.DEFAULTS, show_limit_in_menu=True)
+    alone = state.build(
+        {"claude_code": DailyUsage(date="2026-08-18", total_tokens=1)}, values, [],
+        limit_status=one, limit_accounts=[("default", one, _Holder())],
+    )
+    assert alone["limits"]["accounts"] == []
+
+    both = state.build(
+        {"claude_code": DailyUsage(date="2026-08-18", total_tokens=1)}, values, [],
+        limit_status=one,
+        limit_accounts=[("default", one, _Holder()), (".claude-work", two, _Holder())],
+    )
+    rows = both["limits"]["accounts"]
+    assert [row["id"] for row in rows] == ["default", ".claude-work"]
+    assert rows[1]["label"] == "work@example.com"
+    assert rows[1]["session"]["utilization"] == 90.0
+    assert rows[0]["is_default"] and not rows[1]["is_default"]
+    # The block itself still describes the default account, which is what the
+    # panel and the companion mood follow.
+    assert both["limits"]["session"]["utilization"] == 10.0

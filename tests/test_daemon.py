@@ -487,3 +487,46 @@ def test_a_difficulty_change_reaches_the_shop_and_the_save(tmp_path):
     assert store.state.spent_tokens == balance.RARE_CANDY_PRICE // 2
     assert store.state.growth_difficulty == 0.5
     assert save.load(store.save_path).growth_difficulty == 0.5
+
+
+def test_a_second_account_filling_its_window_earns_candy_too(tmp_path):
+    """Grants cover every login's gauges, and the default account keeps the
+    keys already written into saves (upstream e5b4800)."""
+    from poketokenbar import limits, shop
+
+    store = _store(tmp_path, tokens=10**9)
+    store.state.candy_feature_seeded = True
+
+    class _Holder:
+        class source:
+            last_error = ""
+            stale = False
+
+    default = limits.LimitStatus(session=limits.LimitWindow(10.0, resets_at="a"))
+    work = limits.LimitStatus(session=limits.LimitWindow(100.0, resets_at="b"))
+
+    class _Limits:
+        stale = False
+        updated_at = None
+        offline = False
+        last_error = ""
+
+        def get(self):
+            return default
+
+        def invalidate(self):
+            pass
+
+        def accounts(self):
+            return [("default", default, _Holder()), ("work", work, _Holder())]
+
+    d = Daemon(
+        state_path=tmp_path / "state.json", config_path=tmp_path / "config.json",
+        cache=None, providers=[FakeProvider(DailyUsage(date="2026-08-18", total_tokens=1))],
+        limits_source=_Limits(), companion_store=store,
+    )
+    d.poll_once()
+    assert store.state.inventory.get("rareCandy", 0) > 0
+    assert shop.window_key("session@work") in store.state.candy_grant_tier
+    # The default account's own key is untouched by the suffixed ones.
+    assert store.state.candy_grant_tier.get("limit:session", 0) == 0

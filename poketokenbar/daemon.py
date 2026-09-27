@@ -16,7 +16,7 @@ from .companion_store import CompanionStore
 from .burn import BurnTracker
 from .notify import Notifier
 from .status import StatusChecker
-from .limits_source import LimitsSource
+from .limits_source import MultiAccountLimits
 from .detail_loader import DetailLoader
 from .pokeapi import PokeAPI
 from .sprites import SpriteStore
@@ -168,6 +168,25 @@ class Daemon:
         described["undo_dex_count"] = undo["dex_count"]
         described["undo_used_since_install"] = undo["used_since_install"]
         return described
+
+    def _limit_accounts(self):
+        """Every Claude login's limits, when the source tracks more than one."""
+        reader = getattr(self.limits_source, "accounts", None)
+        if reader is None:
+            return None
+        try:
+            # Folders someone listed by hand, re-read from the live config so
+            # adding one takes effect on the next poll rather than at restart.
+            if hasattr(self.limits_source, "extra_config_dirs"):
+                raw = str(self.config_values.get("extra_claude_config_dirs") or "")
+                self.limits_source.extra_config_dirs = [
+                    part.strip() for part in raw.replace("\n", ",").split(",") if part.strip()
+                ]
+            return reader()
+        except Exception:
+            # A discovery failure must not take the whole payload down; the
+            # default account's numbers are already in the block above.
+            return None
 
     def _record_ledger(self, periods: dict | None) -> None:
         """Copy this month's daily totals into the ledger, and prune."""
@@ -464,6 +483,20 @@ class Daemon:
                     if limit_status.weekly is not None:
                         windows["weekly"] = limit_status.weekly.utilization
                         epochs["weekly"] = limit_status.weekly.resets_at
+                    # Filling a second account's window earns its candy too.
+                    # The default account keeps the unsuffixed keys, so grants
+                    # already recorded in a save carry on meaning the same
+                    # thing (upstream e5b4800).
+                    for account_id, account_status, _source in (
+                            self._limit_accounts() or [])[1:]:
+                        if account_status is None:
+                            continue
+                        for kind in ("session", "weekly"):
+                            found = getattr(account_status, kind)
+                            if found is None:
+                                continue
+                            windows[f"{kind}@{account_id}"] = found.utilization
+                            epochs[f"{kind}@{account_id}"] = found.resets_at
                     if self.burn is not None:
                         for kind, utilization in windows.items():
                             self.burn.record(kind, utilization)
@@ -512,6 +545,7 @@ class Daemon:
                 "stale": getattr(self.limits_source, "stale", False),
                 "updated_at": getattr(self.limits_source, "updated_at", None),
             },
+            limit_accounts=self._limit_accounts(),
             companion_payload=companion_payload,
             shop_payload=self.companion_store.shop_payload() if self.companion_store else None,
             bag_payload=self.companion_store.bag_payload() if self.companion_store else None,
@@ -578,7 +612,7 @@ def main() -> int:
         config_path=config.default_path(),
         cache=cache,
         providers=None,  # replaced below, once the daemon can answer for its config
-        limits_source=LimitsSource(),
+        limits_source=MultiAccountLimits(),
         companion_store=_companion_store(),
         notifier=Notifier(),
         burn_tracker=BurnTracker(),

@@ -235,8 +235,13 @@ class Notifier:
             if tier <= previous:
                 continue
             self._limit_tier[kind] = tier
+            # A second Claude account's windows arrive as "session@<folder>";
+            # the alert names the account rather than the key (e5b4800).
+            base, _, account = kind.partition("@")
             window = l10n.t(
-                "five_hour_session" if kind == "session" else "weekly", language)
+                "five_hour_session" if base == "session" else "weekly", language)
+            if account:
+                window = f"{account} · {window}"
             title = l10n.t(
                 "notif_limit_critical" if tier == 2 else "notif_limit_warning", language)
             body = (l10n.t("notif_limit_body", language)

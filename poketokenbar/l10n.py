@@ -706,6 +706,21 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "Sauvegarde et transfert", "Backup e transferência", "Sicherung & Übertragung",
     ),
     # Local restore points (upstream 13e3bf2).
+    # Extra Claude logins to read limits from (upstream e5b4800).
+    "setting_claude_accounts": ("Claude account folders", "Claude 계정 폴더",
+        "Claude アカウントフォルダ", "Carpetas de cuentas de Claude",
+        "Dossiers de comptes Claude", "Pastas de contas do Claude",
+        "Claude-Kontoordner",
+    ),
+    "setting_claude_accounts_hint": (
+        "Extra config folders to read limits from, comma separated. ~/.claude, $CLAUDE_CONFIG_DIR and ~/.claude-* logins are found on their own.",
+        "한도를 함께 읽을 설정 폴더를 쉼표로 구분해 적어요. ~/.claude, $CLAUDE_CONFIG_DIR, ~/.claude-* 로그인은 알아서 찾습니다.",
+        "上限を読み取る設定フォルダをカンマ区切りで指定します。~/.claude、$CLAUDE_CONFIG_DIR、~/.claude-* は自動で見つけます。",
+        "Carpetas de configuración adicionales, separadas por comas. ~/.claude, $CLAUDE_CONFIG_DIR y ~/.claude-* se detectan solos.",
+        "Dossiers de configuration supplémentaires, séparés par des virgules. ~/.claude, $CLAUDE_CONFIG_DIR et ~/.claude-* sont détectés automatiquement.",
+        "Pastas de configuração extras, separadas por vírgulas. ~/.claude, $CLAUDE_CONFIG_DIR e ~/.claude-* são encontradas sozinhas.",
+        "Zusätzliche Konfigurationsordner, durch Kommas getrennt. ~/.claude, $CLAUDE_CONFIG_DIR und ~/.claude-* werden selbst gefunden.",
+    ),
     "section_snapshots": ("Automatic backups", "자동 백업", "自動バックアップ",
         "Copias automáticas", "Sauvegardes automatiques", "Backups automáticos",
         "Automatische Sicherungen",

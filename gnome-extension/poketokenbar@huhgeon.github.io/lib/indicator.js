@@ -13,6 +13,7 @@ import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
 import * as Commands from './commands.js';
+import * as Config from './config.js';
 import {DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
 import {isPowerSaver} from './power.js';
 import {Sprite} from './sprite.js';
@@ -192,6 +193,14 @@ class Indicator extends PanelMenu.Button {
             this._footer.add_child(label(this._freshness(state), 'poketokenbar-footer-text'));
         }
         this._footer.add_child(spacer());
+        // Turning the desktop pet off is a right-click on the pet itself, so
+        // turning it back on needs somewhere that is always reachable — the
+        // settings page is two taps away and the pet is not there to click
+        // (upstream 3272509).
+        const petOn = Boolean(state?.config?.floating_pet_enabled);
+        this._footer.add_child(iconButton(
+            petOn ? 'view-reveal-symbolic' : 'view-conceal-symbolic',
+            () => Config.set('floating_pet_enabled', !petOn)));
         this._footer.add_child(iconButton('emblem-system-symbolic', () => this._setSettingsOpen(true)));
     }
 
