@@ -470,6 +470,31 @@
   background-color: rgba(10, 132, 255, 0.16);
 }
 
+/* Search and filter row above the grid and the log. */
+.poketokenbar-search {
+  border-radius: 8px;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+  font-size: 0.85em;
+  color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.poketokenbar-search:focus {
+  border: 1px solid rgba(10, 132, 255, 0.8);
+}
+
+.poketokenbar-filters {
+  spacing: 6px;
+  padding-bottom: 4px;
+}
+
+.poketokenbar-valuepill-on {
+  background-color: rgba(255, 214, 10, 0.22);
+  color: #ffd60a;
+}
+
 .poketokenbar-dexcell {
   spacing: 1px;
 }

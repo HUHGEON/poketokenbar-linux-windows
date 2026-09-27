@@ -8,15 +8,28 @@ single total cannot be decomposed when one provider resets and another does not.
 
 from __future__ import annotations
 
-import time as _time
-
 import random
+import time as _time
+import unicodedata
 from datetime import date as _date
 from pathlib import Path
 
 from . import balance, companion, l10n, pokeapi, profile, save, shop, sprites
 from .companion import CompanionState
 from .format import compact as _compact
+
+
+def _fold(text: str) -> str:
+    """Lowercased and stripped of diacritics, for search matching.
+
+    "Flabébé" and "flabebe" have to be the same word to a search box; the same
+    fold runs in the popup on the query.
+    """
+    decomposed = unicodedata.normalize("NFKD", text)
+    stripped = "".join(c for c in decomposed if not unicodedata.combining(c))
+    # Recomposed, or a Hangul syllable would be left as loose jamo and every
+    # Korean name would only match a query decomposed exactly the same way.
+    return unicodedata.normalize("NFC", stripped).casefold()
 
 
 def _duration(seconds: float | None, language: str = "en") -> str:
@@ -477,6 +490,32 @@ class CompanionStore:
         except Exception:
             return ""
         return l10n.resolve_name(l10n.names_from_api(entry.get("names")), language) or ""
+
+    def species_names(self, species_id: int) -> dict[str, str]:
+        """Every name PokéAPI knows for a species, by language code.
+
+        The search box matches any of them, so "flabebe" finds Flabébé and a
+        Korean name is found by someone typing English.
+        """
+        if self.api is None:
+            return {}
+        try:
+            entry = self.api.species(species_id)
+        except Exception:
+            return {}
+        return l10n.names_from_api(entry.get("names")) or {}
+
+    def _search_text(self, species_ids) -> str:
+        """What a row matches a search against: its numbers and all its names.
+
+        Folded here rather than in the popup — one rule, and Python already has
+        the Unicode tables for it. The popup folds the query the same way.
+        """
+        parts = []
+        for species_id in species_ids:
+            parts.append(f"#{species_id}")
+            parts.extend(self.species_names(species_id).values())
+        return _fold(" ".join(parts))
 
     def _egg_sprite(self) -> str:
         """The egg's own picture, for every surface that draws the companion.
@@ -957,6 +996,7 @@ class CompanionStore:
                     "is_raising": species_id == raising,
                     "is_pinned": species_id == pinned,
                     "sprite_path": sprite,
+                    "search": self._search_text([species_id]),
                 }
             )
         return out
@@ -993,6 +1033,11 @@ class CompanionStore:
                 "raised_text": _duration(e.raised_seconds, self.state.language),
                 "raising": False,
                 "released": e.is_released,
+                # A catch is found through any species in its line, as its row
+                # shows the whole chain.
+                "search": self._search_text(e.chain_order),
+                "species_id": e.final_id,
+                "name": self.species_name(e.final_id, self.state.language),
             }
             for e in self.state.dex
         ]
@@ -1012,6 +1057,9 @@ class CompanionStore:
                     "raised_text": "",
                     "raising": True,
                     "released": False,
+                    "search": self._search_text(mon.path_ids[: mon.stage_index + 1]),
+                    "species_id": mon.current_id,
+                    "name": self.species_name(mon.current_id, self.state.language),
                 },
             )
         return out

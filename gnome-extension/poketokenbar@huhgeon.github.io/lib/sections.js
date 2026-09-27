@@ -18,6 +18,7 @@ import St from 'gi://St';
 
 import * as Commands from './commands.js';
 import {planCandyUse, maxCandyUses} from './candy.js';
+import {DEX_SORTS, LOG_SORTS, dexRows, logRows, sortLabelKey} from './dexfilter.js';
 import * as Config from './config.js';
 import {ANIMATION_OFF, DEFAULT_QUALITY, effectiveQuality} from './framecap.js';
 import {isPowerSaver} from './power.js';
@@ -812,6 +813,14 @@ class CollectionSection extends Section {
         // Rarity chips filter the grid and the log, as upstream's do.
         this._dexFilter = null;
         this._logFilter = null;
+        // The search box, the shiny-only toggle and the chosen order. The entry
+        // is kept as a widget rather than rebuilt every poll: destroying it
+        // under the cursor would throw away what is half typed.
+        this._search = null;
+        this._query = '';
+        this._shinyOnly = false;
+        this._dexSort = DEX_SORTS[0];
+        this._logSort = LOG_SORTS[0];
         // The species whose page is open, and what the page is showing. Kept
         // here as well as in the daemon so the page opens on the tap.
         this._inspecting = null;
@@ -825,11 +834,21 @@ class CollectionSection extends Section {
             this._inspecting = null;
             Commands.inspect(null);
         }
+        // clear() destroys the entry with everything else, and a search left
+        // over from last time would be a filter nobody remembers setting.
+        this._search = null;
+        this._query = '';
+        this._shinyOnly = false;
         super.release();
     }
 
     update(state) {
         this._state = state;
+        // The search entry is detached rather than destroyed: it holds the text
+        // being typed, and rebuilding it every poll would throw that away
+        // mid-word. Focus goes back to it once it is on screen again.
+        const focused = this._searchHasFocus();
+        this._detachSearch();
         this.clear();
         const t = key => this._reader.text(key);
 
@@ -849,6 +868,85 @@ class CollectionSection extends Section {
             this._buildCatchLog(state);
         else
             this._buildPokedex(state);
+        if (focused)
+            this._focusSearch();
+    }
+
+    // --- search, filters and order (upstream ae7bd9d) ------------------------
+
+    _searchHasFocus() {
+        return this._search !== null
+            && global.stage.get_key_focus() === this._search.clutter_text;
+    }
+
+    _focusSearch() {
+        if (this._search !== null && this._search.get_parent() !== null)
+            global.stage.set_key_focus(this._search.clutter_text);
+    }
+
+    _detachSearch() {
+        const parent = this._search?.get_parent() ?? null;
+        if (parent !== null)
+            parent.remove_child(this._search);
+    }
+
+    /** The search box, the shiny-only toggle and the sort control, as one row. */
+    _controls(t, sorts, sort, setSort) {
+        if (this._search === null) {
+            this._search = new St.Entry({
+                style_class: 'poketokenbar-search',
+                hint_text: t('dex_search_placeholder'),
+                can_focus: true,
+                x_expand: true,
+            });
+            this._search.clutter_text.connect('text-changed', () => {
+                this._query = this._search.get_text() ?? '';
+                this._page = 0;
+                this._logPage = 0;
+                this.update(this._state);
+            });
+        }
+        this._search.hint_text = t('dex_search_placeholder');
+
+        const shiny = button(`✨ ${t('filter_shiny_only')}`, () => {
+            this._shinyOnly = !this._shinyOnly;
+            this._page = 0;
+            this._logPage = 0;
+            this.update(this._state);
+        }, this._shinyOnly
+            ? 'poketokenbar-valuepill poketokenbar-valuepill-on'
+            : 'poketokenbar-valuepill');
+        // One button cycling the orders, as the settings pills do: a menu is a
+        // second popup inside a popup.
+        const next = sorts[(sorts.indexOf(sort) + 1) % sorts.length];
+        const order = button(t(sortLabelKey(sort)), () => {
+            setSort(next);
+            this._page = 0;
+            this._logPage = 0;
+            this.update(this._state);
+        }, 'poketokenbar-valuepill');
+
+        this.add_child(this._search);
+        this.add_child(row([shiny, spacer(), caption(t('sort_title'), 'tertiary'), order],
+            'poketokenbar-filters'));
+    }
+
+    /** Nothing matched: say so, and offer the way back. */
+    _noResults(t) {
+        this.add_child(placeholder(t('no_search_results')));
+        const reset = borderedButton(t('clear_filters'), () => {
+            this._query = '';
+            this._shinyOnly = false;
+            this._dexFilter = null;
+            this._logFilter = null;
+            this._page = 0;
+            this._logPage = 0;
+            if (this._search !== null)
+                this._search.set_text('');
+            this.update(this._state);
+        });
+        reset.x_align = Clutter.ActorAlign.CENTER;
+        this.add_child(reset);
     }
 
     _open(speciesId) {
@@ -918,8 +1016,19 @@ class CollectionSection extends Section {
                 this.update(this._state);
             }, t);
 
-        const shown = this._dexFilter
-            ? entries.filter(dexEntry => dexEntry.rarity === this._dexFilter) : entries;
+        this._controls(t, DEX_SORTS, this._dexSort, sort => {
+            this._dexSort = sort;
+        });
+        const shown = dexRows(entries, {
+            rarity: this._dexFilter,
+            shinyOnly: this._shinyOnly,
+            query: this._query,
+            sort: this._dexSort,
+        });
+        if (shown.length === 0) {
+            this._noResults(t);
+            return;
+        }
         const pages = Math.max(1, Math.ceil(shown.length / this._perPage));
         this._page = Math.min(this._page, pages - 1);
         const page = shown.slice(this._page * this._perPage, (this._page + 1) * this._perPage);
@@ -1019,8 +1128,19 @@ class CollectionSection extends Section {
                 this.update(this._state);
             }, t);
 
-        const shown = this._logFilter
-            ? log.filter(catchRecord => catchRecord.rarity === this._logFilter) : log;
+        this._controls(t, LOG_SORTS, this._logSort, sort => {
+            this._logSort = sort;
+        });
+        const shown = logRows(log, {
+            rarity: this._logFilter,
+            shinyOnly: this._shinyOnly,
+            query: this._query,
+            sort: this._logSort,
+        });
+        if (shown.length === 0) {
+            this._noResults(t);
+            return;
+        }
         // Paged rather than cut off: the log used to stop at the 40 newest,
         // and everything older could not be reached at all.
         const pages = Math.max(1, Math.ceil(shown.length / LOG_PER_PAGE));

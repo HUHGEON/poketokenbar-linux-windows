@@ -382,7 +382,7 @@ LIST_ROW_FIELDS = {
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "has_normal",
-            "is_raising", "is_pinned", "sprite_path"},
+            "is_raising", "is_pinned", "sprite_path", "search"},
 }
 
 # Fields only some rows in a block carry — the candy ladder belongs to the one
@@ -411,7 +411,7 @@ def test_catch_log_row_shape(payload):
     row = payload["catch_log"][0]
     assert set(row) == {
         "rarity", "nature", "is_shiny", "chain", "caught_at", "raised_text", "raising",
-        "released",
+        "released", "search", "species_id", "name",
     }
     assert set(row["chain"][0]) == {"species_id", "name", "sprite_path"}
 

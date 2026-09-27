@@ -301,6 +301,37 @@ STRINGS: dict[str, tuple[str, ...]] = {
     # dex
     # The appearance picker on a Pokédex page: a species collected both ways
     # has two of them, and one used to hide the other (upstream 4bfae97).
+    # Searching, sorting and filtering the Pokédex and the catch log
+    # (upstream ae7bd9d).
+    "dex_search_placeholder": ("Search name or #…", "이름 또는 #번호 검색…", "名前または#番号で検索…",
+        "Buscar por nombre o #…", "Rechercher par nom ou #…", "Buscar por nome ou #…",
+        "Nach Name oder # suchen…",
+    ),
+    "sort_title": ("Sort", "정렬", "並び替え", "Ordenar", "Trier", "Ordenar", "Sortieren"),
+    "sort_number_asc": ("Number ↑", "번호 ↑", "図鑑番号 ↑", "Nº ↑", "N° ↑", "Nº ↑", "Nummer ↑"),
+    "sort_number_desc": ("Number ↓", "번호 ↓", "図鑑番号 ↓", "Nº ↓", "N° ↓", "Nº ↓", "Nummer ↓"),
+    "sort_name_asc": ("Name A–Z", "이름 가나다", "名前 A-Z", "Nombre A–Z", "Nom A–Z", "Nome A–Z",
+        "Name A–Z",
+    ),
+    "sort_rarity_desc": ("Rarity ↓", "희귀도 순", "希少度順", "Rareza ↓", "Rareté ↓", "Raridade ↓",
+        "Seltenheit ↓",
+    ),
+    "sort_date_desc": ("Most recent", "최근 순", "最近捕獲", "Más recientes", "Plus récents",
+        "Mais recentes", "Neueste zuerst",
+    ),
+    "sort_date_asc": ("Oldest first", "오래된 순", "古い順", "Más antiguos", "Plus anciens",
+        "Mais antigos", "Älteste zuerst",
+    ),
+    "filter_shiny_only": ("Shiny only", "이로치만", "色違いのみ", "Solo variocolor",
+        "Chromatique uniquement", "Apenas Shiny", "Nur schillernde",
+    ),
+    "no_search_results": ("No Pokémon found", "검색 결과가 없어요", "見つかりませんでした",
+        "No se encontraron Pokémon", "Aucun Pokémon trouvé", "Nenhum Pokémon encontrado",
+        "Keine Pokémon gefunden",
+    ),
+    "clear_filters": ("Reset filters", "필터 초기화", "フィルターを解除", "Restablecer filtros",
+        "Réinitialiser les filtres", "Redefinir filtros", "Filter zurücksetzen",
+    ),
     "dex_normal_label": ("Normal", "일반", "通常", "Normal", "Normal", "Normal", "Normal"),
     "dex_appearance": ("Appearance", "모습", "姿", "Aspecto", "Apparence", "Aparência", "Aussehen"),
     "dex_appearance_preview": (

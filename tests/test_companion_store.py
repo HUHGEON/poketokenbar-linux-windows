@@ -250,3 +250,25 @@ def test_a_quiet_poll_with_no_egg_waiting_still_does_nothing(tmp_path):
     s.update({"claude_code": 5}, today="2026-08-18")
     assert s.state.used_since_install == before
     assert s.state.active is None
+
+
+def test_a_dex_row_can_be_found_by_number_or_by_a_name_in_any_language(tmp_path):
+    """The popup matches against this text, so what it can find is decided
+    here: the number with or without its hash, and every language's name with
+    its accents folded away (upstream ae7bd9d)."""
+    s = _hatched(tmp_path)
+    row = s.dex_payload()[0]
+    assert f"#{row['species_id']}" in row["search"]
+    assert row["search"] == row["search"].lower()
+    # The fixture's API answers with names; at minimum the displayed one is in.
+    if row["name"]:
+        assert row["name"].lower() in row["search"]
+
+
+def test_the_folding_rule_strips_accents_and_case():
+    from poketokenbar.companion_store import _fold
+
+    assert _fold("Flabébé") == "flabebe"
+    assert _fold("PIKACHU") == "pikachu"
+    # Non-Latin scripts are left as they are; there is nothing to fold.
+    assert _fold("나무돌이") == "나무돌이"
