@@ -132,3 +132,69 @@ def test_pokeapi_names_resolve_case_insensitively_with_regional_codes():
     assert l10n.resolve_name(names, "pt") == "Bulbassauro"
     assert l10n.resolve_name(names, "ko") == "Bulbasaur"
     assert l10n.resolve_name({}, "ko") is None
+
+
+# --- Korean particles (upstream 746d838) ------------------------------------
+
+
+@pytest.mark.parametrize("word,kind,expected", [
+    # No coda: 가 / 를 / 로.
+    ("피카츄", "s", "가"),
+    ("피카츄", "o", "를"),
+    ("피카츄", "d", "로"),
+    # A coda: 이 / 을 / 으로.
+    ("이상해꽃", "s", "이"),
+    ("이상해꽃", "o", "을"),
+    ("듀랄루돈", "d", "으로"),
+    ("잉어킹", "d", "으로"),
+    # ㄹ takes 로, not 으로.
+    ("코일", "d", "로"),
+    ("아라리", "d", "로"),
+])
+def test_the_particle_follows_the_last_syllable(word, kind, expected):
+    assert l10n.korean_particle(word, kind) == expected
+
+
+@pytest.mark.parametrize("word", ["", "#123", "[A]", "Pikachu", "ピカチュウ", "/home/u/save.json"])
+def test_a_word_that_is_not_hangul_keeps_both_forms(word):
+    """Better to write both than to write the wrong one: the coda of a dex
+    number or a file path cannot be told."""
+    assert l10n.korean_particle(word, "s") == "이(가)"
+    assert l10n.korean_particle(word, "o") == "을(를)"
+    assert l10n.korean_particle(word, "d") == "(으)로"
+
+
+def test_korean_copy_agrees_with_the_name_it_follows():
+    assert l10n.fill("notif_hatch_body", "ko", "피카츄") == "알에서 피카츄가 나왔어요!"
+    assert l10n.fill("notif_hatch_body", "ko", "이상해꽃") == "알에서 이상해꽃이 나왔어요!"
+    assert l10n.fill("notif_evolve_body", "ko", "듀랄루돈") == "듀랄루돈으로 진화했어요!"
+    assert l10n.fill("notif_evolve_body", "ko", "리자몽") == "리자몽으로 진화했어요!"
+    assert l10n.fill("notif_evolve_body", "ko", "#5") == "#5(으)로 진화했어요!"
+
+
+def test_other_languages_substitute_exactly_as_before():
+    for language in l10n.LANGUAGES:
+        if language == "ko":
+            continue
+        assert l10n.fill("notif_hatch_body", language, "Pikachu") == (
+            l10n.t("notif_hatch_body", language).replace("%1", "Pikachu"))
+
+
+def test_no_korean_string_still_writes_both_forms_where_a_name_goes():
+    """The marker is what makes the choice possible; a leftover "%1이(가)" is a
+    string this port forgot to convert."""
+    leftovers = [
+        key for key, row in l10n.STRINGS.items()
+        if "%1" in row[1] and any(both in row[1] for both in ("이(가)", "을(를)", "(으)로"))
+    ]
+    assert leftovers == []
+
+
+def test_an_unfilled_marker_never_reaches_the_screen():
+    """Every marker has to be resolved by fill(), not shipped raw: the JS
+    catalogue renders what it is given."""
+    for key, row in l10n.STRINGS.items():
+        for language, text in zip(l10n.LANGUAGES, row):
+            if "{s}" in text or "{o}" in text or "{d}" in text:
+                assert "%1" in text, f"{key}/{language} marks a particle with nothing to fill"
+                assert "{s}" not in l10n.fill(key, language, "피카츄")

@@ -55,7 +55,7 @@ def test_a_hatch_is_announced_in_the_chosen_language(language):
     Notifier(spy).companion(GrowthEvents(hatched=25), "피카츄", language)
     assert spy.text != ""
     assert spy.text == f"{l10n.t('notif_hatch_title', language)} " + \
-        l10n.t("notif_hatch_body", language).replace("%1", "피카츄")
+        l10n.fill("notif_hatch_body", language, "피카츄")
 
 
 def test_the_companion_name_lands_in_the_notification():
@@ -261,8 +261,8 @@ def test_a_mint_reports_the_nature_it_rolled():
     subject = store(language="ko", active=raising())
     subject.state.inventory["mint"] = 1
     message = subject.use_item("mint")
-    assert message == l10n.t("shop_nature_now", "ko").replace(
-        "%1", l10n.nature_name(subject.state.active.nature, "ko"))
+    assert message == l10n.fill(
+        "shop_nature_now", "ko", l10n.nature_name(subject.state.active.nature, "ko"))
 
 
 def test_an_item_that_crosses_no_threshold_still_gets_a_banner():

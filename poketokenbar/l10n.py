@@ -10,6 +10,8 @@ covers macOS-only surfaces (Keychain, updater, support mail).
 
 from __future__ import annotations
 
+import re
+
 LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de")
 
 # key: (en, ko, ja, es)
@@ -324,19 +326,19 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "notif_hatch_title": ("🥚 Hatched!", "🥚 부화!", "🥚 孵化！", "🥚 ¡Eclosionó!",
         "🥚 Éclosion !", "🥚 Chocou!", "🥚 Geschlüpft!",
     ),
-    "notif_hatch_body": ("%1 hatched from the egg!", "알에서 %1이(가) 나왔어요!", "タマゴから %1 が生まれました！", "¡%1 salió del huevo!",
+    "notif_hatch_body": ("%1 hatched from the egg!", "알에서 %1{s} 나왔어요!", "タマゴから %1 が生まれました！", "¡%1 salió del huevo!",
         "%1 est sorti de l'œuf !", "%1 saiu do ovo!", "%1 ist aus dem Ei geschlüpft!",
     ),
     "notif_shiny_hatch_title": ("✨ Shiny Pokémon!", "✨ 이로치 포켓몬!", "✨ 色違いポケモン！", "✨ ¡Pokémon variocolor!",
         "✨ Pokémon chromatique !", "✨ Pokémon shiny!", "✨ Schillerndes Pokémon!",
     ),
-    "notif_shiny_hatch_body": ("A shiny %1 hatched! (1 in 64)", "이로치 %1이(가) 태어났어요! (1/64)", "色違いの %1 が生まれました！(1/64)", "¡Nació un %1 variocolor! (1 entre 64)",
+    "notif_shiny_hatch_body": ("A shiny %1 hatched! (1 in 64)", "이로치 %1{s} 태어났어요! (1/64)", "色違いの %1 が生まれました！(1/64)", "¡Nació un %1 variocolor! (1 entre 64)",
         "Un %1 chromatique est né ! (1 sur 64)", "Nasceu um %1 shiny! (1 em 64)", "Ein schillerndes %1 ist geschlüpft! (1/64)",
     ),
     "notif_evolve_title": ("✨ Evolved!", "✨ 진화!", "✨ 進化！", "✨ ¡Evolucionó!",
         "✨ Évolution !", "✨ Evoluiu!", "✨ Entwicklung!",
     ),
-    "notif_evolve_body": ("Evolved into %1!", "%1(으)로 진화했어요!", "%1 に進化しました！", "¡Evolucionó a %1!",
+    "notif_evolve_body": ("Evolved into %1!", "%1{d} 진화했어요!", "%1 に進化しました！", "¡Evolucionó a %1!",
         "A évolué en %1 !", "Evoluiu para %1!", "Hat sich zu %1 entwickelt!",
     ),
     "notif_ditto_title": ("🎭 Huh? It's Ditto!", "🎭 어라? 메타몽!", "🎭 あれ？メタモン！", "🎭 ¿Eh? ¡Es Ditto!",
@@ -367,7 +369,7 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "%1 à %2", "%1 em %2", "%1: %2 verbraucht",
     ),
     # companion status
-    "status_evolved": ("Evolved into %1!", "%1(으)로 진화했어요!", "%1 に進化しました！", "¡Evolucionó a %1!",
+    "status_evolved": ("Evolved into %1!", "%1{d} 진화했어요!", "%1 に進化しました！", "¡Evolucionó a %1!",
         "A évolué en %1 !", "Evoluiu para %1!", "Hat sich zu %1 entwickelt!",
     ),
     # shop and bag
@@ -574,7 +576,7 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "Annuler", "Cancelar", "Abbrechen",
     ),
     # Notifications the daemon sends back after a transfer.
-    "save_exported": ("Save exported to %1", "%1(으)로 세이브를 내보냈습니다", "%1 にセーブを書き出しました", "Partida exportada a %1",
+    "save_exported": ("Save exported to %1", "%1{d} 세이브를 내보냈습니다", "%1 にセーブを書き出しました", "Partida exportada a %1",
         "Sauvegarde exportée vers %1", "Save exportado para %1", "Spielstand nach %1 exportiert",
     ),
     "save_imported": ("Save imported; the previous one was backed up", "세이브를 불러왔습니다. 이전 세이브는 백업했습니다", "セーブを読み込みました。以前のセーブはバックアップ済みです", "Partida importada; la anterior se respaldó",
@@ -596,7 +598,7 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "shop_used_body": ("%1 gained.", "%1 획득했어요.", "%1 を獲得しました。", "Ganó %1.",
         "%1 gagnés.", "%1 ganho.", "%1 erhalten.",
     ),
-    "shop_nature_now": ("Nature is now %1", "성격이 %1(으)로 바뀌었어요", "性格が %1 になりました",
+    "shop_nature_now": ("Nature is now %1", "성격이 %1{d} 바뀌었어요", "性格が %1 になりました",
         "Su naturaleza ahora es %1",
         "Sa nature est maintenant %1", "A natureza agora é %1", "Das Wesen ist jetzt %1",
     ),
@@ -611,7 +613,7 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "unpin": ("Release", "고정 해제", "解除", "Soltar",
         "Détacher", "Soltar", "Lösen",
     ),
-    "panel_pinned": ("%1 is pinned to the panel", "패널을 %1(으)로 고정했어요",
+    "panel_pinned": ("%1 is pinned to the panel", "패널을 %1{d} 고정했어요",
         "パネルを %1 に固定しました", "%1 está fijado en el panel",
         "%1 est épinglé au panneau", "%1 está fixado no painel",
         "%1 ist an der Leiste angeheftet",
@@ -704,6 +706,62 @@ def t(key: str, language: str = "en") -> str:
     if index >= len(row):
         return row[0]
     return row[index] or row[0]
+
+
+# Korean particles, chosen from the word they follow. A name that arrives at
+# runtime cannot be baked into the translation, which is why the Korean copy
+# used to write both forms ("%1이(가)"). Ports upstream's KoreanParticle
+# (746d838); the arithmetic is a few lines, so no dependency is needed.
+#
+# In a string, `%1{s}` means "substitute %1, then the subject particle that fits
+# it": 이/가 for {s}, 을/를 for {o}, 으로/로 for {d}.
+_PARTICLES = {
+    "s": ("가", "이", "이(가)"),
+    "o": ("를", "을", "을(를)"),
+    "d": ("로", "으로", "(으)로"),
+}
+_HANGUL = range(0xAC00, 0xD7A4)
+_RIEUL = 8
+_PARTICLE_MARKER = re.compile(r"%(\d)\{([sod])\}")
+
+
+def korean_particle(word: str, kind: str) -> str:
+    """The particle that fits this word, or both forms when it cannot be told.
+
+    The coda of the last syllable decides it. A word that does not end in a
+    Hangul syllable — a file path, a dex number placeholder, Unown's "[A]" —
+    keeps the combined form: writing both is better than writing the wrong one.
+    """
+    no_coda, with_coda, either = _PARTICLES[kind]
+    if not word or ord(word[-1]) not in _HANGUL:
+        return either
+    coda = (ord(word[-1]) - 0xAC00) % 28
+    if coda == 0:
+        return no_coda
+    # ㄹ takes 로, not 으로 (서울로, 알로).
+    if kind == "d" and coda == _RIEUL:
+        return no_coda
+    return with_coda
+
+
+def fill(key: str, language: str = "en", *values: str) -> str:
+    """Resolve a string and substitute %1, %2 … , Korean particles included.
+
+    Every substitution of a runtime name goes through here rather than through
+    `t(...).replace("%1", name)`, because that is the call that knows the word
+    the particle has to agree with.
+    """
+    text = t(key, language)
+
+    def particle(match: re.Match) -> str:
+        index = int(match.group(1)) - 1
+        word = values[index] if 0 <= index < len(values) else ""
+        return f"%{match.group(1)}{korean_particle(word, match.group(2))}"
+
+    text = _PARTICLE_MARKER.sub(particle, text)
+    for position, value in enumerate(values, start=1):
+        text = text.replace(f"%{position}", value)
+    return text
 
 
 def nature_name(nature: str | None, language: str = "en") -> str:

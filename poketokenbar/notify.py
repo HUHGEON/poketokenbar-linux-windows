@@ -169,7 +169,7 @@ class Notifier:
         built in the daemon, which is the one place a toast can still come out
         in the wrong language.
         """
-        self._send("PokeTokenBar", l10n.t(key, language).replace("%1", subject))
+        self._send("PokeTokenBar", l10n.fill(key, language, subject))
 
     def companion(
         self,
@@ -193,26 +193,26 @@ class Notifier:
         if events.hatched is not None:
             if shiny:
                 self._send(t("notif_shiny_hatch_title"),
-                           t("notif_shiny_hatch_body").replace("%1", label))
+                           l10n.fill("notif_shiny_hatch_body", language, label))
             else:
                 self._send(t("notif_hatch_title"),
-                           t("notif_hatch_body").replace("%1", label))
+                           l10n.fill("notif_hatch_body", language, label))
         # A Ditto's reveal replaces the evolution that triggered it: it did not
         # become the next form, it stopped pretending.
         if events.ditto_revealed:
             was = disguise or label
             if shiny:
                 self._send(t("notif_shiny_ditto_title"),
-                           t("notif_shiny_ditto_body").replace("%1", was))
+                           l10n.fill("notif_shiny_ditto_body", language, was))
             else:
                 self._send(t("notif_ditto_title"),
-                           t("notif_ditto_body").replace("%1", was))
+                           l10n.fill("notif_ditto_body", language, was))
         elif events.evolved_to is not None:
             self._send(t("notif_evolve_title"),
-                       t("notif_evolve_body").replace("%1", label))
+                       l10n.fill("notif_evolve_body", language, label))
         if events.graduated is not None:
             self._send(t("notif_graduate_title"),
-                       t("notif_graduate_body").replace("%1", label))
+                       l10n.fill("notif_graduate_body", language, label))
 
     def limits(self, windows: dict[str, float], warn: float, crit: float,
                language: str = "en") -> None:

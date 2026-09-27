@@ -371,7 +371,7 @@ class CompanionStore:
             return {
                 "kind": kind,
                 "title": l10n.t(title_key, language),
-                "detail": l10n.t(body_key, language).replace("%1", subject),
+                "detail": l10n.fill(body_key, language, subject),
             }
 
         if events.ditto_revealed:
@@ -507,7 +507,7 @@ class CompanionStore:
         if species_id is None:
             return l10n.t("panel_unpinned", language)
         name = self.species_name(species_id, language) or f"#{species_id}"
-        return l10n.t("panel_pinned", language).replace("%1", name)
+        return l10n.fill("panel_pinned", language, name)
 
     def _panel_fields(self) -> dict:
         """Panel and pet sprite, which the pin overrides.
@@ -544,7 +544,7 @@ class CompanionStore:
             name = self.species_name(mon.current_id, language) if mon else ""
             if not name:
                 return l10n.t("status_grew", language)
-            return l10n.t("status_evolved", language).replace("%1", name)
+            return l10n.fill("status_evolved", language, name)
         return l10n.t(f"status_{kind.lower()}", language)
 
     def payload(self, today_tokens: int = 0, limit_warning: bool = False) -> dict:
@@ -695,8 +695,8 @@ class CompanionStore:
         """
         language = self.state.language
         if result.nature is not None:
-            return l10n.t("shop_nature_now", language).replace(
-                "%1", l10n.nature_name(result.nature, language))
+            return l10n.fill(
+                "shop_nature_now", language, l10n.nature_name(result.nature, language))
         key = "shop_bought" if result.action == "buy" else "shop_used"
         label = self._label_for(result.key)
         if result.count > 1:
@@ -708,8 +708,8 @@ class CompanionStore:
         """The popup banner for an item use that changed no threshold."""
         language = self.state.language
         detail = (
-            l10n.t("shop_nature_now", language).replace(
-                "%1", l10n.nature_name(result.nature, language))
+            l10n.fill(
+                "shop_nature_now", language, l10n.nature_name(result.nature, language))
             if result.nature is not None
             else l10n.t("shop_used_body", language).replace(
                 "%1", self._item_words(result.key)[2])

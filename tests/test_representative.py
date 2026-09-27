@@ -451,8 +451,8 @@ def test_pin_messages_are_in_the_users_language():
     subject = store(state)
     from poketokenbar import l10n
 
-    assert subject.set_representative(2) == l10n.t("panel_pinned", "ko").replace(
-        "%1", "#2")
+    # "#2" is not Hangul, so the particle keeps both forms.
+    assert subject.set_representative(2) == l10n.fill("panel_pinned", "ko", "#2")
     assert subject.set_representative(2) == l10n.t("panel_unpinned", "ko")
 
 
