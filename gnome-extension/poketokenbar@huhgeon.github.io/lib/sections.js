@@ -1103,8 +1103,13 @@ class CollectionSection extends Section {
         this._logFilter = null;
         // The search box, the shiny-only toggle and the chosen order. The entry
         // is kept as a widget rather than rebuilt every poll: destroying it
-        // under the cursor would throw away what is half typed.
+        // under the cursor would throw away what is half typed — and taking it
+        // out of the tree mid-composition crashes the shell (see clear()).
         this._search = null;
+        // True while a rebuild is running. An input method resets its preedit
+        // when the entry is unmapped, which emits text-changed from inside the
+        // rebuild; without this the rebuild re-enters itself.
+        this._updating = false;
         this._query = '';
         this._shinyOnly = false;
         this._dexSort = DEX_SORTS[0];
@@ -1122,25 +1127,59 @@ class CollectionSection extends Section {
             this._inspecting = null;
             Commands.inspect(null);
         }
-        // clear() destroys the entry with everything else, and a search left
-        // over from last time would be a filter nobody remembers setting.
-        this._search = null;
+        // A search left over from last time would be a filter nobody remembers
+        // setting. The entry is destroyed here rather than in clear(), which
+        // deliberately keeps it.
+        if (this._search !== null) {
+            this._search.destroy();
+            this._search = null;
+        }
         this._query = '';
         this._shinyOnly = false;
         super.release();
     }
 
+    /**
+     * Everything the poll rebuilds — but not the search box.
+     *
+     * The box has to outlive the rebuild, and not by being taken out of the
+     * tree and put back: an input method resets its preedit when the entry is
+     * unmapped, and the reset emits text-changed, which re-enters this rebuild
+     * from inside `remove_child`. Clutter then finds itself unmapping an actor
+     * that is already unmapping and aborts the process — the whole shell, not
+     * just the popup. It only ever happened while typing Korean, Japanese or
+     * anything else that composes, because plain Latin keystrokes never touch
+     * the preedit.
+     */
+    clear() {
+        for (const child of this.get_children()) {
+            if (child !== this._search)
+                child.destroy();
+        }
+    }
+
     update(state) {
         this._state = state;
-        // The search entry is detached rather than destroyed: it holds the text
-        // being typed, and rebuilding it every poll would throw that away
-        // mid-word. Focus goes back to it once it is on screen again.
-        const focused = this._searchHasFocus();
-        this._detachSearch();
+        // A poll landing in the middle of a rebuild — or a preedit reset —
+        // must not start a second one.
+        if (this._updating)
+            return;
+        this._updating = true;
+        try {
+            this._rebuild(state);
+        } finally {
+            this._updating = false;
+        }
+    }
+
+    _rebuild(state) {
         this.clear();
         const t = key => this._reader.text(key);
 
         if (this._inspecting !== null) {
+            // The box stays a child, so it is hidden rather than removed.
+            if (this._search !== null)
+                this._search.visible = false;
             this._buildDetail(state);
             return;
         }
@@ -1156,26 +1195,13 @@ class CollectionSection extends Section {
             this._buildCatchLog(state);
         else
             this._buildPokedex(state);
-        if (focused)
-            this._focusSearch();
     }
 
     // --- search, filters and order (upstream ae7bd9d) ------------------------
 
-    _searchHasFocus() {
-        return this._search !== null
-            && global.stage.get_key_focus() === this._search.clutter_text;
-    }
-
     _focusSearch() {
         if (this._search !== null && this._search.get_parent() !== null)
             global.stage.set_key_focus(this._search.clutter_text);
-    }
-
-    _detachSearch() {
-        const parent = this._search?.get_parent() ?? null;
-        if (parent !== null)
-            parent.remove_child(this._search);
     }
 
     /** The search box, the shiny-only toggle and the sort control, as one row. */
@@ -1214,7 +1240,15 @@ class CollectionSection extends Section {
             this.update(this._state);
         }, 'poketokenbar-valuepill');
 
-        this.add_child(this._search);
+        this._search.visible = true;
+        if (this._search.get_parent() === this) {
+            // Moved into place rather than re-added: reordering a child leaves
+            // it mapped, and unmapping is what crashed the shell. -1 is not
+            // "last" for set_child_at_index, so the index is counted out.
+            this.set_child_at_index(this._search, this.get_n_children() - 1);
+        } else {
+            this.add_child(this._search);
+        }
         this.add_child(row([shiny, spacer(), caption(t('sort_title'), 'tertiary'), order],
             'poketokenbar-filters'));
     }
@@ -1296,6 +1330,8 @@ class CollectionSection extends Section {
         const t = key => this._reader.text(key);
         const entries = state?.dex ?? [];
         if (entries.length === 0) {
+            if (this._search !== null)
+                this._search.visible = false;
             this.add_child(placeholder(t('no_pokemon_yet')));
             return;
         }
@@ -1415,6 +1451,8 @@ class CollectionSection extends Section {
         const t = key => this._reader.text(key);
         const log = state?.catch_log ?? [];
         if (log.length === 0) {
+            if (this._search !== null)
+                this._search.visible = false;
             this.add_child(placeholder(t('no_pokemon_yet')));
             return;
         }

@@ -626,6 +626,32 @@ _ACTOR_LAYOUT = {"x_expand", "y_expand", "x_align", "y_align"}
 _ACCESS = re.compile(r"(?<![.\w])([a-zA-Z_]\w*)(?:\?)?\.(\w+)(?!\w)(?!\s*\()")
 
 
+def test_a_rebuild_never_takes_the_search_box_out_of_the_tree():
+    """Unmapping an entry mid-composition crashes the whole shell.
+
+    An input method resets its preedit when the entry is unmapped, and the
+    reset emits text-changed — which re-entered the rebuild from inside
+    `remove_child`. Clutter then unmapped an actor that was already unmapping
+    and aborted the process:
+
+        clutter_actor_set_mapped: assertion '!CLUTTER_ACTOR_IN_MAP_UNMAP'
+        Clutter:ERROR: assertion failed: (!clutter_actor_is_mapped (self))
+        Bail out!
+
+    Only ever while typing Korean, Japanese or anything else that composes:
+    plain Latin keystrokes never touch the preedit. So the box is reordered
+    rather than re-parented, kept by clear(), and the rebuild refuses to run
+    inside itself.
+    """
+    source = (EXTENSION_DIR / "lib" / "sections.js").read_text(encoding="utf-8")
+    assert "remove_child(this._search" not in source, (
+        "the search box is taken out of the tree; reorder it with "
+        "set_child_at_index instead, which does not unmap it")
+    assert "if (child !== this._search)" in source, (
+        "clear() no longer keeps the search box")
+    assert "this._updating" in source, "the rebuild lost its re-entrancy guard"
+
+
 def test_every_row_variable_is_bound_where_it_is_used():
     """A row variable used outside the loop that binds it is a crash.
 
