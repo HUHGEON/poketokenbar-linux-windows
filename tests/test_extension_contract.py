@@ -626,6 +626,44 @@ _ACTOR_LAYOUT = {"x_expand", "y_expand", "x_align", "y_align"}
 _ACCESS = re.compile(r"(?<![.\w])([a-zA-Z_]\w*)(?:\?)?\.(\w+)(?!\w)(?!\s*\()")
 
 
+def test_every_row_variable_is_bound_where_it_is_used():
+    """A row variable used outside the loop that binds it is a crash.
+
+    It shipped once: a rename swept `individual.is_shiny` into
+    `graduatedRow.is_shiny` inside the Pokédex page, where nothing binds that
+    name, and opening a Pokémon's page threw ReferenceError — the popup went
+    blank on the tap. Nothing caught it, because the name is a real accessor
+    and the field is a real field of its own block, and a page whose species
+    details had not loaded never reached the line.
+
+    The rule that catches it: in the method where a row variable is read, it
+    has to appear at least once *not* as `name.field` — as a parameter, a
+    destructured element, or an assignment. A stray rename leaves only field
+    reads behind, which is exactly what this looks for.
+    """
+    loose: dict[str, list[str]] = {}
+    for path in source_files():
+        code = _strip_literals(path.read_text(encoding="utf-8"))
+        # Comments name these variables while explaining them, which is not a
+        # use; only code counts.
+        code = re.sub(r"//[^\n]*", "", code)
+        code = re.sub(r"/\*.*?\*/", "", code, flags=re.S)
+        # One method at a time: a name bound in another method is out of scope
+        # here, which is the whole point.
+        for body in re.split(r"\n    (?=[_A-Za-z]\w*\()", code):
+            for name in ROW_ACCESSORS:
+                reads = re.findall(rf"(?<![.\w]){re.escape(name)}(?![\w])", body)
+                if not reads:
+                    continue
+                fields = re.findall(rf"(?<![.\w]){re.escape(name)}(?=\?\.|\.)", body)
+                if len(reads) == len(fields):
+                    loose.setdefault(path.name, []).append(name)
+    assert not loose, (
+        "these row variables are only ever read, never bound, in the method "
+        "that uses them: " + str({k: sorted(set(v)) for k, v in loose.items()})
+    )
+
+
 def test_no_payload_access_escapes_the_declared_accessors():
     """Every snake_case field read must belong to a declared accessor.
 

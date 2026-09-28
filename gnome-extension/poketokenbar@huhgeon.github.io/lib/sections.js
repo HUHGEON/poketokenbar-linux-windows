@@ -1596,7 +1596,7 @@ class CollectionSection extends Section {
             }, {accent: true, expand: false}));
         }
 
-        const shown = individuals.filter(individual => Boolean(graduatedRow.is_shiny) === showingShiny);
+        const shown = individuals.filter(individual => Boolean(individual.is_shiny) === showingShiny);
         const index = Math.min(this._individualIndex, Math.max(0, shown.length - 1));
         if (shown.length > 1) {
             this.add_child(segmented(shown.map((individual, position) => ({
