@@ -12,8 +12,66 @@ from __future__ import annotations
 
 LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de")
 
+
+def format_text(template: str, *values) -> str:
+    """Fill runtime names and resolve Korean particles only for Hangul names."""
+    import re
+    for index, value in enumerate(values, 1):
+        template = template.replace(f"%{index}", str(value))
+    def particle(match):
+        word, suffix = match.groups()
+        coda = (ord(word[-1]) - 0xAC00) % 28
+        if suffix == "이(가)":
+            return word + ("이" if coda else "가")
+        if suffix == "을(를)":
+            return word + ("을" if coda else "를")
+        return word + ("로" if coda in (0, 8) else "으로")
+    return re.sub(r"([가-힣]+)(이\(가\)|을\(를\)|\(으\)로)", particle, template)
+
 # key: (en, ko, ja, es)
 STRINGS: dict[str, tuple[str, ...]] = {
+    "manual_refresh": ("Manual", "수동", "手動", "Manual", "Manuel", "Manual", "Manuell"),
+    'candy_evolves': ('Evolves', '진화', '進化', 'Evoluciona', 'Évolue', 'Evolui', 'Entwickelt sich'),
+    'candy_graduates': ('Graduates', '졸업', '卒業', 'Se gradúa', 'Termine sa croissance', 'Conclui o crescimento', 'Schließt Wachstum ab'),
+    'candy_carryover': ('Next egg +%1', '다음 알 +%1', '次のタマゴ +%1', 'Siguiente huevo +%1', 'Prochain œuf +%1', 'Próximo ovo +%1', 'Nächstes Ei +%1'),
+    'candy_discarded': ('Unused growth: %1', '사용되지 않는 성장: %1', '余る成長: %1', 'Crecimiento sin usar: %1', 'Croissance inutilisée : %1', 'Crescimento não usado: %1', 'Ungenutztes Wachstum: %1'),
+    'released': ('Released', '떠나보냄', '送り出した', 'Liberado', 'Relâché', 'Liberado', 'Freigelassen'),
+
+    'collection_search': ('Name or number', '이름 또는 도감 번호', '名前・図鑑番号', 'Nombre o número', 'Nom ou numéro', 'Nome ou número', 'Name oder Nummer'),
+    'shiny_only': ('Shiny only', '이로치만', '色違いのみ', 'Solo variocolor', 'Chromatiques uniquement', 'Só brilhantes', 'Nur schillernde'),
+    'sort_number': ('Number', '도감 번호', '図鑑番号', 'Número', 'Numéro', 'Número', 'Nummer'),
+    'sort_name': ('Name', '이름', '名前', 'Nombre', 'Nom', 'Nome', 'Name'),
+    'sort_newest': ('Newest', '최신순', '新しい順', 'Más recientes', 'Plus récents', 'Mais recentes', 'Neueste'),
+    'sort_oldest': ('Oldest', '오래된순', '古い順', 'Más antiguos', 'Plus anciens', 'Mais antigos', 'Älteste'),
+    'sort_rarity': ('Rarity', '희귀도', 'レア度', 'Rareza', 'Rareté', 'Raridade', 'Seltenheit'),
+    'no_matches': ('No matches', '검색 결과 없음', '該当なし', 'Sin resultados', 'Aucun résultat', 'Sem resultados', 'Keine Treffer'),
+    'usage_recap': ('Usage recap', '사용량 회고', '使用量の振り返り', 'Resumen de uso', 'Bilan d’utilisation', 'Resumo de uso', 'Nutzungsrückblick'),
+    'recap_week': ('Week', '주', '週', 'Semana', 'Semaine', 'Semana', 'Woche'),
+    'recap_month': ('Month', '월', '月', 'Mes', 'Mois', 'Mês', 'Monat'),
+    'recap_year': ('Year', '년', '年', 'Año', 'Année', 'Ano', 'Jahr'),
+    'recap_active_days': ('Active days', '활동한 날', '使用した日', 'Días activos', 'Jours actifs', 'Dias ativos', 'Aktive Tage'),
+    'recap_best_day': ('Best day', '가장 많이 쓴 날', '最多使用日', 'Mejor día', 'Meilleur jour', 'Melhor dia', 'Bester Tag'),
+    'recap_streak': ('Longest streak', '최장 연속 사용', '最長連続日数', 'Mejor racha', 'Plus longue série', 'Maior sequência', 'Längste Serie'),
+    'recap_previous': ('Previous period', '이전 기간', '前の期間', 'Periodo anterior', 'Période précédente', 'Período anterior', 'Voriger Zeitraum'),
+    'recap_partial': ('History starts on %1. Earlier days are unknown.', '기록 시작일: %1. 이전 사용량은 알 수 없습니다.', '記録開始: %1。それ以前は不明です。', 'El historial comienza el %1. Los días anteriores son desconocidos.', 'L’historique commence le %1. Les jours antérieurs sont inconnus.', 'O histórico começa em %1. Os dias anteriores são desconhecidos.', 'Verlauf ab %1. Frühere Tage sind unbekannt.'),
+    'local_snapshots': ('Local save backups', '로컬 세이브 백업', 'ローカルセーブのバックアップ', 'Copias locales', 'Sauvegardes locales', 'Backups locais', 'Lokale Sicherungen'),
+    'create_snapshot': ('Back up now', '지금 백업', '今すぐバックアップ', 'Crear copia', 'Sauvegarder', 'Criar backup', 'Jetzt sichern'),
+    'restore_snapshot': ('Restore', '복원', '復元', 'Restaurar', 'Restaurer', 'Restaurar', 'Wiederherstellen'),
+    'restore_snapshot_confirm': ('Restore this backup? Current progress will be backed up first.', '이 백업을 복원할까요? 현재 진행 상황은 먼저 백업됩니다.', 'このバックアップを復元しますか？現在の進行状況は先にバックアップされます。', '¿Restaurar esta copia? Antes se guardará el progreso actual.', 'Restaurer cette sauvegarde ? La progression actuelle sera sauvegardée.', 'Restaurar este backup? O progresso atual será salvo antes.', 'Diese Sicherung wiederherstellen? Der aktuelle Fortschritt wird vorher gesichert.'),
+    'confirm_release': ('Release this companion? It stays in your Pokédex, but its current growth ends.', '이 포켓몬을 떠나보낼까요? 도감에는 남지만 현재 성장은 종료됩니다.', 'このポケモンを送り出しますか？図鑑には残りますが、現在の育成は終了します。', '¿Liberar este Pokémon? Seguirá en la Pokédex, pero terminará su crecimiento.', 'Relâcher ce Pokémon ? Il reste au Pokédex, mais sa croissance se termine.', 'Liberar este Pokémon? Ele fica na Pokédex, mas o crescimento termina.', 'Dieses Pokémon freilassen? Es bleibt im Pokédex, aber sein Wachstum endet.'),
+    'bulk_candy': ('Use Rare Candy', '이상한사탕 사용', 'ふしぎなアメを使う', 'Usar Caramelo Raro', 'Utiliser des Super Bonbons', 'Usar Doce Raro', 'Sonderbonbons verwenden'),
+    'growth_preview': ('Growth +%1', '성장 +%1', '成長 +%1', 'Crecimiento +%1', 'Croissance +%1', 'Crescimento +%1', 'Wachstum +%1'),
+    'hatch_delayed': ('Waiting for Pokémon data', '포켓몬 데이터를 기다리는 중', 'ポケモンのデータを待っています', 'Esperando datos del Pokémon', 'En attente des données Pokémon', 'Aguardando dados do Pokémon', 'Warte auf Pokémon-Daten'),
+    'retry_hatch': ('Retry hatch', '부화 다시 시도', '孵化を再試行', 'Reintentar eclosión', 'Réessayer l’éclosion', 'Tentar eclodir novamente', 'Schlüpfen erneut versuchen'),
+    'official_accounts': ('Official limits & accounts', '공식 한도·계정', '公式上限・アカウント', 'Límites oficiales y cuentas', 'Limites officielles et comptes', 'Limites oficiais e contas', 'Offizielle Limits und Konten'),
+    'claude_account_dirs': ('Additional Claude config folders', '추가 Claude 설정 폴더', '追加のClaude設定フォルダー', 'Carpetas adicionales de Claude', 'Dossiers Claude supplémentaires', 'Pastas adicionais do Claude', 'Weitere Claude-Konfigurationsordner'),
+    'session_key': ('Session key', '세션 키', 'セッションキー', 'Clave de sesión', 'Clé de session', 'Chave de sessão', 'Sitzungsschlüssel'),
+    'session_key_saved': ('Session key saved', '세션 키 저장됨', 'セッションキーを保存しました', 'Clave guardada', 'Clé enregistrée', 'Chave salva', 'Sitzungsschlüssel gespeichert'),
+    'remove_key': ('Remove key', '키 삭제', 'キーを削除', 'Eliminar clave', 'Supprimer la clé', 'Remover chave', 'Schlüssel entfernen'),
+    'cost_estimated': ('Estimated', '추정', '推定', 'Estimado', 'Estimation', 'Estimado', 'Geschätzt'),
+    'cost_unavailable': ('Unavailable', '알 수 없음', '不明', 'No disponible', 'Indisponible', 'Indisponível', 'Nicht verfügbar'),
+    'cost_partial': ('Partial estimate', '일부만 추정', '一部推定', 'Estimación parcial', 'Estimation partielle', 'Estimativa parcial', 'Teilweise geschätzt'),
+
     "plan_balance": ("Codex plan & growth", "Codex 요금제·성장 배율", "Codex プランと成長", "Plan Codex y crecimiento", "Forfait Codex et progression", "Plano Codex e crescimento", "Codex-Tarif und Wachstum"),
     "difficulty": ("Difficulty", "난이도", "難易度", "Dificultad", "Difficulté", "Dificuldade", "Schwierigkeit"),
     "difficulty_growth": ("Growth", "성장 난이도", "成長", "Crecimiento", "Croissance", "Crescimento", "Wachstum"),
@@ -249,8 +307,8 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "notif_shiny_hatch_title": ("✨ Shiny Pokémon!", "✨ 이로치 포켓몬!", "✨ 色違いポケモン！", "✨ ¡Pokémon variocolor!",
         "✨ Pokémon chromatique !", "✨ Pokémon shiny!", "✨ Schillerndes Pokémon!",
     ),
-    "notif_shiny_hatch_body": ("A shiny %1 hatched! (1 in 64)", "이로치 %1이(가) 태어났어요! (1/64)", "色違いの %1 が生まれました！(1/64)", "¡Nació un %1 variocolor! (1 entre 64)",
-        "Un %1 chromatique est né ! (1 sur 64)", "Nasceu um %1 shiny! (1 em 64)", "Ein schillerndes %1 ist geschlüpft! (1/64)",
+    "notif_shiny_hatch_body": ("A shiny %1 hatched! (1 in %2)", "이로치 %1이(가) 태어났어요! (1/%2)", "色違いの %1 が生まれました！(1/%2)", "¡Nació un %1 variocolor! (1 entre %2)",
+        "Un %1 chromatique est né ! (1 sur %2)", "Nasceu um %1 shiny! (1 em %2)", "Ein schillerndes %1 ist geschlüpft! (1/%2)",
     ),
     "notif_evolve_title": ("✨ Evolved!", "✨ 진화!", "✨ 進化！", "✨ ¡Evolucionó!",
         "✨ Évolution !", "✨ Evoluiu!", "✨ Entwicklung!",

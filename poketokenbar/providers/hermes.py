@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Mapping
 
 from ..models import Entry
+from .base import number, to_int
 from .sqlite_source import SQLiteProvider, date_value, make_entry, query
 
 _SQL = """
@@ -39,17 +40,20 @@ def parse_database(path: Path) -> list[Entry]:
         date = date_value(row[3])
         if date is None:
             continue
-        estimated, actual = row[10], row[11]
+        estimated, actual = number(row[10]), number(row[11])
+        actual = actual if actual is not None and actual >= 0 else None
         entry = make_entry(
             f"hermes|{session_id}",
             date,
             model,
             input=row[5],
             # Hermes bills reasoning on top of output rather than inside it.
-            output=(row[6] or 0) + (row[9] or 0),
+            output=to_int(row[6]) + to_int(row[9]),
             cache_write=row[8],
             cache_read=row[7],
-            cost=actual if isinstance(actual, (int, float)) and actual > 0 else estimated,
+            cost=actual if actual is not None else estimated,
+            cost_is_estimate=actual is None,
+            cost_unavailable=True,
         )
         if entry is not None:
             out.append(entry)
@@ -71,7 +75,7 @@ class HermesProvider(SQLiteProvider):
     id = "hermes"
     display_name = "Hermes Agent"
     reports_cost = True
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
     database_names = ("state.db",)
 
     def curated_roots(self) -> list[Path]:

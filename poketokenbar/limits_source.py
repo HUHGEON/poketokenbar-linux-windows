@@ -1,4 +1,4 @@
-"""Cached, backoff-aware access to the Claude limits endpoint.
+"""Cached, backoff-aware access to official limits endpoints.
 
 Separated from limits.py so the daemon can be handed a fake in tests: the poll
 loop must not reach the network on every unit test run.
@@ -39,7 +39,7 @@ class LimitsSource:
         self._blocked_until: float = 0.0
         self.last_error: str = ""
 
-    def invalidate(self) -> None:
+    def invalidate(self, clear_cache: bool = False) -> None:
         """Force the next get() to refetch — used by a manual refresh.
 
         Clears the backoff too: a person pressing refresh is an explicit
@@ -47,6 +47,8 @@ class LimitsSource:
         """
         self._fetched_at = None
         self._blocked_until = 0.0
+        if clear_cache:
+            self._cached = None
 
     def get(self) -> limits.LimitStatus | None:
         now = self._clock()
@@ -66,7 +68,7 @@ class LimitsSource:
             self.last_error = f"rate limited, retrying in {int(wait)}s"
         except (limits.AuthExpiredError, limits.NeedsLoginError) as exc:
             self._blocked_until = now + AUTH_BACKOFF
-            self.last_error = f"{exc} — run `claude login`"
+            self.last_error = str(exc)
         except limits.LimitsError as exc:
             # Keep the stale value; a blip should not blank the section.
             self._fetched_at = now

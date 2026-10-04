@@ -231,8 +231,33 @@ def _drop_local_bookkeeping(state: CompanionState) -> CompanionState:
     progress carries over, today's usage starts counting from now.
     """
     state.claimed_today_tokens_by_provider = None
+    state.install_baseline_set = False
     state.last_date = ""
     return state
+
+
+def rebase(incoming: CompanionState, current: CompanionState) -> CompanionState:
+    """Keep device preferences and merge account reward ledgers across rollback."""
+    incoming.language = current.language
+    keys = set(incoming.candy_grant_tier) | set(current.candy_grant_tier)
+    epochs = {}
+    for key in keys | set(incoming.candy_window_epoch) | set(current.candy_window_epoch):
+        earned_incoming = incoming.candy_grant_tier.get(key, 0) >= 2
+        earned_current = current.candy_grant_tier.get(key, 0) >= 2
+        candidates = []
+        if earned_incoming or not earned_current:
+            candidates.append(incoming.candy_window_epoch.get(key))
+        if earned_current or not earned_incoming:
+            candidates.append(current.candy_window_epoch.get(key))
+        values = [value for value in candidates if value is not None]
+        if values:
+            epochs[key] = max(values)
+    incoming.candy_grant_tier = {
+        key: max(incoming.candy_grant_tier.get(key, 0), current.candy_grant_tier.get(key, 0))
+        for key in keys}
+    incoming.candy_window_epoch = epochs
+    incoming.candy_feature_seeded |= current.candy_feature_seeded
+    return _drop_local_bookkeeping(incoming)
 
 
 def import_from(path: Path, target: Path | None = None) -> CompanionState:
@@ -244,6 +269,8 @@ def import_from(path: Path, target: Path | None = None) -> CompanionState:
     incoming = _drop_local_bookkeeping(decode(read_envelope(path)))
 
     target = target or save.default_path()
+    if target.exists():
+        incoming = rebase(incoming, save.load(target))
     _back_up(target)
 
     save.save(incoming, target)
@@ -266,6 +293,7 @@ def restore_backup(target: Path | None = None) -> CompanionState:
     except (OSError, ValueError) as exc:
         raise TransferError(f"cannot read {newest}: {exc}") from exc
 
+    restored = rebase(restored, save.load(target))
     _back_up(target)
     save.save(restored, target)
     try:

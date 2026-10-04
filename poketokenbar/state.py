@@ -15,8 +15,9 @@ from pathlib import Path
 
 from . import format as fmt
 from . import platform_paths
-from . import l10n, limits
-from .models import DailyUsage
+from . import config as config_module, l10n, limits
+from . import pace
+from .models import CostCoverage, DailyUsage
 
 SCHEMA_VERSION = 1
 
@@ -25,22 +26,34 @@ def default_path() -> Path:
     return platform_paths.state_base() / "poketokenbar" / "state.json"
 
 
-def _limits_payload(status, strings: dict) -> dict:
+def limit_window_payload(window: dict, duration_seconds, config_values: dict | None = None) -> dict:
+    values = config_values or {}
+    used = window.get("utilization", 0)
+    remaining = values.get("limit_percent_mode") == "remaining"
+    elapsed = pace.window_pace(window.get("resets_at"), duration_seconds)
+    warn, crit = values.get("warn_threshold", 80), values.get("crit_threshold", 95)
+    return {**window, "severity": limits.level(used, warn, crit),
+            "display_fraction": max(0, min(100, 100 - used if remaining else used)) / 100,
+            "pace": elapsed, "pace_marker": pace.marker_fraction(elapsed, "remaining" if remaining else "used"),
+            "pace_tier": pace.gauge_tier(used, elapsed, warn, crit)}
+
+
+def _limits_payload(status, strings: dict, config_values: dict | None = None) -> dict:
     """Serialise a limits.LimitStatus, or an empty dict when unavailable."""
     if status is None:
         return {}
 
-    def window(w):
+    def window(w, duration=7 * 86400):
         if w is None:
             return None
-        return {
+        return limit_window_payload({
             "utilization": w.utilization,
             "resets_at": w.resets_at,
             "severity": w.severity,
-        }
+        }, duration, config_values)
 
     return {
-        "session": window(status.session),
+        "session": window(status.session, 5 * 3600),
         "weekly": window(status.weekly),
         # Model-scoped weekly windows ("Weekly Fable"). They arrive only in
         # limits[], never in the legacy fields, so a front end reading
@@ -80,7 +93,7 @@ def _scoped_name(entry, strings: dict) -> str:
     return f"{base} {entry.model}" if entry.model else base
 
 
-def _period_rows(periods: dict | None) -> dict:
+def _period_rows(periods: dict | None, strings: dict | None = None) -> dict:
     """Week and month with their text prepared, like every other number here.
 
     The daemon sums these as raw ints; formatting them in the UI is what led to
@@ -96,6 +109,7 @@ def _period_rows(periods: dict | None) -> dict:
             "tokens_text": fmt.grouped(tokens),
             "tokens_compact": fmt.compact(tokens),
             "cost_text": fmt.cost(cost),
+            **_cost_payload(cost, bucket.get("cost_coverage"), strings or {}),
         }
     return out
 
@@ -126,14 +140,14 @@ def _model_rows(models: dict[str, int]) -> list[dict]:
     ]
 
 
-def _daily_rows(series_by_provider: dict | None) -> dict:
+def _daily_rows(series_by_provider: dict | None, strings: dict | None = None) -> dict:
     def row(day):
         return {
             "date": day.date,
             "total_tokens": day.total_tokens,
             "total_tokens_compact": fmt.compact(day.total_tokens),
             "total_cost": day.total_cost,
-            "cost_text": fmt.cost(day.total_cost),
+            **_cost_payload(day.total_cost, day.cost_coverage, strings or {}),
         }
 
     providers = {
@@ -141,17 +155,19 @@ def _daily_rows(series_by_provider: dict | None) -> dict:
         for provider_id, series in (series_by_provider or {}).items()
     }
     combined: dict[str, dict] = {}
-    for series in providers.values():
+    coverage_by_day = {}
+    for series in (series_by_provider or {}).values():
         for day in series:
-            bucket = combined.setdefault(day["date"], {
-                "date": day["date"], "total_tokens": 0, "total_cost": 0.0,
+            bucket = combined.setdefault(day.date, {
+                "date": day.date, "total_tokens": 0, "total_cost": 0.0,
             })
-            bucket["total_tokens"] += day["total_tokens"]
-            bucket["total_cost"] += day["total_cost"]
+            bucket["total_tokens"] += day.total_tokens
+            bucket["total_cost"] += day.total_cost
+            coverage_by_day.setdefault(day.date, CostCoverage()).merge(day.cost_coverage)
     combined_rows = []
     for day in sorted(combined.values(), key=lambda item: item["date"]):
         day["total_tokens_compact"] = fmt.compact(day["total_tokens"])
-        day["cost_text"] = fmt.cost(day["total_cost"])
+        day.update(_cost_payload(day["total_cost"], coverage_by_day[day["date"]], strings or {}))
         combined_rows.append(day)
     return {"combined": combined_rows, "providers": providers}
 
@@ -166,14 +182,25 @@ def _codex_limits_payload(raw: dict | None, percent_mode: str,
         copied["windows"] = []
         for window in bucket.get("windows") or []:
             utilization = float(window.get("utilization", 0))
-            copied["windows"].append({
+            copied["windows"].append(limit_window_payload({
                 **window,
                 "severity": limits.level(utilization, warn, crit),
                 "percent_text": limits.format_percent(
                     limits.display_percent(utilization, percent_mode)),
-            })
+            }, (window.get("duration_minutes") or 0) * 60,
+                {"limit_percent_mode": percent_mode, "warn_threshold": warn, "crit_threshold": crit}))
         buckets.append(copied)
     return {"buckets": buckets}
+
+
+def _cost_payload(cost: float, coverage, strings: dict) -> dict:
+    unknown = bool(getattr(coverage, "unknown", False))
+    known = bool(getattr(coverage, "reported", False) or getattr(coverage, "estimated", False))
+    status = ("partial" if known else "unavailable") if unknown else (
+        "estimated" if getattr(coverage, "estimated", False) else "reported")
+    return {"cost_text": strings.get("cost_unavailable", "Unavailable") if status == "unavailable" else fmt.cost(cost),
+            "cost_status": status,
+            "cost_tooltip": strings.get("cost_" + status, "")}
 
 
 def _transfer_payload(described: dict | None) -> dict:
@@ -255,6 +282,10 @@ def build(
     total_cost = sum(d.total_cost for d in daily_by_provider.values())
     limit_mode = config_values.get("limit_display_mode", "both")
     percent_mode = config_values.get("limit_percent_mode", "used")
+    coverage = CostCoverage()
+    for daily in daily_by_provider.values():
+        coverage.merge(daily.cost_coverage)
+    strings = l10n.catalogue(config_values.get("language", "en"))
 
     return {
         "schema_version": SCHEMA_VERSION,
@@ -267,6 +298,7 @@ def build(
             "tokens_grouped": fmt.grouped(total_tokens),
             "tokens_compact": fmt.compact(total_tokens),
             "cost_text": fmt.cost(total_cost),
+            **_cost_payload(total_cost, coverage, strings),
             # Across every provider, so a day spent on one model through two
             # tools still reads as one row.
             "models": _model_rows(_combined_models(daily_by_provider)),
@@ -279,10 +311,10 @@ def build(
                 "total_tokens_text": fmt.grouped(d.total_tokens),
                 "total_tokens_compact": fmt.compact(d.total_tokens),
                 "total_cost": d.total_cost,
+                **_cost_payload(d.total_cost, d.cost_coverage, strings),
                 # Preformatted like every other figure here. The popup prints
                 # a cost beside each provider's tokens and would otherwise
                 # have to reimplement the currency rules per front end.
-                "cost_text": fmt.cost(d.total_cost),
                 "input_tokens": d.input_tokens,
                 "output_tokens": d.output_tokens,
                 "cache_creation_tokens": d.cache_creation_tokens,
@@ -302,7 +334,7 @@ def build(
             for pid, d in daily_by_provider.items()
         },
         "limits": _limits_payload(
-            limit_status, l10n.catalogue(config_values.get("language", "en"))),
+            limit_status, strings, config_values),
         "codex_limits": _codex_limits_payload(
             codex_limits, percent_mode,
             float(config_values.get("warn_threshold", 80)),
@@ -316,8 +348,8 @@ def build(
         "catch_log": catch_log or [],
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
-        "periods": _period_rows(periods),
-        "month_daily": _daily_rows(month_daily),
+        "periods": _period_rows(periods, strings),
+        "month_daily": _daily_rows(month_daily, strings),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
         "burn": burn or {},
@@ -330,6 +362,7 @@ def build(
                 "total_tokens_text": fmt.grouped(block.total_tokens),
                 "total_tokens_compact": fmt.compact(block.total_tokens),
                 "cost_text": fmt.cost(block.cost_usd),
+                **_cost_payload(block.cost_usd, block.cost_coverage, strings),
                 "tokens_per_minute": block.tokens_per_minute,
                 "start_time": block.start_time,
                 "end_time": block.end_time,
@@ -356,7 +389,8 @@ def build(
         "transfer": _transfer_payload(transfer),
         # The live config, so a preferences UI renders current values without
         # parsing config.json itself and without the two drifting apart.
-        "config": dict(config_values),
+        "config": {key: value for key, value in config_values.items()
+                   if key in config_module.DEFAULTS},
         "panel": {
             "tokens_text": fmt.compact(total_tokens)
             if config_values.get("show_tokens_in_menu")

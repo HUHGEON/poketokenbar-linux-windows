@@ -113,8 +113,11 @@ def test_remaining_mode_is_a_display_transform_only():
 # MARK: the rolling 5-hour block
 
 
-class _Provider:
-    """The smallest thing ScanningProvider.fetch_active_block needs."""
+from poketokenbar.providers.base import ScanningProvider
+
+
+class _Provider(ScanningProvider):
+    """Real block and cost coverage behavior, fed fixture entries."""
 
     def __init__(self, entries):
         self._entries = entries

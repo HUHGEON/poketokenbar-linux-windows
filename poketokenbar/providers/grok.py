@@ -139,7 +139,7 @@ def _cost(usage: dict) -> float | None:
     ticks = number(usage.get("costUsdTicks"))
     if ticks is None:
         ticks = number(usage.get("cost_usd_ticks"))
-    if ticks is None or ticks <= 0:
+    if ticks is None or ticks < 0:
         return None
     return ticks / 1e10
 
@@ -271,7 +271,7 @@ class GrokProvider(ScanningProvider):
     id = "grok"
     display_name = "Grok CLI"
     reports_cost = True
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return session_roots(self._home)

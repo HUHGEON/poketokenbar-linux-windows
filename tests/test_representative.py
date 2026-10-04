@@ -83,7 +83,8 @@ def test_a_disguised_ditto_keeps_its_shininess_hidden():
     revealed = CompanionState(
         active=raising(shiny=True, ditto_disguise=132, ditto_revealed=True)
     )
-    assert revealed.owns_shiny_species(4)
+    assert revealed.owns_shiny_species(132)
+    assert not revealed.owns_shiny_species(4)
 
 
 # MARK: reconcile

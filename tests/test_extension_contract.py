@@ -339,11 +339,11 @@ def test_row_fields_read_in_the_extension_exist(variable, block, payload):
 LIST_ROW_FIELDS = {
     "shop": {"key", "kind", "price", "price_text", "label", "description", "badge",
              "rarity",
-             "sprite_path", "emoji", "owned", "owned_count", "affordable"},
+             "sprite_path", "emoji", "owned", "owned_count", "affordable", "requires_confirmation"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
-            "usable", "passive"},
+            "usable", "passive", "max_use_count", "per_candy_xp", "preview", "previews"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
-            "sprite_path", "profiles"},
+            "sprite_path", "profiles", "unown_form", "appearances", "unown_forms", "forms"},
 }
 
 
@@ -360,8 +360,9 @@ def test_catch_log_row_shape(payload):
     row = payload["catch_log"][0]
     assert set(row) == {
         "rarity", "nature", "is_shiny", "chain", "caught_at", "raised_text", "raising",
+        "unown_form", "is_released",
     }
-    assert set(row["chain"][0]) == {"species_id", "name", "sprite_path"}
+    assert set(row["chain"][0]) == {"species_id", "name", "sprite_path", "unown_form"}
 
 
 # MARK: strings
@@ -514,6 +515,9 @@ def test_every_daemon_setting_is_reachable_from_the_ui():
         "floating_pet_y",
         # Edited per provider through its own field, not as one blob.
         "custom_scan_roots",
+        # Windows account folders have a dedicated field in the Qt settings
+        # section, tested by test_windows_sync_ui.py.
+        "additional_claude_config_dirs",
         # Chosen from the language row.
             "language",
             # Written by the update Skip/Show again actions through the daemon,

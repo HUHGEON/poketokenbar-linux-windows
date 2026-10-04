@@ -66,13 +66,14 @@ def test_shiny_charm_cannot_be_bought_twice():
         shop.buy(s, "shinyCharm")
 
 
-def test_buying_an_egg_discards_the_companion_without_dex_credit():
-    # A discarded companion must vanish as if never hatched — no dex entry and
-    # no collected_finals mark, or it would skew future branch diversity.
+def test_buying_an_egg_keeps_reached_forms_without_graduation_credit():
+    # Release preserves ownership without claiming unearned final forms.
     s = _with_mon(tokens=balance.FRESH_EGG_PRICE)
     shop.buy(s, "egg")
     assert s.active is None
-    assert s.dex == []
+    assert len(s.dex) == 1
+    assert s.dex[0].chain_order == [1]
+    assert s.dex[0].is_released
     assert s.collected_finals == set()
     assert s.egg_usage == 0
 

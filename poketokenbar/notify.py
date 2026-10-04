@@ -180,6 +180,7 @@ class Notifier:
         language: str = "en",
         shiny: bool = False,
         disguise: str | None = None,
+        shiny_denominator: int = 64,
     ) -> None:
         """Announce what just happened to the companion.
 
@@ -189,32 +190,33 @@ class Notifier:
         """
         if events is None:
             return
-        t = lambda key: l10n.t(key, language)  # noqa: E731 — one line, one use
         label = name or l10n.t("raising", language)
+        t = lambda key: l10n.t(key, language)
+        body = lambda key, subject=label: l10n.format_text(t(key), subject, shiny_denominator)
 
         if events.hatched is not None:
             if shiny:
                 self._send(t("notif_shiny_hatch_title"),
-                           t("notif_shiny_hatch_body").replace("%1", label))
+                           body("notif_shiny_hatch_body"))
             else:
                 self._send(t("notif_hatch_title"),
-                           t("notif_hatch_body").replace("%1", label))
+                           body("notif_hatch_body"))
         # A Ditto's reveal replaces the evolution that triggered it: it did not
         # become the next form, it stopped pretending.
         if events.ditto_revealed:
             was = disguise or label
             if shiny:
                 self._send(t("notif_shiny_ditto_title"),
-                           t("notif_shiny_ditto_body").replace("%1", was))
+                           body("notif_shiny_ditto_body", was))
             else:
                 self._send(t("notif_ditto_title"),
-                           t("notif_ditto_body").replace("%1", was))
+                           body("notif_ditto_body", was))
         elif events.evolved_to is not None:
             self._send(t("notif_evolve_title"),
-                       t("notif_evolve_body").replace("%1", label))
+                       body("notif_evolve_body"))
         if events.graduated is not None:
             self._send(t("notif_graduate_title"),
-                       t("notif_graduate_body").replace("%1", label))
+                       body("notif_graduate_body"))
 
     def limits(self, windows: dict[str, float], warn: float, crit: float,
                language: str = "en") -> None:
@@ -233,7 +235,11 @@ class Notifier:
                 continue
             self._limit_tier[kind] = tier
             window = l10n.t(
-                "five_hour_session" if kind == "session" else "weekly", language)
+                "five_hour_session" if kind.split(":")[-1] == "session" else "weekly", language)
+            if ":" in kind:
+                source = kind.split(":")[0]
+                provider = {"claude": "Claude", "codex": "Codex", "antigravity": "Antigravity"}.get(source, source)
+                window = f"{provider} · {window}"
             title = l10n.t(
                 "notif_limit_critical" if tier == 2 else "notif_limit_warning", language)
             body = (l10n.t("notif_limit_body", language)

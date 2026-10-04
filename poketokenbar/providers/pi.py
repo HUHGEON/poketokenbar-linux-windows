@@ -61,14 +61,13 @@ def _envelope_date(envelope: dict) -> datetime | None:
 def _explicit_cost(usage: dict) -> float | None:
     """`usage.cost.total` is the charge the agent computed from its own pricing.
 
-    Only a positive figure counts: free or unpriced models are written as 0,
-    which means "no figure available", not "this turn was free".
+    A finite zero is a real source estimate, distinct from a missing figure.
     """
     cost = usage.get("cost")
     if not isinstance(cost, dict):
         return None
     total = number(cost.get("total"))
-    return total if total is not None and total > 0 else None
+    return total if total is not None and total >= 0 else None
 
 
 def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | None:
@@ -79,6 +78,7 @@ def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | No
         "local_day": local_day(date),
         "model": model,
         "explicit_cost": cost,
+        "cost_is_estimate": True,
     }
     if any(number(usage.get(name)) is not None for name in _BUCKETS):
         return Entry(
@@ -94,6 +94,7 @@ def _entry(entry_id: str, date: datetime, usage: dict, model: str) -> Entry | No
         return None
     return Entry(
         input=to_int(usage.get("totalTokens")),
+        cost_unavailable=True,
         output=0,
         cache_write=0,
         cache_read=0,
@@ -246,7 +247,7 @@ class PiProvider(ScanningProvider):
     id = "pi"
     display_name = "Pi Agent"
     reports_cost = True
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return pi_session_roots(self._home)
@@ -267,7 +268,7 @@ class OmpProvider(ScanningProvider):
     id = "omp"
     display_name = "omp"
     reports_cost = True
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return omp_session_roots(self._home)

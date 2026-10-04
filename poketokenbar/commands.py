@@ -30,7 +30,11 @@ def enqueue(name: str, args: dict, spool: Path | None = None) -> Path:
     stem = f"{time.time_ns():020d}-{os.getpid()}-{_counter:04d}"
     tmp = spool / f".{stem}.tmp"
     final = spool / f"{stem}.json"
-    tmp.write_text(json.dumps({"name": name, "args": args}), encoding="utf-8")
+    # Session-key updates use this same spool. Restrict the temporary file from
+    # creation, before writing any credentials into it.
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        json.dump({"name": name, "args": args}, handle)
     tmp.replace(final)  # atomic — the daemon never reads a half-written command
     return final
 

@@ -89,10 +89,10 @@ def test_opencode_falls_back_to_a_database_without_time_created(tmp_path):
     assert entries[0].total == 13
 
 
-def test_opencode_zero_cost_is_not_recorded_as_a_charge(tmp_path):
-    """0 means the store had no figure, not that the turn was free."""
+def test_opencode_zero_cost_remains_a_reported_amount(tmp_path):
+    """An explicit zero is distinct from a missing source figure."""
     payload = dict(OPENCODE_PAYLOAD, cost=0)
-    assert opencode.parse_message(payload, "x").explicit_cost is None
+    assert opencode.parse_message(payload, "x").explicit_cost == 0
 
 
 @pytest.fixture
@@ -235,7 +235,7 @@ def test_hermes_falls_back_to_the_estimate_when_no_actual_cost(tmp_path):
         HERMES_SCHEMA
         + """
         INSERT INTO sessions VALUES (
-            's', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, 0.12, 0
+            's', 'm', 'p', 1767312000, 1, 10, 5, 0, 0, 0, 0.12, NULL
         );
         """,
     )

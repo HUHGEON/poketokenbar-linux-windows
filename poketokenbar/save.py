@@ -5,8 +5,8 @@ their Pokédex. Unknown enum values degrade to None (never to an invented
 guarantee), a corrupt dex entry drops only itself, and a MonState with empty
 path_ids falls back to an egg while dex and inventory survive.
 
-Only a non-object top level is fatal; then the original is preserved as
-.corrupt and a fresh save begins.
+Unreadable or non-object saves are preserved as .corrupt and recovered from
+the newest valid local snapshot, falling back to a fresh save if none exists.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 
-from . import platform_paths
+from . import platform_paths, unown
 
 from .balance import Rarity
 from .companion import CompanionState, DexEntry, MonState
@@ -126,6 +126,7 @@ def _decode_mon(raw) -> MonState | None:
         else None,
         ditto_revealed=_lenient(raw, "ditto_revealed", bool, False),
         hatched_at=raw.get("hatched_at") if isinstance(raw.get("hatched_at"), (int, float)) else None,
+        unown_form=unown.resolved(path_ids[stage], raw.get("unown_form")),
     )
 
 
@@ -151,6 +152,8 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         raised_seconds=raw.get("raised_seconds")
         if isinstance(raw.get("raised_seconds"), (int, float))
         else None,
+        unown_form=unown.resolved(final_id, raw.get("unown_form")),
+        released_at=raw.get("released_at") if isinstance(raw.get("released_at"), (int, float)) else None,
     )
 
 
@@ -167,9 +170,12 @@ def decode(raw: dict) -> CompanionState:
     state.egg_tier = _optional_rarity(raw.get("egg_tier"))
     representative = raw.get("representative_species_id")
     state.representative_species_id = representative if isinstance(representative, int) else None
+    state.representative_is_shiny = _lenient(raw, "representative_is_shiny", bool, None)
+    state.representative_unown_form = unown.resolved(representative, raw.get("representative_unown_form"))
     state.pending_hatch_id = (
         raw.get("pending_hatch_id") if isinstance(raw.get("pending_hatch_id"), int) else None
     )
+    state.pending_unown_form = unown.resolved(state.pending_hatch_id, raw.get("pending_unown_form"))
     # None means a save that predates per-provider tracking: seed from the next
     # snapshot rather than retroactively granting past usage. An empty dict is
     # the distinct "seeded, nobody reported today" state.
@@ -195,6 +201,10 @@ def decode(raw: dict) -> CompanionState:
     if isinstance(tiers, dict):
         state.candy_grant_tier = {k: v for k, v in tiers.items() if isinstance(v, int)}
     state.candy_feature_seeded = _lenient(raw, "candy_feature_seeded", bool, False)
+    epochs = raw.get("candy_window_epoch")
+    if isinstance(epochs, dict):
+        state.candy_window_epoch = {k: v for k, v in epochs.items()
+                                   if isinstance(k, str) and isinstance(v, str)}
     global last_repairs
     last_repairs = reconcile(state)
     return state
@@ -303,6 +313,7 @@ def encode(state: CompanionState) -> dict:
             "ditto_disguise": m.ditto_disguise,
             "ditto_revealed": m.ditto_revealed,
             "hatched_at": m.hatched_at,
+            "unown_form": unown.resolved(m.current_id, m.unown_form),
         }
 
     return {
@@ -314,10 +325,13 @@ def encode(state: CompanionState) -> dict:
         "egg_usage": state.egg_usage,
         "egg_tier": str(state.egg_tier) if state.egg_tier else None,
         "pending_hatch_id": state.pending_hatch_id,
+        "pending_unown_form": state.pending_unown_form,
         "claimed_today_tokens_by_provider": state.claimed_today_tokens_by_provider,
         "last_date": state.last_date,
         "active": mon(state.active),
         "representative_species_id": state.representative_species_id,
+        "representative_is_shiny": state.representative_is_shiny,
+        "representative_unown_form": state.representative_unown_form,
         "dex": [
             {
                 "base_id": d.base_id,
@@ -329,6 +343,8 @@ def encode(state: CompanionState) -> dict:
                 "profile": _encode_profile(d.profile),
                 "caught_at": d.caught_at,
                 "raised_seconds": d.raised_seconds,
+                "unown_form": unown.resolved(d.final_id, d.unown_form),
+                "released_at": d.released_at,
             }
             for d in state.dex
         ],
@@ -337,6 +353,7 @@ def encode(state: CompanionState) -> dict:
         "inventory": state.inventory,
         "candy_grant_tier": state.candy_grant_tier,
         "candy_feature_seeded": state.candy_feature_seeded,
+        "candy_window_epoch": state.candy_window_epoch,
     }
 
 
@@ -347,6 +364,8 @@ last_repairs: list[str] = []
 
 
 def load(path: Path | None = None) -> CompanionState:
+    global last_repairs
+    last_repairs = []
     path = path or default_path()
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
@@ -354,19 +373,38 @@ def load(path: Path | None = None) -> CompanionState:
         return CompanionState()
     except (OSError, ValueError):
         _quarantine(path)
-        return CompanionState()
+        return _recover(path)
     if not isinstance(raw, dict):
         _quarantine(path)
-        return CompanionState()
+        return _recover(path)
     state = CompanionState()
     state = decode(raw)
     return state
 
 
+def _recover(path: Path) -> CompanionState:
+    from . import snapshots
+
+    state = snapshots.latest_state(path)
+    if state is not None:
+        last_repairs.append("recovered unreadable save from a local snapshot")
+        try:
+            save(state, path)
+        except OSError:
+            last_repairs.append("recovered progress could not be written to disk")
+        return state
+    return CompanionState()
+
+
 def _quarantine(path: Path) -> None:
     """Preserve an unreadable save instead of silently overwriting it."""
     try:
-        path.replace(path.with_suffix(path.suffix + ".corrupt"))
+        target = path.with_suffix(path.suffix + ".corrupt")
+        serial = 1
+        while target.exists():
+            target = path.with_suffix(path.suffix + f".corrupt-{serial}")
+            serial += 1
+        path.replace(target)
     except OSError:
         pass
 
@@ -377,3 +415,10 @@ def save(state: CompanionState, path: Path | None = None) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(encode(state), indent=2), encoding="utf-8")
     tmp.replace(path)
+    from . import snapshots
+
+    try:
+        snapshots.auto_snapshot(state, path)
+    except OSError:
+        # Saving live progress must not depend on a writable backup directory.
+        pass

@@ -6,7 +6,7 @@ import os
 import time
 from pathlib import Path
 
-from . import commands, config, platform_paths, save, state, transfer
+from . import balance, commands, config, platform_paths, save, state, transfer
 from .companion_store import CompanionStore
 from . import autostart
 from . import updater as updater_module
@@ -29,13 +29,13 @@ def _epoch_of(iso: str | None) -> float | None:
     return moment.timestamp()
 from .notify import Notifier
 from .status import StatusChecker
-from .limits_source import LimitsSource
 from .pokeapi import PokeAPI
 from .sprites import SpriteStore
 from .cache import ScanCache
-from .models import DailyUsage
+from .models import CostCoverage, DailyUsage
 from .plan import PlanSource
 from .single_instance import SingleInstance
+from .recap import UsageLedger
 
 
 class Daemon:
@@ -44,6 +44,7 @@ class Daemon:
         limits_source=None, companion_store=None, notifier=None,
         burn_tracker=None, status_checker=None, updater=None, plan_source=None,
         connectivity=None, power_probe=None,
+        cursor_limits_source=None, antigravity_limits_source=None,
     ) -> None:
         self.state_path = state_path
         self.config_path = config_path
@@ -58,6 +59,8 @@ class Daemon:
         self.plan_source = plan_source
         self.connectivity = connectivity
         self.power_probe = power_probe
+        self.cursor_limits_source = cursor_limits_source
+        self.antigravity_limits_source = antigravity_limits_source
         # Which account the last limits belonged to. Switching accounts changes
         # what the percentages mean, so cached limits and burn history from the
         # previous account must not carry over.
@@ -65,6 +68,7 @@ class Daemon:
         self.status_checker = status_checker
         self.spool: Path | None = None
         self.config_values = config.load(config_path)
+        self.usage_ledger = UsageLedger(state_path.with_name("usage-ledger.json"))
 
     def custom_scan_roots(self, provider_id: str) -> str | None:
         """This provider's extra scan folders, as configured right now."""
@@ -156,7 +160,8 @@ class Daemon:
                 }
             )
         companion = self.companion_store.state if self.companion_store else None
-        return {"providers": rows, "plan": {
+        return {"providers": rows, "claude_accounts": list(
+            getattr(self.limits_source, "account_metadata", {}).values()), "plan": {
             "detected": self.plan_source.current if self.plan_source else None,
             "status": self.plan_source.status if self.plan_source else "unavailable",
             "multiplier": companion.balance_multiplier if companion else 1,
@@ -226,8 +231,46 @@ class Daemon:
         described["undo_used_since_install"] = undo["used_since_install"]
         return described
 
+    def _reward_windows(self, primary, extra: dict) -> tuple[dict, dict]:
+        windows, epochs = {}, {}
+        def add(key, value, reset):
+            windows[key] = value
+            if reset:
+                epochs[key] = reset
+        statuses = {"": primary}
+        statuses.update({f"claude:{identity}:": status for identity, status in
+                         getattr(self.limits_source, "account_statuses", {}).items()
+                         if identity != "default"})
+        for prefix, status in statuses.items():
+            for kind in ("session", "weekly"):
+                window = getattr(status, kind, None)
+                if window is not None:
+                    add(prefix + kind, window.utilization, window.resets_at)
+        for bucket in (getattr(self.plan_source, "current_limits", None) or {}).get("buckets", []):
+            for window in bucket.get("windows", []):
+                duration = window.get("duration_minutes")
+                kind = "session" if duration == 300 else "weekly" if duration == 10080 else None
+                if kind:
+                    add(f"codex:{bucket.get('id') or bucket.get('name', 'codex')}:{kind}",
+                        window.get("utilization", 0), window.get("resets_at"))
+        for group in (extra.get("antigravity_limits") or {}).get("groups", []):
+            for window in group.get("buckets", []):
+                kind = window.get("kind")
+                if kind in ("session", "weekly"):
+                    add(f"antigravity:{group.get('name', '')}:{window.get('id', '')}:{kind}",
+                        window.get("utilization", 0), window.get("resets_at"))
+        return windows, epochs
+
     def poll_once(self) -> dict:
         errors: list[str] = []
+        configure_accounts = getattr(self.limits_source, "configure", None)
+        if configure_accounts is not None:
+            configure_accounts(self.config_values.get("additional_claude_config_dirs", ""))
+        account_roots = {identity: Path(metadata["root"]) for identity, metadata in
+                         getattr(self.limits_source, "account_metadata", {}).items()}
+        for provider in self.providers:
+            if hasattr(provider, "configure_account_roots"):
+                provider.configure_account_roots(account_roots)
         detected_plan = None
         if self.plan_source is not None:
             try:
@@ -245,6 +288,20 @@ class Daemon:
                 # Manual refresh: drop cached limits so the next fetch is live.
                 if self.limits_source is not None:
                     self.limits_source.invalidate()
+                for source in (self.cursor_limits_source, self.antigravity_limits_source, self.plan_source):
+                    if source is not None and hasattr(source, "invalidate"):
+                        source.invalidate()
+            elif name in ("save_session_key", "clear_session_key"):
+                try:
+                    args = command.get("args") or {}
+                    store = self.limits_source.session_key_store(str(args.get("account_id", "default")))
+                    if name == "clear_session_key":
+                        store.clear()
+                    else:
+                        store.save(str(args.get("key", "")), args.get("organization_id"))
+                    self.limits_source.invalidate()
+                except Exception:
+                    errors.append("session key: unable to update this account")
             elif name == "update":
                 # Applied by the daemon, not the tray: it is the half that is
                 # always running, and the swap must not race two processes
@@ -274,6 +331,9 @@ class Daemon:
             elif name == "reload_config":
                 self.config_values = config.load(self.config_path)
                 self._apply_difficulty()
+                if configure_accounts is not None:
+                    configure_accounts(self.config_values.get("additional_claude_config_dirs", ""))
+                    self.limits_source.invalidate()
                 # The login entry is a file on disk, so the setting only means
                 # anything if something writes it. The daemon does it rather
                 # than the tray: it is the half that is guaranteed to be
@@ -294,23 +354,38 @@ class Daemon:
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
             elif name == "represent" and self.companion_store is not None:
-                raw = (command.get("args") or {}).get("species_id")
+                args = command.get("args") or {}
+                raw = args.get("species_id")
                 try:
                     species_id = None if raw in (None, "", "none") else int(raw)
-                    message = self.companion_store.set_representative(species_id)
+                    appearance = {key: args[key] for key in ("is_shiny", "unown_form") if key in args}
+                    message = self.companion_store.set_representative(species_id, **appearance)
                     if self.notifier is not None:
                         self.notifier._send("PokeTokenBar", message)
                 except (TypeError, ValueError) as exc:
                     errors.append(f"represent: {exc}")
             elif name in ("buy", "use") and self.companion_store is not None:
-                key = (command.get("args") or {}).get("key", "")
+                args = command.get("args") or {}
+                key = args.get("key", "")
                 try:
                     if name == "buy":
-                        message = self.companion_store.buy(key)
+                        message = self.companion_store.buy(key, **(
+                            {"confirmed": args["confirmed"] is True} if "confirmed" in args else {}))
                     else:
-                        message = self.companion_store.use_item(key)
+                        message = self.companion_store.use_item(key, **(
+                            {"count": args["count"]} if "count" in args else {}))
                     if self.notifier is not None:
                         self.notifier._send("PokeTokenBar", message)
+                except Exception as exc:
+                    errors.append(f"{name}: {exc}")
+            elif name in ("retry_hatch", "create_snapshot", "restore_snapshot") and self.companion_store is not None:
+                try:
+                    if name == "restore_snapshot":
+                        self.companion_store.restore_snapshot((command.get("args") or {}).get("id", ""))
+                        self.companion_store.apply_plan(detected_plan)
+                        self._apply_difficulty()
+                    else:
+                        getattr(self.companion_store, name)()
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
 
@@ -336,9 +411,12 @@ class Daemon:
                 errors.append(f"{provider.id} periods: {exc}")
                 continue
             for key in ("week", "month"):
-                bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0})
+                bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0,
+                                                   "cost_coverage": CostCoverage()})
                 bucket["tokens"] += result[key]["tokens"]
                 bucket["cost"] += result[key]["cost"]
+                if result[key].get("cost_coverage") is not None:
+                    bucket["cost_coverage"].merge(result[key]["cost_coverage"])
             fetch_month_daily = getattr(provider, "fetch_month_daily", None)
             if fetch_month_daily is not None:
                 try:
@@ -377,6 +455,18 @@ class Daemon:
             if self.limits_source.last_error:
                 errors.append(f"limits: {self.limits_source.last_error}")
 
+        extra_limits = {}
+        for key, source in (("cursor_limits", self.cursor_limits_source),
+                            ("antigravity_limits", self.antigravity_limits_source)):
+            if source is not None:
+                try:
+                    extra_limits[key] = source.get() or {}
+                    if source.last_error:
+                        extra_limits[key] = {**extra_limits[key], "error": source.last_error,
+                                             "stale": bool(extra_limits[key])}
+                except Exception:
+                    extra_limits[key] = {"error": "Unable to read official limits"}
+
         # Said once, on the poll after the save was read: a repaired save that
         # says nothing is the same silence the repair exists to end.
         if self.companion_store is not None and self.companion_store.save_repairs:
@@ -404,16 +494,13 @@ class Daemon:
                     today_tokens=today_total, limit_warning=limit_warning
                 )
                 # Candy and notifications ride on fresh limits.
-                if limit_status is not None:
-                    windows = {}
-                    if limit_status.session is not None:
-                        windows["session"] = limit_status.session.utilization
-                    if limit_status.weekly is not None:
-                        windows["weekly"] = limit_status.weekly.utilization
+                windows, epochs = self._reward_windows(limit_status, extra_limits)
+                if windows:
                     if self.burn is not None:
                         for kind, utilization in windows.items():
-                            self.burn.record(kind, utilization)
-                    self.companion_store.grant_candy(windows)
+                            if kind in ("session", "weekly"):
+                                self.burn.record(kind, utilization)
+                    self.companion_store.grant_candy(windows, epochs=epochs)
                     if self.notifier is not None and self.config_values.get(
                         "limit_notifications", True
                     ):
@@ -432,6 +519,9 @@ class Daemon:
                         language,
                         shiny=bool(companion_payload.get("is_shiny")),
                         disguise=self.companion_store.disguise_name(),
+                        shiny_denominator=(balance.SHINY_CHARM_DENOMINATOR
+                            if self.companion_store.state.inventory.get("shinyCharm", 0)
+                            else balance.SHINY_DENOMINATOR),
                     )
                     self.companion_store.last_events = None
             except Exception as exc:
@@ -471,6 +561,35 @@ class Daemon:
             update=self._update_payload(errors),
             transfer=self.transfer_payload(),
         )
+        payload.update(extra_limits)
+        payload["claude_accounts"] = [
+            {**metadata, "limits": state._limits_payload(
+                self.limits_source.account_statuses.get(identity), payload["strings"],
+                self.config_values),
+             "error": self.limits_source.account_errors.get(identity, "")}
+            for identity, metadata in getattr(self.limits_source, "account_metadata", {}).items()
+        ]
+        for provider in self.providers:
+            if hasattr(provider, "fetch_accounts") and account_roots:
+                try:
+                    usage = provider.fetch_accounts(account_roots)
+                    for account in payload["claude_accounts"]:
+                        daily = usage.get(account["id"])
+                        if daily is not None:
+                            account["usage"] = {"total_tokens": daily.total_tokens,
+                                                **state._cost_payload(daily.total_cost, daily.cost_coverage, payload["strings"])}
+                except Exception:
+                    errors.append("accounts: unable to attribute local usage")
+        if self.companion_store is not None and hasattr(self.companion_store, "snapshots_payload"):
+            payload["snapshots"] = self.companion_store.snapshots_payload()
+        try:
+            self.usage_ledger.merge(payload["month_daily"]["combined"])
+        except OSError:
+            errors.append("history: unable to save usage history")
+        payload["usage_history"] = {
+            "tokens": self.usage_ledger.tokens,
+            "covered_since": self.usage_ledger.covered_since,
+        }
         state.write(self.state_path, payload)
         if getattr(self, "_pending_restart", False):
             # After the write, so the tray reads the new revision and can offer
@@ -490,8 +609,8 @@ class Daemon:
             # Sleep in short slices so a queued command is picked up promptly
             # without re-scanning the logs every second.
             waited = 0
-            while waited < interval:
-                time.sleep(min(2, interval - waited))
+            while interval <= 0 or waited < interval:
+                time.sleep(2 if interval <= 0 else min(2, interval - waited))
                 waited += 2
                 if self._has_commands() or (self.plan_source is not None and self.plan_source.ready):
                     break
@@ -503,6 +622,9 @@ class Daemon:
         """Drop only network-backed caches; local log scans need no reset."""
         if self.limits_source is not None:
             self.limits_source.invalidate()
+        for source in (self.cursor_limits_source, self.antigravity_limits_source):
+            if source is not None:
+                source.invalidate()
         if self.plan_source is not None:
             invalidate = getattr(self.plan_source, "invalidate", None)
             if invalidate is not None:
@@ -526,6 +648,9 @@ def main() -> int:
 def _run() -> int:
     from . import providers as provider_registry
     from .system_state import ConnectivityMonitor, power_saver
+    from .claude_accounts import ClaudeAccountsSource
+    from .cursor_limits import CursorLimitsSource
+    from .antigravity_limits import AntigravityLimitsSource
 
     cache = ScanCache(platform_paths.cache_base() / "poketokenbar" / "scan.db")
     config_path = config.default_path()
@@ -535,7 +660,9 @@ def _run() -> int:
         config_path=config_path,
         cache=cache,
         providers=None,  # replaced below, once the daemon can answer for its config
-        limits_source=LimitsSource(),
+        limits_source=ClaudeAccountsSource(state.default_path().parent),
+        cursor_limits_source=CursorLimitsSource(),
+        antigravity_limits_source=AntigravityLimitsSource(state.default_path().parent),
         companion_store=CompanionStore(
             api=PokeAPI(), sprite_store=SpriteStore(),
             growth_difficulty=initial_config["growth_difficulty"],

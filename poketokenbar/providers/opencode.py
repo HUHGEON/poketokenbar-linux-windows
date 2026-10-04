@@ -24,7 +24,7 @@ from typing import Mapping
 
 from .. import platform_paths
 from ..models import Entry
-from .base import loads
+from .base import dedup_keep_max, loads, to_int
 from .sqlite_source import SQLiteProvider, date_value, make_entry, query
 
 # Newer stores can filter on a real column; older ones have no such column and
@@ -69,15 +69,39 @@ def parse_message(obj: dict, fallback_id: str) -> Entry | None:
     )
 
 
+def parse_session_message(obj: dict, fallback_id: str, created_at) -> Entry | None:
+    tokens = obj.get("tokens")
+    model = obj.get("model")
+    date = date_value(created_at)
+    if not isinstance(tokens, dict) or not isinstance(model, dict) or date is None:
+        return None
+    if not isinstance(model.get("id"), str) or not model["id"] or not isinstance(model.get("providerID"), str):
+        return None
+    cache = tokens.get("cache")
+    cache = cache if isinstance(cache, dict) else {}
+    return make_entry(
+        f"opencode|{fallback_id}", date, model["id"], input=tokens.get("input"),
+        output=to_int(tokens.get("output")) + to_int(tokens.get("reasoning")),
+        cache_write=cache.get("write"), cache_read=cache.get("read"), cost=obj.get("cost"),
+    )
+
+
 def parse_database(path: Path) -> list[Entry]:
     rows = query(path, _SQL_WITH_TIME)
     if rows is None:
         # Older databases have no time_created column at all.
         rows = query(path, _SQL_LEGACY)
-    if not rows:
-        return []
     out: list[Entry] = []
-    for row_id, _session_id, payload in rows:
+    modern = query(path, "SELECT id, time_created, data FROM session_message WHERE type = 'assistant'")
+    for row_id, created_at, payload in modern or []:
+        try:
+            obj = loads(payload)
+        except Exception:
+            continue
+        entry = parse_session_message(obj, str(row_id), created_at) if isinstance(obj, dict) else None
+        if entry is not None:
+            out.append(entry)
+    for row_id, _session_id, payload in rows or []:
         if not isinstance(payload, str):
             continue
         try:
@@ -89,7 +113,7 @@ def parse_database(path: Path) -> list[Entry]:
         entry = parse_message(obj, fallback_id=str(row_id))
         if entry is not None:
             out.append(entry)
-    return out
+    return dedup_keep_max(out)
 
 
 def parse_legacy_file(path: Path) -> list[Entry]:
@@ -147,7 +171,7 @@ class OpenCodeProvider(SQLiteProvider):
     id = "opencode"
     display_name = "OpenCode"
     reports_cost = True
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
 
     def curated_roots(self) -> list[Path]:
         return roots(self._home)

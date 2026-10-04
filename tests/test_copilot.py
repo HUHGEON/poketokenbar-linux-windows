@@ -178,16 +178,16 @@ def test_provider_reads_the_store_under_home(tmp_path):
     assert len(provider.scan_entries()) == 1
 
 
-def test_copilot_reports_no_cost(tmp_path):
-    """Copilot bills subscription premium requests, not per-token dollars."""
+def test_copilot_reports_api_equivalent_estimate(tmp_path):
+    """Recovered request buckets estimate usage separately from subscriptions."""
     root = tmp_path / ".copilot"
     root.mkdir()
     seed(root / "session-store.db", [row(1, model="claude-opus-5", input=1_000_000, output=1_000_000)])
     provider = copilot.CopilotProvider(home=tmp_path)
     entries = provider.scan_entries()
     daily = provider.aggregate_daily(entries[0].local_day, entries)
-    assert provider.reports_cost is False
-    assert daily.total_cost == 0, "a dollar figure here would be invented"
+    assert daily.cost_coverage.estimated
+    assert daily.total_cost == 30
     assert daily.total_tokens > 0
 
 

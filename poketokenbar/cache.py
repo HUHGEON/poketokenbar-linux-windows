@@ -41,6 +41,10 @@ def _encode(entries: list[Entry]) -> str:
                 "cache_write": e.cache_write,
                 "cache_read": e.cache_read,
                 "explicit_cost": e.explicit_cost,
+                "cost_is_estimate": e.cost_is_estimate,
+                "cost_unavailable": e.cost_unavailable,
+                "session_id": e.session_id,
+                "session_ids": e.session_ids,
             }
             for e in entries
         ]
@@ -60,6 +64,10 @@ def _decode(raw: str) -> list[Entry]:
             cache_read=d["cache_read"],
             # Blobs written before the field existed simply carry no charge.
             explicit_cost=d.get("explicit_cost"),
+            cost_is_estimate=d.get("cost_is_estimate", False),
+            cost_unavailable=d.get("cost_unavailable", False),
+            session_id=d.get("session_id"),
+            session_ids=d.get("session_ids") or [],
         )
         for d in json.loads(raw)
     ]
@@ -97,6 +105,25 @@ class ScanCache:
             " (provider, path, mtime, size, parser_version, entries)"
             " VALUES (?,?,?,?,?,?)",
             (provider, str(path), mtime, size, parser_version, _encode(entries)),
+        )
+        self._db.commit()
+
+    def get_document(self, provider: str, path: Path, mtime: float, size: int,
+                     parser_version: int) -> dict | None:
+        """Metadata-rich parser blobs (Codex needs the unresolved event graph)."""
+        row = self._db.execute(
+            "SELECT entries FROM blobs WHERE provider=? AND path=? AND mtime=?"
+            " AND size=? AND parser_version=?",
+            (provider, str(path), mtime, size, parser_version),
+        ).fetchone()
+        return None if row is None else json.loads(row[0])
+
+    def put_document(self, provider: str, path: Path, mtime: float, size: int,
+                     parser_version: int, document: dict) -> None:
+        self._db.execute(
+            "INSERT OR REPLACE INTO blobs"
+            " (provider, path, mtime, size, parser_version, entries) VALUES (?,?,?,?,?,?)",
+            (provider, str(path), mtime, size, parser_version, json.dumps(document)),
         )
         self._db.commit()
 

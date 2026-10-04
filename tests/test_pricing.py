@@ -9,9 +9,8 @@ def test_exact_table_match():
     assert r.output == pytest.approx(15 / 1_000_000)
 
 
-def test_family_fallback_for_unknown_version():
-    # Version drift must not silently zero a real model's cost.
-    assert pricing.rate("claude-opus-9-9").input == pytest.approx(5 / 1_000_000)
+def test_unknown_version_is_not_priced_from_a_family_guess():
+    assert pricing.estimated_cost("claude-opus-9-9", 1000, 0, 0, 0) is None
 
 
 def test_sol_61_uses_its_rates_instead_of_the_older_gpt_fallback():
@@ -38,9 +37,9 @@ def test_unknown_model_costs_nothing_rather_than_guessing():
     assert pricing.rate("totally-unknown-model") == pricing.ZERO
 
 
-def test_gemini_family_fallback():
-    assert pricing.rate("gemini-3.0-pro").input == pytest.approx(1.25 / 1_000_000)
-    assert pricing.rate("gemini-3.0-flash").input == pytest.approx(0.30 / 1_000_000)
+def test_unknown_gemini_versions_remain_unavailable():
+    assert pricing.estimated_cost("gemini-3.0-pro", 1000, 0, 0, 0) is None
+    assert pricing.estimated_cost("gemini-3.0-flash", 1000, 0, 0, 0) is None
 
 
 def test_unknown_gemini_variant_is_zero():
@@ -53,5 +52,5 @@ def test_cost_sums_all_four_token_kinds():
     assert total == pytest.approx(22.05)
 
 
-def test_cost_of_an_unpriced_model_is_zero():
-    assert pricing.cost("claude-fable-5", 10**9, 10**9, 10**9, 10**9) == 0.0
+def test_fable_5_now_has_documented_pricing():
+    assert pricing.cost("claude-fable-5", 10**6, 10**6, 10**6, 10**6) == pytest.approx(73.5)

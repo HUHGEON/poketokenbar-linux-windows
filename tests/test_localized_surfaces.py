@@ -54,8 +54,10 @@ def test_a_hatch_is_announced_in_the_chosen_language(language):
     spy = Spy()
     Notifier(spy).companion(GrowthEvents(hatched=25), "피카츄", language)
     assert spy.text != ""
-    assert spy.text == f"{l10n.t('notif_hatch_title', language)} " + \
-        l10n.t("notif_hatch_body", language).replace("%1", "피카츄")
+    body = l10n.t("notif_hatch_body", language).replace("%1", "피카츄")
+    if language == "ko":
+        body = body.replace("피카츄이(가)", "피카츄가")
+    assert spy.text == f"{l10n.t('notif_hatch_title', language)} {body}"
 
 
 def test_the_companion_name_lands_in_the_notification():

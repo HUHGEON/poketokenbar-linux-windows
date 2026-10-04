@@ -23,7 +23,8 @@ from datetime import datetime, timezone
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QGridLayout, QHBoxLayout, QLineEdit, QScrollArea, QSlider,
+    QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLineEdit, QMessageBox,
+    QScrollArea, QSlider, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
@@ -35,12 +36,10 @@ from .widgets import (
     separator, spread, stat_line,
 )
 
-# The Windows popover is 400 logical pixels wide.  A cell header contains the
-# number, detail button and representative star, so four columns exceed the
-# viewport once the panel margins and scrollbar are included.  Three equal
-# columns keep every card wholly inside the popover at all display scales.
-DEX_COLUMNS = 3
-DEX_PER_PAGE = 24
+# Detail opens from the name, leaving room for four readable columns within
+# the existing Windows popover, as in upstream's sixteen-species pages.
+DEX_COLUMNS = 4
+DEX_PER_PAGE = 16
 
 RARITIES = ("legendary", "rare", "uncommon", "common")
 
@@ -148,10 +147,7 @@ class Panel(QWidget):
 
     def fill(self, key: str, *values) -> str:
         """A catalogue string with its %1..%n placeholders filled in."""
-        text = self.t(key)
-        for index, value in enumerate(values, start=1):
-            text = text.replace(f"%{index}", str(value))
-        return text
+        return l10n.format_text(self.t(key), *values)
 
     def clear(self) -> None:
         clear_layout(self.layout_)
@@ -275,6 +271,10 @@ class HomePanel(Panel):
             )
 
         self.add(row(portrait, details, spacing=12))
+        if companion.get("can_retry_hatch"):
+            self.add(label(self.t("hatch_delayed"), dim=True, wrap=True))
+            self.add(button(self.t("retry_hatch"),
+                            lambda: commands.enqueue("retry_hatch", {})))
         if companion.get("evo_line"):
             self.add(self._evolution_line(companion))
 
@@ -317,7 +317,7 @@ class HomePanel(Panel):
             spacing=8,
         )
         headline.layout().setAlignment(Qt.AlignBottom)
-        self.add(spread(headline, label(today.get("cost_text", ""), dim=True)))
+        self.add(spread(headline, self._cost_label(today)))
 
         periods = (state or {}).get("periods") or {}
         parts = []
@@ -328,7 +328,7 @@ class HomePanel(Panel):
             parts += [
                 label(self.t(name), faint=True, size=12),
                 label(bucket.get("tokens_compact", ""), bold=True),
-                label(bucket.get("cost_text", ""), dim=True, size=12),
+                self._cost_label(bucket, size=12),
             ]
             parts.append(label("   "))
         if parts:
@@ -354,7 +354,7 @@ class HomePanel(Panel):
             self.add(spread(
                 label(self._provider_name(state, provider_id), bold=True, size=15),
                 row(label(usage.get("total_tokens_compact", ""), bold=True, size=15),
-                    label(usage.get("cost_text", ""), dim=True)),
+                    self._cost_label(usage)),
             ))
             self.add(label(
                 self.fill(
@@ -378,6 +378,11 @@ class HomePanel(Panel):
         if series:
             self.add(heading(self.t("daily_trend")))
             self.add(MonthlyChart(series))
+
+    def _cost_label(self, usage: dict, size: int = 13) -> QWidget:
+        widget = label(usage.get("cost_text", ""), dim=True, size=size)
+        widget.setToolTip(usage.get("cost_tooltip", ""))
+        return widget
 
     def _select_provider(self, provider_id: str) -> None:
         if provider_id == self._selected_provider:
@@ -416,8 +421,6 @@ class HomePanel(Panel):
         show_codex = self._selected_provider in ("all", "codex")
         has_claude = show_claude and (rows or blocks.get("claude_code"))
         has_codex = show_codex and bool(codex.get("buckets"))
-        if not has_claude and not has_codex:
-            return
 
         # "Used" or "left" is a display transform only: the meter and the
         # colour stay on the utilization, so a window at 95% is still red while
@@ -433,6 +436,12 @@ class HomePanel(Panel):
             if limits.get("account_text"):
                 self.add(label(self.fill("account_label", limits["account_text"]),
                                faint=True, size=12))
+            primary_usage = next((a.get("usage") for a in (state or {}).get("claude_accounts", [])
+                                  if a.get("id") == "default"), None)
+            if primary_usage:
+                from .. import format as fmt
+                self.add(spread(label(fmt.compact(primary_usage.get("total_tokens", 0)), bold=True),
+                                self._cost_label(primary_usage)))
             for key, name, window in rows:
                 self._add_limit_window(name, window, remaining)
                 if key == "session":
@@ -463,18 +472,78 @@ class HomePanel(Panel):
                         "severity": "crit" if used >= 95 else "warn" if used >= 80 else "ok",
                     }, remaining)
 
+        values = (state or {}).get("config") or {}
+        for account in (state or {}).get("claude_accounts") or []:
+            if not show_claude or account.get("id") == "default":
+                continue
+            status = account.get("limits") or {}
+            if not status and not account.get("usage") and not account.get("error"):
+                continue
+            self.add(separator())
+            identity = account.get("account") or {}
+            self.add(heading(identity.get("emailAddress") or identity.get("email") or account.get("root", "Claude")))
+            usage = account.get("usage") or {}
+            if usage:
+                from .. import format as fmt
+                self.add(spread(label(fmt.compact(usage.get("total_tokens", 0)), bold=True),
+                                self._cost_label(usage)))
+            for key, title in (("session", "five_hour_session"), ("weekly", "weekly")):
+                if status.get(key):
+                    self._add_limit_window(self.t(title), status[key], remaining)
+            for scoped in status.get("scoped") or []:
+                self._add_limit_window(scoped.get("name", "Claude"), scoped, remaining)
+            if account.get("error"):
+                self.add(label(account["error"], faint=True, size=11, wrap=True))
+        from ..state import limit_window_payload
+        cursor = (state or {}).get("cursor_limits") or {}
+        if self._selected_provider in ("all", "cursor") and cursor.get("error") and cursor.get("utilization") is None:
+            self.add(label(f"{self._provider_name(state, 'cursor')} · {cursor['error']}", faint=True, size=11, wrap=True))
+        if self._selected_provider in ("all", "cursor") and cursor.get("utilization") is not None:
+            self.add(separator())
+            self.add(heading("Cursor"))
+            reset, start = remaining_seconds(cursor.get("resets_at")), remaining_seconds(cursor.get("starts_at"))
+            duration_seconds = reset - start if reset is not None and start is not None else None
+            self._add_limit_window("Cursor", limit_window_payload(cursor, duration_seconds, values), remaining)
+            if cursor.get("display_message"):
+                self.add(label(cursor["display_message"], dim=True, size=12, wrap=True))
+            if cursor.get("error"):
+                self.add(label(cursor["error"], faint=True, size=11, wrap=True))
+        antigravity = (state or {}).get("antigravity_limits") or {}
+        if self._selected_provider in ("all", "antigravity") and antigravity.get("error") and not antigravity.get("groups"):
+            self.add(label(f"{self._provider_name(state, 'antigravity')} · {antigravity['error']}", faint=True, size=11, wrap=True))
+        if self._selected_provider in ("all", "antigravity") and antigravity.get("groups"):
+            self.add(separator())
+            self.add(heading("Antigravity"))
+            for group in antigravity["groups"]:
+                self.add(label(group.get("name", ""), bold=True))
+                for bucket in group.get("buckets") or []:
+                    title = self.t("five_hour_session" if bucket.get("kind") == "session" else "weekly")
+                    self._add_limit_window(title, limit_window_payload(bucket, bucket.get("duration_seconds"), values), remaining)
+            if antigravity.get("error"):
+                self.add(label(antigravity["error"], faint=True, size=11, wrap=True))
+
     def _add_limit_window(self, name: str, window: dict, remaining: bool) -> None:
         utilization = window.get("utilization", 0)
         severity = window.get("severity")
         shown = round(max(0.0, 100.0 - utilization) if remaining else utilization)
         text = self.fill("percent_remaining", f"{shown}%") if remaining else f"{shown}%"
         countdown = resets_in(window.get("resets_at"), self.t)
+        colour = {"way_under": "#5e9fea", "under": "#54c9a0", "on_pace": "#67bf72",
+                  "slightly_over": "#e0be4e", "over": "#f29a45", "way_over": "#ef6262"}.get(
+                      window.get("pace_tier"), level_colour(severity))
         self.add(spread(
             label(name, bold=True, size=15),
-            row(label(text, colour=level_colour(severity), bold=True),
+            row(label(text, colour=colour, bold=True),
                 label(f"· {countdown}" if countdown else "", dim=True, size=12)),
         ))
-        self.add(meter(utilization / 100, severity))
+        self.add(meter(window.get("display_fraction", (100 - utilization if remaining else utilization) / 100),
+                       severity, pace_marker=window.get("pace_marker"), colour=colour))
+        if window.get("resets_at"):
+            try:
+                reset = datetime.fromisoformat(window["resets_at"].replace("Z", "+00:00")).astimezone()
+                self.add(label(reset.strftime("%m-%d %H:%M"), faint=True, size=11))
+            except (ValueError, TypeError):
+                pass
 
     def _add_forecast(self, state: dict | None) -> None:
         """Whether the 5-hour window runs out before it resets.
@@ -547,7 +616,8 @@ class ShopPanel(Panel):
         elif item.get("affordable"):
             action = button(
                 self.t("buy"),
-                lambda _=False, key=item["key"]: commands.enqueue("buy", {"key": key}),
+                lambda _=False, selected=item: self._buy(selected),
+                enabled=item.get("can_buy", True),
             )
         else:
             # Named rather than disabled-and-silent: the reason a button is not
@@ -565,6 +635,15 @@ class ShopPanel(Panel):
         holder = card(sprite, body, padding=11)
         holder.layout().setAlignment(sprite, Qt.AlignTop)
         return holder
+
+    def _buy(self, item: dict) -> None:
+        args = {"key": item["key"]}
+        if item.get("requires_confirmation"):
+            if QMessageBox.question(self, self.t("buy"), self.t("confirm_release"),
+                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
+                return
+            args["confirmed"] = True
+        commands.enqueue("buy", args)
 
 
 class BagPanel(Panel):
@@ -585,16 +664,40 @@ class BagPanel(Panel):
                 stretch=True,
             )
             if item.get("usable"):
+                quantity = None
+                if item["key"] == "rareCandy" and item.get("max_use_count", 0) > 0:
+                    quantity = QSpinBox()
+                    quantity.setObjectName("candy_quantity")
+                    quantity.setRange(1, min(count, item["max_use_count"]))
+                    title.layout().addWidget(quantity)
                 title.layout().addWidget(button(
                     self.t("use"),
-                    lambda _=False, key=item["key"]: commands.enqueue(
-                        "use", {"key": key}),
+                    lambda _=False, key=item["key"], q=quantity: commands.enqueue(
+                        "use", {"key": key, **({"count": q.value()} if q else {})}),
                 ))
             rows = [title,
                     label(item.get("description", ""), dim=True, size=12, wrap=True)]
             if item.get("passive"):
                 effect = item.get("effect") or self.t("active")
                 rows.append(label(f"✅ {effect}", colour=theme.GREEN, size=12))
+            if item.get("usable") and quantity is not None:
+                from .. import format as fmt
+                unit = item.get("per_candy_xp", 0)
+                preview = label("", dim=True, size=12, wrap=True)
+                previews = item.get("previews") or []
+                def describe(n, w=preview, xp=unit, choices=previews):
+                    result = choices[n - 1] if n <= len(choices) else {"xp": n * xp}
+                    parts = [self.fill("growth_preview", fmt.compact(result.get("xp", n * xp)))]
+                    for key in ("evolves", "graduates"):
+                        if result.get(key):
+                            parts.append(self.t("candy_" + key))
+                    for key in ("carryover", "discarded"):
+                        if result.get(key + "_xp"):
+                            parts.append(self.fill("candy_" + key, fmt.compact(result[key + "_xp"])))
+                    w.setText(" · ".join(parts))
+                quantity.valueChanged.connect(describe)
+                describe(1)
+                rows.append(preview)
             holder = card(sprite, column(*rows, spacing=5), padding=11)
             holder.layout().setAlignment(sprite, Qt.AlignTop)
             self.add(holder)
@@ -609,6 +712,24 @@ class CollectionPanel(Panel):
         self._state: dict | None = None
         self._detail_species: int | None = None
         self._profile_index = 0
+        self._appearance_index = 0
+        self._query = ""
+        self._shiny_only = False
+        self._sort = "number"
+        # Keep editing controls outside the rebuilt body. A state refresh must
+        # not destroy an IME composition or the cursor while somebody types.
+        self.search = QLineEdit()
+        self.search.setObjectName("collection_search")
+        self.search.setPlaceholderText(self.t("collection_search"))
+        self.search.textChanged.connect(self._search_changed)
+        self.shiny_filter = QCheckBox(self.t("shiny_only"))
+        self.shiny_filter.toggled.connect(self._shiny_changed)
+        self.sort_picker = _combo()
+        for key in ("number", "name", "rarity"):
+            self.sort_picker.addItem(self.t("sort_" + key), key)
+        self.sort_picker.currentIndexChanged.connect(self._sort_changed)
+        self.filters = column(self.search, row(self.shiny_filter, self.sort_picker))
+        self.layout().insertWidget(0, self.filters)
 
     def fingerprint(self, state: dict | None) -> str:
         # The view, the page and the filter are this panel's own state; without
@@ -616,11 +737,24 @@ class CollectionPanel(Panel):
         # payload can see and the rebuild is skipped.
         return json.dumps(
             [super().fingerprint(state), self._showing_log, self._page, self._rarity,
-             self._detail_species, self._profile_index])
+             self._detail_species, self._profile_index, self._appearance_index, self._query,
+             self._shiny_only, self._sort])
 
     def update(self, state: dict | None) -> None:
         self._state = state
         self.clear()
+        self.filters.setVisible(self._detail_species is None)
+        self.search.setPlaceholderText(self.t("collection_search"))
+        self.shiny_filter.setText(self.t("shiny_only"))
+        sorts = (("newest", "oldest") if self._showing_log else ()) + (
+            "number", "number_desc", "name", "name_desc", "rarity")
+        self.sort_picker.blockSignals(True)
+        self.sort_picker.clear()
+        for key in sorts:
+            self.sort_picker.addItem(self.t("sort_" + key.removesuffix("_desc")) +
+                                     (" ↓" if key.endswith("_desc") else ""), key)
+        self.sort_picker.setCurrentIndex(max(0, self.sort_picker.findData(self._sort)))
+        self.sort_picker.blockSignals(False)
         if self._detail_species is not None:
             self._build_detail(state)
             return
@@ -640,6 +774,7 @@ class CollectionPanel(Panel):
         if log == self._showing_log:
             return
         self._showing_log = log
+        self._sort = "newest" if log else "number"
         self._page = 0
         self.refresh(self._state, force=True)
 
@@ -662,9 +797,48 @@ class CollectionPanel(Panel):
         self.refresh(self._state, force=True)
 
     def _keep(self, records: list) -> list:
-        if self._rarity is None:
-            return records
-        return [r for r in records if r.get("rarity") == self._rarity]
+        query = self._query.strip().casefold().lstrip("#")
+        if query.isdecimal():
+            query = str(int(query))
+        kept = []
+        for record in records:
+            if self._rarity and record.get("rarity") != self._rarity:
+                continue
+            if self._shiny_only and not (record.get("is_shiny") or record.get("has_shiny")):
+                continue
+            candidates = [record, *(record.get("chain") or [])]
+            if query and not any(query in str(item.get("name", "")).casefold() or
+                                 query == str(item.get("species_id", "")) for item in candidates):
+                continue
+            kept.append(record)
+        def number(record):
+            return record.get("species_id") or (record.get("chain") or [{}])[-1].get("species_id", 0)
+        if self._sort in ("name", "name_desc"):
+            kept.sort(key=lambda r: (str(r.get("name") or (r.get("chain") or [{}])[-1].get("name", "")).casefold(), number(r)))
+            if self._sort == "name_desc":
+                kept.reverse()
+        elif self._sort == "rarity":
+            kept.sort(key=lambda r: (RARITIES.index(r["rarity"]) if r.get("rarity") in RARITIES else 4, number(r)))
+        elif self._sort in ("newest", "oldest"):
+            kept.sort(key=lambda r: str(r.get("caught_at") or r.get("raised_at") or ""), reverse=self._sort == "newest")
+        else:
+            kept.sort(key=number, reverse=self._sort == "number_desc")
+        return kept
+
+    def _search_changed(self, text: str) -> None:
+        self._query = text
+        self._page = 0
+        self.refresh(self._state, force=True)
+
+    def _shiny_changed(self, checked: bool) -> None:
+        self._shiny_only = checked
+        self._page = 0
+        self.refresh(self._state, force=True)
+
+    def _sort_changed(self, index: int) -> None:
+        self._sort = self.sort_picker.itemData(index)
+        self._page = 0
+        self.refresh(self._state, force=True)
 
     def _build_dex(self, state: dict | None) -> None:
         entries = (state or {}).get("dex") or []
@@ -679,6 +853,8 @@ class CollectionPanel(Panel):
         self.add(self._filter_row((state or {}).get("rarity_counts") or {}))
 
         shown = self._keep(entries)
+        if not shown:
+            self.add(label(self.t("no_matches"), dim=True))
         pages = max(1, (len(shown) + DEX_PER_PAGE - 1) // DEX_PER_PAGE)
         self._page = min(self._page, pages - 1)
         page = shown[self._page * DEX_PER_PAGE:(self._page + 1) * DEX_PER_PAGE]
@@ -706,14 +882,14 @@ class CollectionPanel(Panel):
         self.refresh(self._state, force=True)
 
     def _cell(self, entry: dict) -> QWidget:
-        sprite = Sprite(46)
+        sprite = Sprite(60)
         sprite.set_path(entry.get("sprite_path") or None)
         species = entry.get("species_id")
         pinned = str(species) == str(self._pinned())
 
         number = badge(
             f"✨{species}" if entry.get("is_shiny") else f"#{species}",
-            theme.RAISED, theme.SECONDARY, size=9)
+            theme.RAISED, theme.RARITY_DOT.get(entry.get("rarity"), theme.SECONDARY), size=11)
         # The star both shows and sets which species the panel follows. Pressing
         # it again clears the pin — without that there was no way back to the
         # companion short of the settings dropdown.
@@ -731,9 +907,6 @@ class CollectionPanel(Panel):
         header_layout.setSpacing(0)
         header_layout.addWidget(number)
         header_layout.addStretch(1)
-        header_layout.addWidget(icon_button(
-            "ⓘ", lambda _=False, item=entry: self._open_detail(item),
-            self.t("pokemon_details"), size=12))
         header_layout.addWidget(star)
 
         parts = [header, sprite]
@@ -743,8 +916,14 @@ class CollectionPanel(Panel):
             raising = row(badge(self.t("raising"), theme.ACCENT, "#ffffff", size=9))
             raising.layout().setAlignment(Qt.AlignCenter)
             parts.append(raising)
-        name = label(entry.get("name") or f"#{species}", size=11)
-        name.setAlignment(Qt.AlignCenter)
+        name = button(entry.get("name") or f"#{species}",
+                      lambda _=False, item=entry: self._open_detail(item))
+        name.setMinimumWidth(0)
+        name.setToolTip(self.t("pokemon_details"))
+        name.setStyleSheet(f"QPushButton {{ color: {theme.TEXT}; border: none; font-size: 12px; padding: 0; }}"
+                          f"QPushButton:hover {{ color: {theme.ACCENT}; }}")
+        from PySide6.QtWidgets import QSizePolicy
+        name.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         parts.append(name)
 
         return card(column(*parts, spacing=3), horizontal=False, padding=6)
@@ -752,6 +931,7 @@ class CollectionPanel(Panel):
     def _open_detail(self, entry: dict) -> None:
         self._detail_species = int(entry.get("species_id"))
         self._profile_index = 0
+        self._appearance_index = 0
         self.refresh(self._state, force=True)
 
     def _close_detail(self) -> None:
@@ -770,16 +950,44 @@ class CollectionPanel(Panel):
             label(self.t("pokemon_details"), bold=True, size=15), stretch=True,
         ))
         sprite = Sprite(88)
-        sprite.set_path(entry.get("sprite_path") or None)
+        appearances = entry.get("appearances") or []
+        appearance = entry
+        if appearances:
+            self._appearance_index = min(self._appearance_index, len(appearances) - 1)
+            appearance = appearances[self._appearance_index]
+            picker = _combo()
+            picker.setObjectName("appearance_picker")
+            for index, variant in enumerate(appearances):
+                picker.addItem(("✨ " if variant.get("is_shiny") else "") +
+                               (variant.get("name") or entry.get("name", "")), index)
+            picker.setCurrentIndex(self._appearance_index)
+            picker.currentIndexChanged.connect(self._choose_appearance)
+            self.add(picker)
+            self.add(button(self.t("representative"),
+                            lambda _=False, sid=entry["species_id"], variant=appearance: commands.enqueue(
+                                "represent", {"species_id": sid, "is_shiny": variant.get("is_shiny", False),
+                                              "unown_form": variant.get("unown_form")})))
+        sprite.set_path(appearance.get("sprite_path") or None)
         self.add(row(
             sprite,
             column(
-                label(entry.get("name") or f"#{entry.get('species_id')}", bold=True, size=20),
+                label(appearance.get("name") or entry.get("name") or f"#{entry.get('species_id')}", bold=True, size=20),
                 rarity_badge(entry.get("rarity"), self.t(entry.get("rarity", "common"))),
                 spacing=5,
             ), spacing=12,
         ))
-        profiles = entry.get("profiles") or []
+        if entry.get("forms"):
+            self.add(label(f'{entry.get("unown_forms", 0)} / 28', dim=True))
+            forms = QWidget()
+            grid = QGridLayout(forms)
+            grid.setContentsMargins(0, 0, 0, 0)
+            for index, form in enumerate(entry["forms"]):
+                choice = next((i for i, variant in enumerate(appearances)
+                               if variant.get("unown_form") == form.get("unown_form")), None)
+                grid.addWidget(button(form.get("symbol", "?"),
+                    lambda _=False, i=choice: self._choose_appearance(i), choice is not None), index // 7, index % 7)
+            self.add(forms)
+        profiles = appearance.get("profiles", entry.get("profiles")) or []
         if not profiles:
             self.add(label(self.t("unknown"), dim=True))
             return
@@ -831,6 +1039,10 @@ class CollectionPanel(Panel):
         self._profile_index = max(0, int(index))
         self.refresh(self._state, force=True)
 
+    def _choose_appearance(self, index: int) -> None:
+        self._appearance_index = max(0, index)
+        self.refresh(self._state, force=True)
+
     def _pinned(self) -> str:
         return str(((self._state or {}).get("panel") or {}).get("representative_id") or "")
 
@@ -855,14 +1067,25 @@ class CollectionPanel(Panel):
         ))
         self.add(self._filter_row((state or {}).get("catch_counts") or {}))
 
-        for record in self._keep(log)[:60]:
+        shown = self._keep(log)
+        pages = max(1, (len(shown) + DEX_PER_PAGE - 1) // DEX_PER_PAGE)
+        self._page = min(self._page, pages - 1)
+        for record in shown[self._page * DEX_PER_PAGE:(self._page + 1) * DEX_PER_PAGE]:
             self.add(self._record(record))
+        if not shown:
+            self.add(label(self.t("no_matches"), dim=True))
+        if pages > 1:
+            self.add(row(icon_button("‹", lambda: self._turn(-1)),
+                         label(f"{self._page + 1} / {pages}", dim=True),
+                         icon_button("›", lambda: self._turn(1))))
 
     def _record(self, record: dict) -> QWidget:
         rarity = record.get("rarity", "common")
         header = [rarity_badge(rarity, self.t(rarity))]
         if record.get("raising"):
             header.append(badge(self.t("raising"), theme.ACCENT, "#ffffff", size=9))
+        elif record.get("is_released"):
+            header.append(label(self.t("released"), faint=True, size=11))
         top = spread(row(*header, spacing=4),
                      label(self.nature(record.get("nature")), faint=True, size=12))
 
@@ -937,7 +1160,7 @@ class SettingsPanel(Panel):
         # the wrong one needs to recognise theirs, not read it translated.
         ("language", "setting_language", tuple(l10n.LANGUAGES), None),
         ("refresh_interval", "setting_refresh_interval",
-         (60, 120, 300, 600, 900), None),
+         (0, *range(60, 901, 60)), None),
         ("animation_quality", "setting_animation",
          ("saver", "balanced", "smooth"),
          ("quality_saver", "quality_balanced", "quality_smooth")),
@@ -1001,8 +1224,69 @@ class SettingsPanel(Panel):
             self.add(heading(self.t("setting_scan_folders")))
             self.add(self._group([self._roots_row(p) for p in providers]))
 
+        self._add_accounts(state, values)
+        self._add_snapshots(state)
+
         self.add(self._update_row(state))
         self.add(self._about())
+
+    def refresh(self, state: dict | None, force: bool = False) -> None:
+        if not force and any(field.hasFocus() for field in self.findChildren(QLineEdit)):
+            return
+        super().refresh(state, force)
+
+    def _add_accounts(self, state: dict | None, values: dict) -> None:
+        self.add(heading(self.t("official_accounts")))
+        folders = QLineEdit(str(values.get("additional_claude_config_dirs", "")))
+        folders.setObjectName("additional_claude_config_dirs")
+        folders.setPlaceholderText(self.t("claude_account_dirs"))
+        folders.editingFinished.connect(lambda: self._set("additional_claude_config_dirs", folders.text()))
+        self.add(folders)
+        accounts = ((state or {}).get("settings") or {}).get("claude_accounts") or []
+        for account in accounts:
+            identity = account.get("account") or {}
+            self.add(label(identity.get("emailAddress") or identity.get("email") or
+                           account.get("root", "Claude"), dim=True, size=12, wrap=True))
+            field = QLineEdit()
+            field.setObjectName("session_key_" + account["id"])
+            field.setEchoMode(QLineEdit.Password)
+            field.setPlaceholderText(self.t("session_key_saved" if account.get("has_session_key") else "session_key"))
+            save_key = button(self.t("save"),
+                              lambda _=False, f=field, aid=account["id"]: self._save_key(aid, f))
+            remove = button(self.t("remove_key"),
+                            lambda _=False, aid=account["id"]: commands.enqueue("clear_session_key", {"account_id": aid}))
+            self.add(field)
+            self.add(row(save_key, remove))
+            if account.get("stale"):
+                self.add(label(self.t("stale_warning"), faint=True, size=11, wrap=True))
+            error = next((a.get("error") for a in (state or {}).get("claude_accounts", [])
+                          if a.get("id") == account["id"]), None)
+            if error:
+                self.add(label(error, faint=True, size=11, wrap=True))
+
+    def _save_key(self, account_id: str, field: QLineEdit) -> None:
+        key = field.text().strip()
+        if key:
+            commands.enqueue("save_session_key", {"account_id": account_id, "key": key})
+            field.clear()
+
+    def _add_snapshots(self, state: dict | None) -> None:
+        self.add(heading(self.t("local_snapshots")))
+        self.add(button(self.t("create_snapshot"), lambda: commands.enqueue("create_snapshot", {})))
+        for snapshot in (state or {}).get("snapshots") or []:
+            taken = snapshot.get("taken_at")
+            try:
+                when = datetime.fromtimestamp(taken).strftime("%Y-%m-%d %H:%M")
+            except (ValueError, TypeError, OSError):
+                when = str(taken or "")
+            self.add(row(label(f"{when} · {snapshot.get('dex_count', 0)}", dim=True, size=12),
+                         button(self.t("restore_snapshot"),
+                                lambda _=False, sid=snapshot["id"]: self._restore_snapshot(sid))))
+
+    def _restore_snapshot(self, identity: str) -> None:
+        if QMessageBox.question(self, self.t("restore_snapshot"), self.t("restore_snapshot_confirm"),
+                                QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
+            commands.enqueue("restore_snapshot", {"id": identity})
 
     def _plan_row(self, state: dict | None) -> QWidget:
         info = ((state or {}).get("settings") or {}).get("plan") or {}
@@ -1213,7 +1497,7 @@ class SettingsPanel(Panel):
         raw value would offer "120" where the sheet says "2분".
         """
         if key == "refresh_interval":
-            return self.fill("unit_minute", int(option) // 60)
+            return self.t("manual_refresh") if not option else self.fill("unit_minute", int(option) // 60)
         if key == "language":
             # In its own language: someone who has landed on the wrong one has
             # to recognise theirs, and "ko" in a list of two-letter codes is

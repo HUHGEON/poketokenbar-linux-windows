@@ -324,8 +324,9 @@ def test_grok_names_never_inherit_another_family_pricing():
     for name in ["grok-build-1", "grok-4-fast", "grok-code-fast-1", "grok-codex-next", "grok-4o-mini"]:
         assert pricing.rate(name) == pricing.ZERO, name
     assert pricing.cost("grok-codex-next", 1_000_000, 1_000_000, 0, 0) == 0
-    # The other providers' fallbacks must survive — no over-blocking.
-    assert pricing.rate("gpt-5.6-codex") == pricing.per_million(5, 30, 0, 0.5)
+    # Known identities stay priced; an undocumented version is not guessed.
+    assert pricing.rate("gpt-5.6") == pricing.per_million(4, 20, 5, 0.4)
+    assert pricing.rate("gpt-5.6-codex") == pricing.ZERO
 
 
 # MARK: timestamps

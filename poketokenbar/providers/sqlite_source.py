@@ -82,6 +82,8 @@ def make_entry(
     cache_read: int = 0,
     total: int = 0,
     cost: float | None = None,
+    cost_is_estimate: bool = False,
+    cost_unavailable: bool = False,
 ) -> Entry | None:
     """Ports `makeEntry` — the shared bucket-safety and total-identity rule.
 
@@ -102,6 +104,7 @@ def make_entry(
 
     if safe_input + safe_output + safe_cache_write + safe_cache_read <= 0:
         return None
+    source_cost = number(cost)
     return Entry(
         id=entry_id,
         date=date,
@@ -111,7 +114,9 @@ def make_entry(
         output=safe_output,
         cache_write=safe_cache_write,
         cache_read=safe_cache_read,
-        explicit_cost=cost if cost is not None and cost > 0 else None,
+        explicit_cost=source_cost if source_cost is not None and source_cost >= 0 else None,
+        cost_is_estimate=cost_is_estimate,
+        cost_unavailable=cost_unavailable or reported_total > parts,
     )
 
 

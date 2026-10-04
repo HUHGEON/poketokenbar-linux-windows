@@ -6,7 +6,7 @@ is wrong. This is the record of where that holds and where it does not.
 
 ## Verified mechanically
 
-**Parsers.** All twelve providers were ported against the upstream Swift suite,
+**Parsers.** All thirteen providers were ported against the upstream Swift suite,
 which carries the schemas and sample records. Their tests name the upstream case
 they came from, so a rule that looks arbitrary can be traced to what it is for.
 
@@ -152,8 +152,10 @@ node --test tests/js/*.test.mjs   # the checks that execute extension code
 ```
 
 The Qt front-end tests skip themselves when PySide6 is absent, so the count
-depends on the environment: CI's ubuntu job runs 932 and the Windows job, which
-installs PySide6, runs all 990.
+depends on the environment. The Windows job installs PySide6 and exercises
+the Qt front end. The [Windows v2.5.5 sync](UPSTREAM_SYNC.md) adds fixture tests
+for official limits, provider ownership and costs, local snapshots, Unown
+appearances, candy previews, collection layout and calendar recaps.
 
 CI fails if those checks skip: a skip and a pass look identical in the summary,
 and they are the only thing covering the extension.

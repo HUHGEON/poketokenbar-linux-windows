@@ -28,20 +28,20 @@ and `$KIRO_HOME` override each half.
 
 **A caveat inherited from upstream.** Kiro *deletes* turns from the SQLite store
 on `/clear` or compaction, unlike every other source here whose logs only grow.
-Upstream keeps previously-seen entries in memory to soften that; this port does
-not, so a cleared conversation's tokens leave the totals at the next scan.
+Previously-seen entries remain counted until restart, month rollover, or a
+scan-root change, matching upstream.
 """
 
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator, Mapping
 
 from .. import platform_paths
 from ..models import Entry
-from .base import loads, number, parse_iso, to_int
+from .base import dedup_keep_max, loads, number, parse_iso, to_int
 from .sqlite_source import SQLiteProvider, date_value, make_entry, query
 
 # Kiro reports no tokens, so the text is modelled at four bytes each.
@@ -452,6 +452,19 @@ class KiroProvider(SQLiteProvider):
     reports_cost = False
     PARSER_VERSION = 1
     database_names = ("data.sqlite3",)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._seen: list[Entry] = []
+        self._generation = None
+
+    def scan_entries(self) -> list[Entry]:
+        generation = (date.today().strftime("%Y-%m"), self.custom_roots_value())
+        if generation != self._generation:
+            self._seen = []
+            self._generation = generation
+        self._seen = dedup_keep_max(self._seen + super().scan_entries())
+        return self._seen
 
     def curated_roots(self) -> list[Path]:
         return sqlite_roots(self._home) + session_roots(self._home)

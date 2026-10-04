@@ -30,6 +30,7 @@ from .panels import (
     restart_tray,
 )
 from .reader import StateReader
+from .recap import RecapPanel
 from . import theme
 from .widgets import (
     DEFAULT_QUALITY, Segmented, decimate, frame_floor, icon_button, label,
@@ -142,6 +143,7 @@ class Window(QWidget):
             "collection": CollectionPanel(reader),
         }
         self.settings = SettingsPanel(reader)
+        self.recap = RecapPanel(reader)
         self._current = "home"
 
         self.tabs = Segmented(
@@ -182,6 +184,7 @@ class Window(QWidget):
         for panel in self.panels.values():
             self.stack.addWidget(panel)
         self.stack.addWidget(self.settings)
+        self.stack.addWidget(self.recap)
         layout.addWidget(self.stack, 1)
 
         layout.addWidget(separator())
@@ -196,6 +199,11 @@ class Window(QWidget):
         footer_layout.addWidget(self.refresh_button)
         footer_layout.addWidget(self.footer)
         footer_layout.addStretch(1)
+        self.recap_button = icon_button("▥", self.show_recap, reader.text("usage_recap"))
+        self.recap_button.setObjectName("open_recap")
+        footer_layout.addWidget(self.recap_button)
+        self.pet_button = icon_button("🐾", self.toggle_pet, reader.text("floating_pet"))
+        footer_layout.addWidget(self.pet_button)
         self.gear = icon_button("\u2699", self.show_settings, reader.text("settings"))
         footer_layout.addWidget(self.gear)
         self.restart_button = icon_button(
@@ -225,6 +233,18 @@ class Window(QWidget):
         self.stack.setCurrentWidget(self.settings)
         self.refresh(self.reader.state)
 
+    def show_recap(self) -> None:
+        self.tab_bar.hide()
+        self.settings_bar.show()
+        self.stack.setCurrentWidget(self.recap)
+        self.refresh(self.reader.state)
+
+    def toggle_pet(self) -> None:
+        values = config.load(config.default_path())
+        config.set_value(config.default_path(), "floating_pet_enabled",
+                         str(not values.get("floating_pet_enabled", False)))
+        commands.enqueue("reload_config", {})
+
     def _relabel(self) -> None:
         """Re-label the chrome from the current catalogue.
 
@@ -237,19 +257,22 @@ class Window(QWidget):
             if item.text() != title:
                 item.setText(title)
         self.tabs.set_active(self._current)
-        self.settings_title.setText(self.reader.text("settings"))
+        self.settings_title.setText(self.reader.text(
+            "usage_recap" if self.stack.currentWidget() is self.recap else "settings"))
         self.back_label.setText(self.reader.text("back"))
         self.refresh_button.setToolTip(self.reader.text("refresh"))
         self.gear.setToolTip(self.reader.text("settings"))
         self.restart_button.setToolTip(self.reader.text("restart"))
         self.quit_button.setToolTip(self.reader.text("quit"))
+        self.recap_button.setToolTip(self.reader.text("usage_recap"))
+        self.pet_button.setToolTip(self.reader.text("floating_pet"))
 
     def refresh(self, state: dict | None) -> None:
         self._relabel()
         # Only the visible page is rebuilt: the others would throw their
         # children away again before anyone saw them.
         current = self.stack.currentWidget()
-        for panel in list(self.panels.values()) + [self.settings]:
+        for panel in list(self.panels.values()) + [self.settings, self.recap]:
             if panel is current:
                 # refresh(), not update(): it skips the rebuild when nothing
                 # visible changed and puts the scroll position back when it

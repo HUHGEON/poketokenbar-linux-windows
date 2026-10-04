@@ -63,10 +63,11 @@ class MonthlyChart(QWidget):
         if index is None:
             return
         day = self.series[index]
+        tokens = day.get("total_tokens_compact", "0") if day.get("has_data", True) else "—"
+        cost = day.get("cost_text", "")
         QToolTip.showText(
             event.globalPosition().toPoint(),
-            f"{day.get('date', '')}\n{day.get('total_tokens_compact', '0')} · "
-            f"{day.get('cost_text', '$0.00')}",
+            f"{day.get('date', '')}\n{tokens}" + (f" · {cost}" if cost else ""),
             self,
         )
 
@@ -87,6 +88,8 @@ class MonthlyChart(QWidget):
         track = max(1, self.height() - 18)
         painter.setPen(Qt.NoPen)
         for index, day in enumerate(self.series):
+            if not day.get("has_data", True):
+                continue
             tokens = max(0, int(day.get("total_tokens", 0)))
             height = 2 if tokens == 0 else max(4, round(track * tokens / peak))
             date_text = str(day.get("date", ""))
@@ -425,8 +428,23 @@ def stat_line(name: str, value: str, colour: str | None = None) -> QWidget:
     return spread(label(name, dim=True), label(value, colour=colour))
 
 
-def meter(fraction: float, level: str | None = None) -> QProgressBar:
-    bar = QProgressBar()
+class PaceMeter(QProgressBar):
+    def __init__(self, marker: float) -> None:
+        super().__init__()
+        self.marker = marker
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setPen(QColor(theme.TEXT))
+        x = round(max(0, min(1, self.marker)) * (self.width() - 1))
+        painter.drawLine(x, 0, x, self.height())
+        painter.end()
+
+
+def meter(fraction: float, level: str | None = None, *,
+          pace_marker: float | None = None, colour: str | None = None) -> QProgressBar:
+    bar = PaceMeter(pace_marker) if pace_marker is not None else QProgressBar()
     bar.setRange(0, 100)
     # Clamped so a limit past 100% still reads as full rather than wrapping.
     bar.setValue(max(0, min(100, round((fraction or 0) * 100))))
@@ -435,7 +453,7 @@ def meter(fraction: float, level: str | None = None) -> QProgressBar:
     bar.setStyleSheet(
         f"QProgressBar {{ border: none; background: {theme.RAISED};"
         f" border-radius: 3px; }}"
-        f"QProgressBar::chunk {{ background: {level_colour(level)};"
+        f"QProgressBar::chunk {{ background: {colour or level_colour(level)};"
         f" border-radius: 3px; }}"
     )
     return bar

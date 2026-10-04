@@ -18,15 +18,38 @@ class Entry:
     output: int = 0
     cache_write: int = 0
     cache_read: int = 0
-    # Some agents persist the exact charge alongside token usage (omp, Grok,
-    # OpenCode). Prefer it over the model price table so a local report matches
-    # what the tool itself billed. Only a value > 0 counts: free or unpriced
-    # models are written as 0, which means "no figure", not "cost nothing".
+    # Source-reported amounts, including zero, take precedence over estimates.
     explicit_cost: float | None = None
+    cost_is_estimate: bool = False
+    cost_unavailable: bool = False
+    session_id: str | None = None
+    session_ids: list[str] = field(default_factory=list)
+
+    @property
+    def claude_session_ids(self) -> list[str]:
+        return sorted(set(self.session_ids + ([self.session_id] if self.session_id else [])))
 
     @property
     def total(self) -> int:
         return self.input + self.output + self.cache_write + self.cache_read
+
+
+@dataclass(slots=True)
+class CostCoverage:
+    """Provenance of an amount; a reported amount need not be an invoice."""
+
+    reported: bool = False
+    estimated: bool = False
+    unknown: bool = False
+
+    def merge(self, other: CostCoverage) -> None:
+        self.reported |= other.reported
+        self.estimated |= other.estimated
+        self.unknown |= other.unknown
+
+    @property
+    def has_known(self) -> bool:
+        return self.reported or self.estimated
 
 
 @dataclass(slots=True)
@@ -38,12 +61,9 @@ class DailyUsage:
     cache_read_tokens: int = 0
     total_tokens: int = 0
     total_cost: float = 0.0
-    # Tokens per model id for the day. Upstream fills this for one opt-in
-    # provider; here every source records a real model id, so it is collected
-    # for all of them and the UI decides when a breakdown is worth showing.
-    # A per-provider opt-in would be exactly the kind of id-keyed branch the
-    # extension rules keep out of shared aggregation.
+    # Per-model totals when the source has a historical model identity.
     models: dict[str, int] = field(default_factory=dict)
+    cost_coverage: CostCoverage = field(default_factory=CostCoverage)
 
 
 @dataclass(slots=True)
@@ -55,6 +75,7 @@ class BlockUsage:
     total_tokens: int = 0
     cost_usd: float = 0.0
     tokens_per_minute: float | None = None
+    cost_coverage: CostCoverage = field(default_factory=CostCoverage)
 
 
 @dataclass(slots=True)
@@ -62,6 +83,7 @@ class PeriodUsage:
     period: str
     total_tokens: int = 0
     total_cost: float = 0.0
+    cost_coverage: CostCoverage = field(default_factory=CostCoverage)
 
 
 @dataclass(slots=True)

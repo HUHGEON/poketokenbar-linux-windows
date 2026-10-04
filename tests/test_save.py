@@ -43,7 +43,8 @@ def test_missing_file_yields_a_fresh_state(tmp_path):
 def test_write_is_atomic(tmp_path):
     p = tmp_path / "companion.json"
     save.save(_full_state(), p)
-    assert list(tmp_path.iterdir()) == [p]
+    assert p.is_file()
+    assert not list(tmp_path.rglob("*.tmp"))
 
 
 # --- lenient decoding ------------------------------------------------------

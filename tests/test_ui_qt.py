@@ -79,8 +79,7 @@ PANEL_NAMES = ("home", "shop", "bag", "collection", "settings")
 
 
 def test_pokedex_cards_fit_the_fixed_width_popover(qt_app, reader, payload):
-    """The card header has three controls, so a fourth column is clipped by
-    the 400px Windows popover instead of becoming narrower."""
+    """Compact headers allow four columns within the 400px Windows popover."""
     data = dict(payload, dex=payload["dex"] * 3)
     panel = keep(panels.CollectionPanel(reader))
     panel.update(data)
@@ -91,9 +90,9 @@ def test_pokedex_cards_fit_the_fixed_width_popover(qt_app, reader, payload):
     assert len(grids) == 1
     grid = grids[0]
     positions = [grid.getItemPosition(index)[:2] for index in range(grid.count())]
-    assert all(column < 3 for _row, column in positions)
-    assert positions[3] == (1, 0)
-    assert [grid.columnStretch(column) for column in range(3)] == [1, 1, 1]
+    assert all(column < 4 for _row, column in positions)
+    assert positions[4] == (1, 0)
+    assert [grid.columnStretch(column) for column in range(4)] == [1, 1, 1, 1]
 
 
 @pytest.mark.parametrize("plan,status,multiplier", [
@@ -448,7 +447,9 @@ def test_the_settings_panel_offers_every_daemon_setting():
     not_for_a_form = {
         "floating_pet_x",       # set by dragging the pet
         "floating_pet_y",
-        "custom_scan_roots",    # its own per-provider fields
+            "custom_scan_roots",    # its own per-provider fields
+            "skipped_update_revision",  # the update row's Skip / Show controls
+            "additional_claude_config_dirs",  # the accounts section's folder field
     }
     missing = set(config.DEFAULTS) - offered - not_for_a_form
     assert not missing, f"settings with no control: {sorted(missing)}"

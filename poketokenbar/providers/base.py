@@ -16,6 +16,7 @@ a `fetch_periods` at all, so its week and month silently read zero.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import date as _date
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -24,7 +25,7 @@ from typing import Callable, Iterator, Protocol
 from .. import pricing
 from .. import scan_roots
 from ..cache import ScanCache
-from ..models import BlockUsage, DailyUsage, Entry, ProviderEnrichment
+from ..models import BlockUsage, CostCoverage, DailyUsage, Entry, ProviderEnrichment
 
 try:  # orjson is ~2x faster on this workload but must not be required
     import orjson
@@ -81,7 +82,10 @@ def number(value) -> float | None:
         return None
     if value != value or value in (float("inf"), float("-inf")):  # NaN / ±Inf
         return None
-    return float(value)
+    try:
+        return float(value)
+    except OverflowError:
+        return None
 
 
 def int_or_none(value) -> int | None:
@@ -96,6 +100,8 @@ def int_or_none(value) -> int | None:
     Bools are refused: `isinstance(True, int)` is True in Python, and a bool in a
     token field is a schema error, not the number 1.
     """
+    if isinstance(value, int) and not isinstance(value, bool):
+        return min(MAX_PARSED_TOKEN_VALUE, max(0, value))
     raw = number(value)
     if raw is None:
         return None
@@ -130,8 +136,15 @@ def dedup_keep_max(entries: list[Entry]) -> list[Entry]:
     by_id: dict[str, Entry] = {}
     for e in entries:
         existing = by_id.get(e.id)
-        if existing is None or e.total > existing.total:
+        if existing is None:
             by_id[e.id] = e
+            continue
+        kept = e if e.total > existing.total else existing
+        earliest = min((e, existing), key=lambda entry: entry.date.astimezone())
+        sessions = sorted(set(existing.claude_session_ids + e.claude_session_ids))
+        by_id[e.id] = replace(kept, date=earliest.date, local_day=earliest.local_day,
+                              session_id=sessions[0] if sessions else None,
+                              session_ids=sessions if len(sessions) > 1 else [])
     return list(by_id.values())
 
 
@@ -162,6 +175,7 @@ class ScanningProvider:
     id: str = ""
     display_name: str = ""
     reports_cost: bool = True
+    include_models: bool = True
     # Bump when parse_file changes shape, to invalidate cached blobs.
     PARSER_VERSION: int = 1
     # Files worth opening under a root. Overridden by sources that also keep
@@ -292,23 +306,28 @@ class ScanningProvider:
             self._cache.prune(self.id, live)
         return self.dedup(all_entries)
 
-    def cost_of(self, entry: Entry) -> float:
-        """Priced per entry, because a day mixes models with different rates.
-
-        An agent that recorded its own charge wins over the price table — that
-        figure is the source of truth for what was actually billed.
-        """
+    def usage_cost(self, entry: Entry) -> tuple[float, CostCoverage]:
+        if entry.total <= 0:
+            return 0.0, CostCoverage()
         if not self.reports_cost:
-            return 0.0
-        if entry.explicit_cost is not None and entry.explicit_cost > 0:
-            return entry.explicit_cost
-        return pricing.cost(
+            return 0.0, CostCoverage(unknown=True)
+        reported = number(entry.explicit_cost)
+        if reported is not None and reported >= 0:
+            return reported, CostCoverage(reported=not entry.cost_is_estimate,
+                                          estimated=entry.cost_is_estimate)
+        estimate = None if entry.cost_unavailable else pricing.estimated_cost(
             entry.model, entry.input, entry.output, entry.cache_write, entry.cache_read
         )
+        if estimate is not None:
+            return estimate, CostCoverage(estimated=True)
+        return 0.0, CostCoverage(unknown=True)
+
+    def cost_of(self, entry: Entry) -> float:
+        return self.usage_cost(entry)[0]
 
     def fetch_daily(self, today: str | None = None) -> DailyUsage | None:
         day = today or _date.today().strftime("%Y-%m-%d")
-        entries = [e for e in self.scan_entries() if e.local_day == day]
+        entries = [e for e in self.scan_entries() if e.local_day == day and e.total > 0]
         if not entries:
             return None
         return self.aggregate_daily(day, entries)
@@ -320,8 +339,11 @@ class ScanningProvider:
             daily.output_tokens += e.output
             daily.cache_creation_tokens += e.cache_write
             daily.cache_read_tokens += e.cache_read
-            daily.total_cost += self.cost_of(e)
-            daily.models[e.model] = daily.models.get(e.model, 0) + e.total
+            amount, coverage = self.usage_cost(e)
+            daily.total_cost += amount
+            daily.cost_coverage.merge(coverage)
+            if self.include_models and e.total > 0:
+                daily.models[e.model] = daily.models.get(e.model, 0) + e.total
         daily.total_tokens = (
             daily.input_tokens
             + daily.output_tokens
@@ -340,13 +362,14 @@ class ScanningProvider:
         week_start = anchor - timedelta(days=anchor.weekday())
         month_prefix = day[:7]
 
-        week = {"tokens": 0, "cost": 0.0}
-        month = {"tokens": 0, "cost": 0.0}
+        week = {"tokens": 0, "cost": 0.0, "cost_coverage": CostCoverage()}
+        month = {"tokens": 0, "cost": 0.0, "cost_coverage": CostCoverage()}
         for e in self.scan_entries():
-            cost = self.cost_of(e)
-            if e.local_day[:7] == month_prefix:
+            cost, coverage = self.usage_cost(e)
+            if e.local_day[:7] == month_prefix and e.local_day <= day:
                 month["tokens"] += e.total
                 month["cost"] += cost
+                month["cost_coverage"].merge(coverage)
             try:
                 entry_day = datetime.strptime(e.local_day, "%Y-%m-%d").date()
             except ValueError:
@@ -354,6 +377,7 @@ class ScanningProvider:
             if week_start <= entry_day <= anchor:
                 week["tokens"] += e.total
                 week["cost"] += cost
+                week["cost_coverage"].merge(coverage)
         return {"week": week, "month": month}
 
     def fetch_month_daily(self, today: str | None = None) -> list[DailyUsage]:
@@ -394,7 +418,7 @@ class ScanningProvider:
         # sorting. astimezone() reads a naive value as local, which is the same
         # assumption the daily totals are already built on.
         recent = sorted(
-            (e for e in self.scan_entries() if e.date.astimezone() >= start),
+            (e for e in self.scan_entries() if start <= e.date.astimezone() <= now and e.total > 0),
             key=lambda e: e.date.astimezone(),
         )
         if not recent:
@@ -402,6 +426,9 @@ class ScanningProvider:
         first = recent[0].date.astimezone()
         total = sum(e.total for e in recent)
         cost = sum(self.cost_of(e) for e in recent)
+        coverage = CostCoverage()
+        for entry in recent:
+            coverage.merge(self.usage_cost(entry)[1])
         # Floored at one minute: a block seconds old would otherwise divide by
         # near-zero and report a rate in the millions.
         minutes = max(1.0, (now - first).total_seconds() / 60.0)
@@ -413,6 +440,7 @@ class ScanningProvider:
             total_tokens=total,
             cost_usd=cost,
             tokens_per_minute=total / minutes,
+            cost_coverage=coverage,
         )
 
     def fetch_enrichment(self) -> ProviderEnrichment:

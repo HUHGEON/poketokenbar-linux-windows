@@ -59,7 +59,7 @@ Windows, [#7](../../issues/7) is exactly that.
 
 ## Supported tools
 
-All twelve of the upstream sources are read:
+All thirteen of the upstream sources are read:
 
 | Tool | Read from |
 |---|---|
@@ -75,8 +75,13 @@ All twelve of the upstream sources are read:
 | **Kiro CLI** | `~/.local/share/kiro-cli`, `~/.kiro`, `~/.kiro/sessions` |
 | **Pi Agent** | `~/.pi/agent/sessions` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
+| **Aside** | `~/.aside/u/*/state.db` |
 
-Official 5-hour and weekly limits are read for Claude and Codex accounts.
+Official limits are read for Claude accounts, Codex, Antigravity and Cursor.
+The Windows branch follows upstream **v2.5.5** while retaining its existing
+Windows tray, installer and plan balance. It includes collection search and
+appearance selection, bulk candy previews, local save snapshots and calendar
+usage recaps. See [the sync record](docs/UPSTREAM_SYNC.md) for coverage and validation.
 
 The Windows/Qt interface also includes persistent individual Pokémon profiles
 (level, gender, nature, ability, IVs, calculated stats and moves), a 2× repeat-line
@@ -209,7 +214,7 @@ the model-scoped weekly limit and rolling 5-hour block.
 ## Development
 
 ```bash
-python -m pytest -q       # no network, and none of the twelve tools installed
+python -m pytest -q       # no network, and none of the thirteen tools installed
 node --test tests/js/*.test.mjs   # the tests that execute extension code
 ```
 

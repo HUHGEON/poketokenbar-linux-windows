@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from . import balance
+from . import balance, unown
 from .balance import Rarity
 from .profile import PokemonProfile
 
@@ -145,6 +145,11 @@ class MonState:
     ditto_disguise: int | None = None
     ditto_revealed: bool = False
     hatched_at: float | None = None
+    unown_form: str | None = None
+
+    @property
+    def visible_shiny(self) -> bool:
+        return self.is_shiny and (self.ditto_disguise is None or self.ditto_revealed)
 
     @property
     def current_id(self) -> int:
@@ -177,6 +182,12 @@ class DexEntry:
     # sort last rather than pretending to be ancient.
     caught_at: float | None = None
     raised_seconds: float | None = None
+    unown_form: str | None = None
+    released_at: float | None = None
+
+    @property
+    def is_released(self) -> bool:
+        return self.released_at is not None
 
 
 @dataclass(slots=True)
@@ -196,6 +207,7 @@ class CompanionState:
     # needs the network, which may be unavailable at purchase time.
     egg_tier: Rarity | None = None
     pending_hatch_id: int | None = None
+    pending_unown_form: str | None = None
     claimed_today_tokens_by_provider: dict[str, int] | None = None
     last_date: str = ""
     active: MonState | None = None
@@ -203,12 +215,15 @@ class CompanionState:
     # being raised (or the egg). A species, not an individual: nature and the
     # rest belong to the companion, which Home keeps showing either way.
     representative_species_id: int | None = None
+    representative_is_shiny: bool | None = None
+    representative_unown_form: str | None = None
     dex: list[DexEntry] = field(default_factory=list)
     collected_finals: set[str] = field(default_factory=set)
     language: str = "en"
     inventory: dict[str, int] = field(default_factory=dict)
     candy_grant_tier: dict[str, int] = field(default_factory=dict)
     candy_feature_seeded: bool = False
+    candy_window_epoch: dict[str, str] = field(default_factory=dict)
 
     @property
     def spendable_tokens(self) -> int:
@@ -222,7 +237,24 @@ class CompanionState:
         """
         if self.active is None:
             return []
+        if self.active.ditto_revealed:
+            return [balance.DITTO_SPECIES_ID]
         return list(self.active.path_ids[: self.active.stage_index + 1])
+
+    def appearances(self, species_id: int) -> set[tuple[bool, str | None]]:
+        """Owned (shiny, form) pairs; unreached stages and disguises stay hidden."""
+        owned = {
+            (entry.is_shiny, unown.resolved(species_id, entry.unown_form))
+            for entry in self.dex if species_id in entry.chain_order
+        }
+        if self.active is not None and species_id in self.reached_species():
+            owned.add((self.active.visible_shiny,
+                       unown.resolved(species_id, self.active.unown_form)))
+        return owned
+
+    def collected_unown_forms(self) -> set[str]:
+        return {form for _shiny, form in self.appearances(unown.SPECIES_ID)
+                if form is not None}
 
     def owns_species(self, species_id: int) -> bool:
         """Whether a graduation record or the current companion covers this species.
@@ -252,13 +284,25 @@ class CompanionState:
     def reconcile_representative(self) -> None:
         """Drop a pin that no longer names a species the user owns.
 
-        Buying a fresh egg, a Ditto revealing itself, or a hand-edited save
-        would otherwise leave a ghost species on the panel permanently.
+        A Ditto revealing itself or a hand-edited save could otherwise leave
+        a species or appearance on the panel that the user does not own.
         """
         if self.representative_species_id is None:
+            self.representative_is_shiny = None
+            self.representative_unown_form = None
             return
-        if not self.owns_species(self.representative_species_id):
+        species_id = self.representative_species_id
+        form = unown.resolved(species_id, self.representative_unown_form)
+        owned = self.appearances(species_id)
+        colors = {shiny for shiny, letter in owned if letter == form}
+        if not colors:
             self.representative_species_id = None
+            self.representative_is_shiny = None
+            self.representative_unown_form = None
+            return
+        self.representative_unown_form = form
+        if self.representative_is_shiny not in colors:
+            self.representative_is_shiny = True in colors
 
 
 @dataclass(slots=True)
@@ -357,6 +401,12 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
             key.startswith(f"{line.base_id}:") for key in state.collected_finals
         ),
         hatched_at=__import__("time").time(),
+        unown_form=(
+            unown.resolved(line.base_id, state.pending_unown_form)
+            if state.pending_hatch_id == line.base_id and state.pending_unown_form
+            else unown.roll_form(rng.getrandbits(64), state.collected_unown_forms())
+            if line.base_id == unown.SPECIES_ID else None
+        ),
         # The disguise stores the species being impersonated; the reveal swaps
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
         ditto_disguise=disguise,
@@ -365,6 +415,7 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
     # The guarantee is consumed by the hatch it paid for.
     state.egg_tier = None
     state.pending_hatch_id = None
+    state.pending_unown_form = None
     state.egg_usage = 0
     return mon
 
@@ -379,18 +430,40 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
     entry = DexEntry(
         base_id=mon.base_id,
         final_id=mon.current_id,
-        chain_order=list(mon.path_ids),
+        chain_order=[balance.DITTO_SPECIES_ID] if mon.ditto_revealed else list(mon.path_ids),
         rarity=mon.rarity,
         is_shiny=mon.is_shiny,
         nature=mon.nature,
         profile=mon.profile,
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
+        unown_form=unown.resolved(mon.current_id, mon.unown_form),
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}:{mon.current_id}")
     state.active = None
     state.egg_usage = 0
+    return entry
+
+
+def release(state: CompanionState, now: float | None = None) -> DexEntry | None:
+    """Keep reached forms and this individual's profile without graduation credit."""
+    import time
+
+    mon = state.active
+    if mon is None:
+        return None
+    now = time.time() if now is None else now
+    reached = state.reached_species() or [mon.base_id]
+    entry = DexEntry(
+        base_id=mon.base_id, final_id=reached[-1], chain_order=reached,
+        rarity=mon.rarity, is_shiny=mon.visible_shiny, nature=mon.nature,
+        profile=mon.profile, caught_at=now, released_at=now,
+        raised_seconds=now - mon.hatched_at if mon.hatched_at else None,
+        unown_form=unown.resolved(mon.current_id, mon.unown_form),
+    )
+    state.dex.append(entry)
+    state.active = None
     return entry
 
 
@@ -413,7 +486,7 @@ def apply_usage(
     immediately advance a stage rather than being clipped.
     """
     events = GrowthEvents()
-    if tokens <= 0:
+    if tokens < 0 or (tokens == 0 and (state.active is not None or line_for_egg is None)):
         return events
     rng = rng or random.Random()
 
@@ -473,8 +546,10 @@ def apply_usage(
             # pretending to grow into is one nobody owns, and the form it was
             # pretending to be is gone — leaving the panel on either would show
             # a species that is not in anyone's Pokedex.
-            if state.representative_species_id == was_showing:
+            if (state.representative_species_id == was_showing
+                    and state.representative_is_shiny in (None, False)):
                 state.representative_species_id = mon.current_id
+                state.representative_is_shiny = mon.visible_shiny
             break
 
         if mon.is_final_form:
@@ -493,7 +568,8 @@ def apply_usage(
         # had not happened. A pin on any *other* form stays exactly where it is:
         # that one names a species someone chose over the companion, and the
         # companion growing is no reason to overrule it.
-        if state.representative_species_id == was_showing:
+        if (state.representative_species_id == was_showing
+                and state.representative_is_shiny in (None, mon.visible_shiny)):
             state.representative_species_id = mon.current_id
 
     return events

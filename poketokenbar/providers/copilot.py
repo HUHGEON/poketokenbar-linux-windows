@@ -10,8 +10,8 @@ they stand triples every cached prompt, so the cached parts are subtracted back
 out. `reasoning_tokens` is likewise a breakdown of `output_tokens`, not an extra
 charge, and is ignored.
 
-Costs are not reported: Copilot bills subscription premium requests, not
-per-token dollars, so a dollar figure here would be invented.
+Recoverable request buckets can be estimated at standard API prices; premium
+request credits and subscription invoices are separate.
 
 Timestamps arrive in two shapes — the CLI writes ISO-8601 with a `Z`, while the
 column default (`datetime('now')`) writes `YYYY-MM-DD HH:MM:SS` in UTC — and a
@@ -101,8 +101,7 @@ class CopilotProvider(SQLiteProvider):
 
     id = "copilot"
     display_name = "Copilot CLI"
-    # Subscription premium requests, not per-token dollars.
-    reports_cost = False
+    reports_cost = True
     PARSER_VERSION = 1
     database_names = ("session-store.db",)
 

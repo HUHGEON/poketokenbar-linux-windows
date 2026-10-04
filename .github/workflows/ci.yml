@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [gnome, main]
+    branches: [gnome, main, Windows]
   pull_request:
 
 concurrency:

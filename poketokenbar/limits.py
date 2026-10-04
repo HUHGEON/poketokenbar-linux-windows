@@ -1,8 +1,8 @@
 """Official Claude 5-hour / weekly limits — ports OAuthLimitsProvider.swift.
 
 On macOS the OAuth token lives in the Keychain, which is why the Swift code
-carries LAContext, UI-fail policies, and a user-facing opt-out. On Linux Claude
-Code writes ~/.claude/.credentials.json in plaintext, so that entire subsystem
+carries LAContext, UI-fail policies, and a user-facing opt-out. On Windows and
+Linux Claude Code writes ~/.claude/.credentials.json, so that subsystem
 reduces to reading a file.
 
 Limits are best effort: a failure here hides the limits section and never
@@ -12,6 +12,7 @@ affects the token counts, which come from local logs.
 from __future__ import annotations
 
 import json
+import math
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -35,6 +36,12 @@ class NeedsLoginError(LimitsError):
 
 class AuthExpiredError(LimitsError):
     """The endpoint rejected the token (401/403)."""
+
+
+class HTTPStatusError(LimitsError):
+    def __init__(self, status: int) -> None:
+        super().__init__(f"HTTP {status}")
+        self.status = status
 
 
 class RateLimitedError(LimitsError):
@@ -104,6 +111,8 @@ def read_account(path: Path | None = None) -> dict:
         raw = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    if not isinstance(raw, dict):
+        return {}
     account = raw.get("oauthAccount")
     if not isinstance(account, dict):
         return {}
@@ -112,6 +121,7 @@ def read_account(path: Path | None = None) -> dict:
         "email": account.get("emailAddress") or "",
         "display_name": account.get("displayName") or account.get("fullName") or "",
         "organization": account.get("organizationName") or "",
+        "organization_id": account.get("organizationUuid") or "",
     }
 
 
@@ -150,7 +160,7 @@ def retry_after_seconds(headers) -> float | None:
         seconds = float(str(raw).strip())
     except ValueError:
         return None  # HTTP-date form — fall back to the caller's default
-    if seconds <= 0:
+    if not math.isfinite(seconds) or seconds <= 0:
         return None
     return min(seconds, 3600.0)
 
@@ -159,7 +169,8 @@ def _window(util, resets_at, severity=None) -> LimitWindow | None:
     if util is None:
         return None
     try:
-        return LimitWindow(float(util), resets_at, severity)
+        number = float(util)
+        return LimitWindow(number, resets_at, severity) if math.isfinite(number) else None
     except (TypeError, ValueError):
         return None
 
@@ -171,6 +182,8 @@ def parse(payload: dict) -> LimitStatus:
     must not render the same, since 0% reads as plenty of headroom.
     """
     status = LimitStatus()
+    if not isinstance(payload, dict):
+        raise LimitsError("usage response is not an object")
 
     entries = payload.get("limits")
     if isinstance(entries, list):
@@ -206,6 +219,15 @@ def parse(payload: dict) -> LimitStatus:
         legacy = payload.get("seven_day")
         if isinstance(legacy, dict):
             status.weekly = _window(legacy.get("utilization"), legacy.get("resets_at"))
+
+    for key, model in (("seven_day_opus", "Opus"), ("seven_day_sonnet", "Sonnet")):
+        legacy = payload.get(key)
+        if isinstance(legacy, dict) and not any(
+            row.model and row.model.casefold() == model.casefold() for row in status.scoped
+        ):
+            window = _window(legacy.get("utilization"), legacy.get("resets_at"))
+            if window is not None:
+                status.scoped.append(ScopedWindow("weekly_scoped", model, window))
 
     return status
 
