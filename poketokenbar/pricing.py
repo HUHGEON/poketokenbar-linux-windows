@@ -34,6 +34,9 @@ TABLE: dict[str, ModelRate] = {
     "claude-haiku-4-5-20251001": per_million(1, 5, 1.25, 0.1),
     "claude-fable-5": ZERO,  # unpriced by ccusage
     "gpt-5.5": per_million(5, 30, 0, 0.5),
+    # Official standard API rates for prompts up to 272K input tokens.
+    # https://developers.openai.com/api/docs/models/gpt-6.1-sol
+    "gpt-6.1-sol": per_million(2, 10, 2.5, 0.1),
     # Gemini official API rates (base tier, <=200K prompt). Cache is the read
     # rate only; storage-time charges are not modelled.
     "gemini-2.5-pro": per_million(1.25, 10, 0, 0.3125),
