@@ -1575,11 +1575,13 @@ class SettingsPanel(Panel):
 
 
 def restart_tray() -> None:
-    """Re-exec this process so it runs the source the daemon just installed."""
-    import os
-    import sys
+    """Exit before relaunching so Windows releases the UI lifetime mutex."""
+    from PySide6.QtWidgets import QApplication
 
-    os.execv(sys.executable, [sys.executable, "-m", "poketokenbar.ui.app"])
+    app = QApplication.instance()
+    if app is not None:
+        app.setProperty("restartRequested", True)
+        app.quit()
 
 
 def _faded():

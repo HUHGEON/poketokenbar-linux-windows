@@ -795,6 +795,42 @@ def test_footer_has_a_restart_button(reader):
     assert restart.toolTip() == reader.text("restart")
 
 
+def test_refresh_button_recovers_the_worker(reader, monkeypatch):
+    from poketokenbar.ui import app as app_module
+
+    calls = []
+    monkeypatch.setattr(app_module, "refresh_data", lambda: calls.append("refresh"))
+    window = keep(Window(reader))
+    window.refresh_button.click()
+    assert calls == ["refresh"]
+
+
+def test_restart_releases_the_ui_lock_before_relaunch(qt_app, monkeypatch):
+    from poketokenbar.ui import app as app_module
+
+    calls = []
+
+    class Lock:
+        def __init__(self, name):
+            pass
+
+        def acquire(self):
+            return True
+
+        def release(self):
+            calls.append("release")
+
+    qt_app.setProperty("restartRequested", True)
+    try:
+        monkeypatch.setattr(app_module, "SingleInstance", Lock)
+        monkeypatch.setattr(app_module, "_run", lambda argv: 0)
+        monkeypatch.setattr(app_module, "launch_module", lambda module: calls.append(module))
+        assert app_module.main([]) == 0
+        assert calls == ["release", "poketokenbar.ui.app"]
+    finally:
+        qt_app.setProperty("restartRequested", False)
+
+
 def test_popover_position_stays_inside_small_screen():
     available = QRect(100, 50, 800, 600)
     point = popover_position(QRect(), available, QSize(400, 640))

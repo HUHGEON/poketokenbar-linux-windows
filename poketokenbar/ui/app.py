@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 from .. import commands, config
 from ..system_state import power_saver
 from ..single_instance import SingleInstance
+from ..lifecycle import ensure_daemon, launch_module, refresh_data
 from .pet import DesktopPet
 from .panels import (
     BagPanel, CollectionPanel, HomePanel, SettingsPanel, ShopPanel, ago,
@@ -194,7 +195,7 @@ class Window(QWidget):
         footer_layout.setContentsMargins(12, 6, 10, 8)
         footer_layout.setSpacing(6)
         self.refresh_button = icon_button(
-            "\u21bb", lambda: commands.enqueue("refresh", {}),
+            "\u21bb", lambda: refresh_data(),
             reader.text("refresh"))
         footer_layout.addWidget(self.refresh_button)
         footer_layout.addWidget(self.footer)
@@ -364,7 +365,7 @@ class TrayApp:
         menu.addAction(show)
 
         refresh = QAction(self.reader.text("refresh"), menu)
-        refresh.triggered.connect(lambda: commands.enqueue("refresh", {}))
+        refresh.triggered.connect(lambda: refresh_data())
         self._menu_actions["refresh"] = refresh
         menu.addAction(refresh)
 
@@ -713,9 +714,13 @@ def main(argv: list[str] | None = None) -> int:
     if not instance.acquire():
         return 0
     try:
-        return _run(argv)
+        result = _run(argv)
     finally:
         instance.release()
+    app = QApplication.instance()
+    if app is not None and app.property("restartRequested"):
+        launch_module("poketokenbar.ui.app")
+    return result
 
 
 def _run(argv: list[str] | None = None) -> int:
@@ -729,6 +734,13 @@ def _run(argv: list[str] | None = None) -> int:
     # process, which is what a tray application is for.
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("PokeTokenBar")
+    ensure_daemon()
+    # A worker may fail after login or an update. Recheck its lifetime lock,
+    # independent of the UI refresh interval, so the tray can recover it.
+    recovery_timer = QTimer(app)
+    recovery_timer.setInterval(30_000)
+    recovery_timer.timeout.connect(ensure_daemon)
+    recovery_timer.start()
     root = Path(__file__).resolve().parents[2]
     for icon_path in (root.parent / "poketokenbar.ico",
                       root / "packaging" / "windows" / "poketokenbar.ico"):
