@@ -117,6 +117,7 @@ All 12 sources from the original.
 | **Grok CLI** | `~/.grok/sessions/**/updates.jsonl` |
 | **Copilot CLI** | `~/.copilot/session-store.db` |
 | **Kiro CLI** | `~/.local/share/kiro-cli`, `~/.kiro`, `~/.kiro/sessions` |
+| **Kimi Code** | `~/.kimi-code/sessions/**/wire.jsonl` |
 | **Pi Agent** | `~/.pi/agent/sessions` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 
