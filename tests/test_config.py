@@ -119,3 +119,11 @@ def test_thresholds_that_are_already_apart_are_left_alone(tmp_path):
     config.set_value(path, "crit_threshold", "90")
     values = config.load(path)
     assert (values["warn_threshold"], values["crit_threshold"]) == (70, 90)
+
+
+def test_purchases_and_item_use_can_stop_announcing_themselves(tmp_path):
+    """Using candy one at a time meant one banner each (user report)."""
+    path = tmp_path / "config.json"
+    assert config.load(path)["item_notifications"] is True
+    config.set_value(path, "item_notifications", "false")
+    assert config.load(path)["item_notifications"] is False

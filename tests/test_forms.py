@@ -410,3 +410,42 @@ def test_a_species_without_that_form_keeps_its_own_sprite():
     store = _store(state)
     assert [stage["sprite_path"] for stage in store.payload()["evo_line"]] == [
         "/cache/412-sandy.png", "/cache/414.png"]
+
+
+def test_pinning_from_the_grid_picks_an_appearance_that_is_owned():
+    """The grid's star has no form in hand, and the species' default may be an
+    appearance nobody has caught — pinning it used to be refused outright."""
+    state = _with_letters("q")
+    store = _store(state)
+    store.set_representative(201)
+    assert store.state.representative_species_id == 201
+    assert store.state.representative_form == "q"
+
+
+def test_a_form_name_comes_from_our_own_table_where_pokeapi_has_none():
+    """PokeAPI names `pokemon-form` in English, French and German only."""
+    from poketokenbar import l10n
+
+    store = _store(CompanionState(language="ko"))
+    assert store.form_label(422, "east") == l10n.form_name("east", "ko")
+    assert store.form_label(479, "wash") == "워시로토무"
+    # Unown names its letter, and a usual look with no official name is plain.
+    assert store.form_label(201, "q") == "Q"
+    assert store.form_label(479, "normal") == l10n.t("normal_form", "ko")
+
+
+def test_every_catalogued_form_has_a_korean_and_japanese_name():
+    """Anything missing falls back to English, which is what the table is for."""
+    from poketokenbar import l10n
+
+    missing = []
+    for species_id, rows in forms.CATALOG.items():
+        if species_id in (forms.UNOWN_SPECIES_ID, forms.ARCEUS_SPECIES_ID):
+            continue  # letters, and type names PokeAPI does translate
+        for entry in rows:
+            if forms.has_unnamed_default(species_id, entry.form):
+                continue
+            for language in ("ko", "ja"):
+                if not l10n.form_name(entry.form, language):
+                    missing.append((species_id, entry.form, language))
+    assert missing == []

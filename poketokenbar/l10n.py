@@ -457,6 +457,13 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "setting_companion_notifications": ("Notify on companion events", "포켓몬 소식 알림", "ポケモンの出来事を通知", "Avisar del compañero",
         'Alerter sur le compagnon', 'Avisar sobre o companheiro', 'Bei Begleiter-Ereignissen benachrichtigen',
     ),
+    "setting_item_notifications": ("Notify on purchases and items used",
+        "구입·아이템 사용 알림", "購入・道具使用を通知",
+        "Avisar de compras y objetos usados",
+        "Alerter sur les achats et objets utilisés",
+        "Avisar sobre compras e itens usados",
+        "Bei Käufen und benutzten Items benachrichtigen",
+    ),
     "setting_status_checks": ("Check provider status", "서비스 상태 확인", "サービス状態を確認", "Comprobar estado del servicio",
         'Vérifier l\'état des services', 'Verificar o estado dos serviços', 'Dienststatus prüfen',
     ),
@@ -1303,6 +1310,86 @@ def _api_code(raw: str) -> str:
 
 def api_codes(language: str) -> tuple[str, ...]:
     return API_CODES.get(language, (_api_code(language),))
+
+
+# Form names PokeAPI does not carry.
+#
+# Its `pokemon-form` resources name these in English, French and German and in
+# nothing else: every Korean and Japanese player saw "East Shellos". These are
+# the names those two languages use for the same forms. Unown names its letter
+# instead, Arceus's plates are type names (which PokeAPI does translate), and
+# the species whose usual look has no official name use `normal_form`.
+#
+# Keyed by the form's own identifier, which means the same thing wherever it is
+# used: Burmy and Wormadam share their cloaks, Deerling and Sawsbuck their
+# seasons, Shellos and Gastrodon their seas.
+FORM_NAMES: dict[str, dict[str, str]] = {
+    # Castform
+    "sunny": {"ko": "쾌청폼", "ja": "はれのすがた"},
+    "rainy": {"ko": "비바라기폼", "ja": "あめのすがた"},
+    "snowy": {"ko": "싸라기눈폼", "ja": "ゆきのすがた"},
+    # Deoxys
+    "normal": {"ko": "노말폼", "ja": "ノーマルフォルム"},
+    "attack": {"ko": "어택폼", "ja": "アタックフォルム"},
+    "defense": {"ko": "디펜스폼", "ja": "ディフェンスフォルム"},
+    "speed": {"ko": "스피드폼", "ja": "スピードフォルム"},
+    # Burmy and Wormadam
+    "plant": {"ko": "초목도롱", "ja": "くさきのミノ"},
+    "sandy": {"ko": "모래도롱", "ja": "すなちのミノ"},
+    "trash": {"ko": "쓰레기도롱", "ja": "ゴミのミノ"},
+    # Cherrim
+    "overcast": {"ko": "네거티브폼", "ja": "ネガフォルム"},
+    "sunshine": {"ko": "포지티브폼", "ja": "ポジフォルム"},
+    # Shellos and Gastrodon
+    "west": {"ko": "서쪽의바다", "ja": "にしのうみ"},
+    "east": {"ko": "동쪽의바다", "ja": "ひがしのうみ"},
+    # Rotom
+    "heat": {"ko": "히트로토무", "ja": "ヒートロトム"},
+    "wash": {"ko": "워시로토무", "ja": "ウォッシュロトム"},
+    "frost": {"ko": "프로스트로토무", "ja": "フロストロトム"},
+    "fan": {"ko": "스핀로토무", "ja": "スピンロトム"},
+    "mow": {"ko": "커트로토무", "ja": "カットロトム"},
+    # Giratina
+    "altered": {"ko": "어나더폼", "ja": "アナザーフォルム"},
+    "origin": {"ko": "오리진폼", "ja": "オリジンフォルム"},
+    # Shaymin
+    "land": {"ko": "랜드폼", "ja": "ランドフォルム"},
+    "sky": {"ko": "스카이폼", "ja": "スカイフォルム"},
+    # Basculin
+    "red-striped": {"ko": "빨간줄무늬", "ja": "あかすじのすがた"},
+    "blue-striped": {"ko": "파란줄무늬", "ja": "あおすじのすがた"},
+    # Darmanitan
+    "standard": {"ko": "노말모드", "ja": "ノーマルモード"},
+    "zen": {"ko": "달마모드", "ja": "ダルマモード"},
+    # Deerling and Sawsbuck
+    "spring": {"ko": "봄의모습", "ja": "はるのすがた"},
+    "summer": {"ko": "여름의모습", "ja": "なつのすがた"},
+    "autumn": {"ko": "가을의모습", "ja": "あきのすがた"},
+    "winter": {"ko": "겨울의모습", "ja": "ふゆのすがた"},
+    # The forces of nature
+    "incarnate": {"ko": "화신폼", "ja": "けしんフォルム"},
+    "therian": {"ko": "영물폼", "ja": "れいじゅうフォルム"},
+    # Kyurem
+    "black": {"ko": "블랙큐레무", "ja": "ブラックキュレム"},
+    "white": {"ko": "화이트큐레무", "ja": "ホワイトキュレム"},
+    # Keldeo
+    "ordinary": {"ko": "평상시모습", "ja": "いつものすがた"},
+    "resolute": {"ko": "각오의모습", "ja": "かくごのすがた"},
+    # Meloetta
+    "aria": {"ko": "보이스폼", "ja": "ボイスフォルム"},
+    "pirouette": {"ko": "스텝폼", "ja": "ステップフォルム"},
+    # Genesect's drives
+    "douse": {"ko": "샤워카세트", "ja": "シャワーカセット"},
+    "shock": {"ko": "번개카세트", "ja": "イナズマカセット"},
+    "burn": {"ko": "블레이즈카세트", "ja": "バーンカセット"},
+    "chill": {"ko": "프리즈카세트", "ja": "フリーズカセット"},
+}
+
+
+def form_name(slug: str, language: str) -> str | None:
+    """This form's name in `language`, or None when PokeAPI is the better
+    source for it — which it is for every language but these two."""
+    return FORM_NAMES.get(slug, {}).get(language)
 
 
 def resolve_name(names: dict[str, str], language: str) -> str | None:

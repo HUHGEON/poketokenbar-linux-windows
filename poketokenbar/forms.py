@@ -24,6 +24,8 @@ import random
 from dataclasses import dataclass
 
 UNOWN_SPECIES_ID = 201
+# Its plates are named after types, which PokeAPI translates everywhere.
+ARCEUS_SPECIES_ID = 493
 
 # An uncollected form is twice as likely as one already collected — the same
 # adjustment the species roll makes, with no streak counter behind it.

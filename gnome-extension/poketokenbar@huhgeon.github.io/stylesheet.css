@@ -61,6 +61,9 @@
 
 .poketokenbar-section {
   spacing: 8px;
+  /* The overlay scrollbar sits on top of the content, so anything flush with
+     the right edge — a tally, a dex number — ends up underneath it. */
+  padding-right: 6px;
 }
 
 .poketokenbar-row {
@@ -734,3 +737,19 @@
   spacing: 4px;
   padding: 2px 0;
 }
+
+/* The number, the shiny mark and the pin star share one narrow line, so
+   nothing in it may claim width the number needs. */
+.poketokenbar-dextop {
+  spacing: 2px;
+}
+
+/* The pin star on a Pokedex cell. */
+.poketokenbar-dexstar {
+  padding: 0;
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.poketokenbar-dexstar:hover { background-color: rgba(255, 255, 255, 0.14); }
+.poketokenbar-dexstar-on { color: #ffd60a; }

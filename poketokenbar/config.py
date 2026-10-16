@@ -39,6 +39,10 @@ DEFAULTS: dict[str, object] = {
     "pin_on_graduation": "keep",
     "limit_notifications": True,
     "companion_notifications": True,
+    # A desktop notification for every shop purchase and every item used.
+    # Using candy one at a time means one notification each, which is a lot of
+    # banners for something whose result is already on screen.
+    "item_notifications": True,
     "status_checks_enabled": True,
     "floating_pet_enabled": False,
     "floating_pet_size": 96,

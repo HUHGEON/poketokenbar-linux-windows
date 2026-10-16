@@ -673,7 +673,14 @@ class CompanionStore:
         Refuses a species the user does not own rather than storing it and
         letting reconcile silently drop it — the caller gets told why.
         """
-        chosen = forms.resolved(species_id, form) if species_id is not None else None
+        if species_id is not None and form is None and forms.has_forms(species_id):
+            # Asked for from the grid, which has no form in hand: pin the one
+            # that species is actually owned in, not its default — the default
+            # may be an appearance nobody has caught.
+            chosen = self._representative_letter(
+                species_id, self.state.collected_forms(species_id))
+        else:
+            chosen = forms.resolved(species_id, form) if species_id is not None else None
         if (species_id is not None and species_id == self.state.representative_species_id
                 and chosen == self.state.representative_form):
             species_id, chosen = None, None
@@ -1054,8 +1061,13 @@ class CompanionStore:
         ]
 
     def form_label(self, species_id: int, form: str | None) -> str:
-        """What this appearance is called: Unown's letter, or the form's own
-        localized name once PokeAPI has answered for it."""
+        """What this appearance is called.
+
+        Unown names its letter. Arceus's plates are types, which PokeAPI does
+        translate. The rest come from our own table where PokeAPI has nothing
+        for this language — its `pokemon-form` resources are named in English,
+        French and German only — and from PokeAPI otherwise.
+        """
         resolved = forms.resolved(species_id, form)
         if resolved is None:
             return ""
@@ -1064,6 +1076,12 @@ class CompanionStore:
         if forms.has_unnamed_default(species_id, resolved):
             return l10n.t("normal_form", self.state.language)
         readable = resolved.replace("-", " ").title()
+        if species_id == forms.ARCEUS_SPECIES_ID:
+            # The plate is a type, and the type endpoint is translated.
+            return self._resource_name("type", resolved, fallback=readable)
+        ours = l10n.form_name(resolved, self.state.language)
+        if ours:
+            return ours
         resource = forms.name_resource(species_id, resolved)
         if resource is None:
             return readable

@@ -1424,6 +1424,8 @@ class CollectionSection extends Section {
 
     _open(speciesId, form = null) {
         this._inspecting = speciesId;
+        // Whatever the last page said about a form nobody has caught.
+        this._formNotice = false;
         // Which appearance the page is about; the daemon answers with one
         // that is actually collected.
         this._form = form;
@@ -1598,9 +1600,23 @@ class CollectionSection extends Section {
         const top = row([
             label(`#${dexEntry.species_id}`, `poketokenbar-dexnum poketokenbar-dexnum-${tint}`),
             spacer(),
-        ]);
+        ], 'poketokenbar-dextop');
         if (dexEntry.is_shiny)
             top.add_child(label('✨', 'poketokenbar-caption2'));
+        // The star pins this one to the panel and the pet, and releases it
+        // when it is already pinned — the same tap upstream's cell has, so
+        // the pin does not need the page it used to need.
+        const star = new St.Button({
+            style_class: dexEntry.is_pinned
+                ? 'poketokenbar-dexstar poketokenbar-dexstar-on'
+                : 'poketokenbar-dexstar',
+            can_focus: true,
+            track_hover: true,
+            child: label(dexEntry.is_pinned ? '★' : '☆', 'poketokenbar-caption2'),
+        });
+        star.connect('clicked', () => markSent(star,
+            Commands.represent(dexEntry.is_pinned ? null : dexEntry.species_id)));
+        top.add_child(star);
         const parts = [top, spriteBin];
         if (dexEntry.is_raising) {
             const badge = pill(t('raising').toUpperCase(), 'soft-blue');
@@ -1723,10 +1739,15 @@ class CollectionSection extends Section {
         // the row holds fewer of them.
         const formRows = detail.forms ?? [];
         if (formRows.length > 0) {
+            // A form nobody has caught has no page to open. Saying so beats a
+            // tile that simply does not answer; it stands until another form
+            // is opened, since the page rebuilds on every poll.
             this.add_child(row([
                 caption(t('choose_form'), 'secondary'),
                 spacer(),
-                caption(detail.forms_text ?? '', 'tertiary'),
+                caption(this._formNotice ? t('form_not_collected')
+                    : (detail.forms_text ?? ''),
+                    this._formNotice ? 'orange' : 'tertiary'),
             ]));
             const lettered = formRows.length > 12;
             const columns = lettered ? UNOWN_COLUMNS : FORM_COLUMNS;
@@ -1752,8 +1773,11 @@ class CollectionSection extends Section {
                 // their fixed squares.
                 tile.x_expand = !lettered;
                 if (!formOption.collected) {
-                    tile.reactive = false;
                     tile.opacity = 90;
+                    tile.connect('clicked', () => {
+                        this._formNotice = true;
+                        this.update(this._state);
+                    });
                 } else {
                     tile.connect('clicked', () => this._open(this._inspecting, formOption.form));
                 }
@@ -2003,6 +2027,7 @@ const PET_SIZE = {key: 'floating_pet_size', string: 'setting_pet_size', unit: 'p
 const NOTIFICATION_TOGGLES = [
     {key: 'limit_notifications', string: 'setting_limit_notifications'},
     {key: 'companion_notifications', string: 'setting_companion_notifications'},
+    {key: 'item_notifications', string: 'setting_item_notifications'},
     {key: 'status_checks_enabled', string: 'setting_status_checks', hint: 'status_checks_hint'},
 ];
 // Numeric settings as steppers: each has a range outside which the daemon

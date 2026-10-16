@@ -439,7 +439,9 @@ class Daemon:
                         message = self.companion_store.buy(key, count)
                     else:
                         message = self.companion_store.use_item(key, count)
-                    if self.notifier is not None:
+                    if self.notifier is not None and self.config_values.get(
+                        "item_notifications", True
+                    ):
                         self.notifier._send("PokeTokenBar", message)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
