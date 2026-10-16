@@ -512,6 +512,13 @@
   border: 1px solid transparent;
 }
 
+/* A named forme needs the width Unown's single letters do not (04b12da). */
+.poketokenbar-formtile-named {
+  min-width: 60px;
+  width: auto;
+  padding: 4px 6px;
+}
+
 .poketokenbar-formtile:hover { background-color: rgba(255, 255, 255, 0.14); }
 
 .poketokenbar-formtile-selected {

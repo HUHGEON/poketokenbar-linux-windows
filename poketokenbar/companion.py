@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from . import balance, profile as profiles, unown
+from . import balance, forms, profile as profiles
 from .balance import Rarity
 
 
@@ -158,10 +158,14 @@ class MonState:
     # IVs, gender, ability, level and moves. None only on a save from before
     # profiles, until migrate_profiles gives it one.
     profile: profiles.PokemonProfile | None = None
-    # Unown's letter, for the one species that has 28 of them. None on every
-    # other species, and on an Unown saved before letters existed — which is
-    # read as A, the sprite it was already being drawn with (upstream 10d1a07).
-    unown_form: str | None = None
+    # Which appearance this individual wears, for the species that have more
+    # than one: Unown's letter, Shaymin's forme, Shellos's sea. Chosen at
+    # hatch for the whole line and resolved per species, so a Sandy Burmy
+    # becomes a Sandy Wormadam (upstream 10d1a07, generalised in 04b12da).
+    # None on a species with one appearance, and on a record written before
+    # its line had forms — which reads as the default, the sprite it was
+    # already being drawn with.
+    form: str | None = None
 
     @property
     def displays_shiny(self) -> bool:
@@ -225,8 +229,8 @@ class DexEntry:
     released_at: float | None = None
     # The individual as it was when it graduated or was released.
     profile: profiles.PokemonProfile | None = None
-    # Which Unown this was. See MonState.unown_form.
-    unown_form: str | None = None
+    # Which appearance this one wore. See MonState.form.
+    form: str | None = None
 
     @property
     def is_released(self) -> bool:
@@ -255,7 +259,7 @@ class CompanionState:
     # rest belong to the companion, which Home keeps showing either way.
     representative_species_id: int | None = None
     # Which letter the pinned Unown is, when the pin is on Unown.
-    representative_unown_form: str | None = None
+    representative_form: str | None = None
     dex: list[DexEntry] = field(default_factory=list)
     collected_finals: set[str] = field(default_factory=set)
     language: str = "en"
@@ -310,33 +314,50 @@ class CompanionState:
         prefixes = (f"{base_id}:", f"{base_id}-")
         return any(key.startswith(prefixes) for key in self.collected_finals)
 
-    def owns_species(self, species_id: int, unown_form: str | None = None) -> bool:
+    def owns_species(self, species_id: int, form: str | None = None) -> bool:
         """Whether a graduation record or the current companion covers this species.
 
         A light path on purpose — checking one species must not build the whole
-        Pokedex display model. With a letter, only that Unown counts: the 28
-        forms are collected separately.
+        Pokedex display model. With a form, only that appearance counts: they
+        are collected separately, as Unown's 28 letters always were.
         """
-        if unown_form is not None and species_id == unown.SPECIES_ID:
-            return unown_form in self.collected_unown_forms()
+        if form is not None and forms.has_forms(species_id):
+            return form in self.collected_forms(species_id)
         if any(species_id in entry.chain_order for entry in self.dex):
             return True
         return species_id in self.reached_species()
 
-    def collected_unown_forms(self) -> set[str]:
-        """Every Unown letter owned, shiny or not — the 28-form tally."""
+    def collected_forms(self, species_id: int) -> set[str]:
+        """Every appearance of this species owned, shiny or not."""
+        if not forms.has_forms(species_id):
+            return set()
         found = set()
         for entry in self.dex:
-            if unown.SPECIES_ID in entry.chain_order:
-                letter = unown.resolved(unown.SPECIES_ID, entry.unown_form)
-                if letter is not None:
-                    found.add(letter)
+            if species_id in entry.chain_order:
+                form = forms.resolved(species_id, entry.form)
+                if form is not None:
+                    found.add(form)
         mon = self.active
-        if mon is not None and unown.SPECIES_ID in self.reached_species():
-            letter = unown.resolved(unown.SPECIES_ID, mon.unown_form)
-            if letter is not None:
-                found.add(letter)
+        if mon is not None and species_id in self.reached_species():
+            form = forms.resolved(species_id, mon.form)
+            if form is not None:
+                found.add(form)
         return found
+
+    def collected_line_forms(self, base_id: int) -> set[str]:
+        """What the hatch roll treats as already collected for this line.
+
+        A form counts only once every species of the line that can show it is
+        owned wearing it, so a Sandy Burmy that became Mothim still leaves
+        Sandy Wormadam to find.
+        """
+        owned = [(species_id, self.collected_forms(species_id))
+                 for species_id in forms.form_species(base_id)]
+        return {
+            form for form in forms.line_forms(base_id)
+            if all(form not in forms.forms(species_id) or form in found
+                   for species_id, found in owned)
+        }
 
     def owns_shiny_species(self, species_id: int) -> bool:
         """Whether the owned copy of this species is shiny.
@@ -360,16 +381,16 @@ class CompanionState:
         would otherwise leave a ghost species on the panel permanently.
         """
         if self.representative_species_id is None:
-            self.representative_unown_form = None
+            self.representative_form = None
             return
-        letter = unown.resolved(
-            self.representative_species_id, self.representative_unown_form)
-        if not self.owns_species(self.representative_species_id, letter):
+        form = forms.resolved(
+            self.representative_species_id, self.representative_form)
+        if not self.owns_species(self.representative_species_id, form):
             self.representative_species_id = None
-            self.representative_unown_form = None
+            self.representative_form = None
         else:
-            # A letter recorded against anything but Unown is not a letter.
-            self.representative_unown_form = letter
+            # A form recorded against a species that cannot wear it is not one.
+            self.representative_form = form
 
 
 @dataclass(slots=True)
@@ -482,10 +503,12 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         # Drawn last, so every roll above sees the same sequence it always has.
         profile=profiles.generate(rng.getrandbits(64)),
     )
-    # Unown's letter, drawn only once the species roll has landed on it, so no
-    # other species' sequence or odds change (upstream 10d1a07).
-    if mon.base_id == unown.SPECIES_ID:
-        mon.unown_form = unown.roll(rng, state.collected_unown_forms())
+    # The appearance, drawn only once the species roll has landed, so no other
+    # species' sequence or odds change (upstream 10d1a07, 04b12da). It is for
+    # the whole line: a Burmy knows which Wormadam it will become.
+    line_forms = forms.line_forms(mon.base_id)
+    if line_forms:
+        mon.form = forms.roll(rng, line_forms, state.collected_line_forms(mon.base_id))
     state.active = mon
     # The guarantee is consumed by the hatch it paid for.
     state.egg_tier = None
@@ -525,7 +548,7 @@ def release(state: CompanionState, mon: MonState, now: float | None = None) -> D
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
         released_at=now,
-        unown_form=mon.unown_form,
+        form=mon.form,
         profile=mon.profile,
     )
     state.dex.append(entry)
@@ -639,7 +662,7 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None,
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
         profile=mon.profile,
-        unown_form=mon.unown_form,
+        form=mon.form,
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}:{mon.current_id}")

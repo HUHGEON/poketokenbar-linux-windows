@@ -46,6 +46,8 @@ const LOG_PER_PAGE = 20;
 // The periods the recap can be read over, in the order the tabs show them.
 const RECAP_SCOPES = ['week', 'month', 'year'];
 // Unown's 28 letters, laid out seven across: four rows that fit the popup.
+// A named forme ("Sky Forme") needs the width; Unown's single letters do not.
+const FORM_COLUMNS = 3;
 const UNOWN_COLUMNS = 7;
 const DETAIL_SPRITE_SIZE = 82;
 const COMPANION_SPRITE_SIZE = 72;
@@ -1420,17 +1422,17 @@ class CollectionSection extends Section {
         this._open(speciesId);
     }
 
-    _open(speciesId, unownForm = null) {
+    _open(speciesId, form = null) {
         this._inspecting = speciesId;
-        // Which of Unown's letters the page is about; the daemon answers with
-        // one that is actually collected.
-        this._unownForm = unownForm;
+        // Which appearance the page is about; the daemon answers with one
+        // that is actually collected.
+        this._form = form;
         this._individualIndex = 0;
         // Which appearance the page is showing: null follows what was caught
         // first, true or false is a choice made on the page.
         this._appearance = null;
         this._showingMoves = false;
-        Commands.inspect(speciesId, false, unownForm);
+        Commands.inspect(speciesId, false, form);
         this.update(this._state);
     }
 
@@ -1715,34 +1717,45 @@ class CollectionSection extends Section {
             caption(`#${this._inspecting}`, 'secondary'),
         ]));
 
-        // Unown's 28 letters: the collected ones open their own page, the rest
-        // are shown dimmed so it is clear what is still missing.
-        const forms = detail.unown_forms ?? [];
-        if (forms.length > 0) {
+        // The species' own appearances: the collected ones open their own
+        // page, the rest are shown dimmed so it is clear what is missing.
+        // Unown's 28 letters fit a tile each; a named forme needs the room, so
+        // the row holds fewer of them.
+        const formRows = detail.forms ?? [];
+        if (formRows.length > 0) {
             this.add_child(row([
-                caption(t('unown_choose_form'), 'secondary'),
+                caption(t('choose_form'), 'secondary'),
                 spacer(),
-                caption(detail.unown_forms_text ?? '', 'tertiary'),
+                caption(detail.forms_text ?? '', 'tertiary'),
             ]));
+            const lettered = formRows.length > 12;
+            const columns = lettered ? UNOWN_COLUMNS : FORM_COLUMNS;
+            const tileClass = lettered
+                ? 'poketokenbar-formtile'
+                : 'poketokenbar-formtile poketokenbar-formtile-named';
             let formRow = null;
-            forms.forEach((unownForm, index) => {
-                if (index % UNOWN_COLUMNS === 0) {
+            formRows.forEach((formOption, index) => {
+                if (index % columns === 0) {
                     formRow = row([], 'poketokenbar-dexrow');
                     this.add_child(formRow);
                 }
                 const tile = new St.Button({
-                    style_class: unownForm.selected
-                        ? 'poketokenbar-formtile poketokenbar-formtile-selected'
-                        : 'poketokenbar-formtile',
-                    can_focus: unownForm.collected,
-                    track_hover: unownForm.collected,
-                    child: label(unownForm.symbol ?? '?', 'poketokenbar-caption2 poketokenbar-strong'),
+                    style_class: formOption.selected
+                        ? `${tileClass} poketokenbar-formtile-selected`
+                        : tileClass,
+                    can_focus: formOption.collected,
+                    track_hover: formOption.collected,
+                    child: ellipsized(formOption.symbol ?? '?',
+                        'poketokenbar-caption2 poketokenbar-strong'),
                 });
-                if (!unownForm.collected) {
+                // The named tiles share the row's width; Unown's letters keep
+                // their fixed squares.
+                tile.x_expand = !lettered;
+                if (!formOption.collected) {
                     tile.reactive = false;
                     tile.opacity = 90;
                 } else {
-                    tile.connect('clicked', () => this._open(this._inspecting, unownForm.form));
+                    tile.connect('clicked', () => this._open(this._inspecting, formOption.form));
                 }
                 formRow.add_child(tile);
             });
@@ -1789,7 +1802,7 @@ class CollectionSection extends Section {
         const pinned = ready ? detail.is_pinned : dexRow.is_pinned;
         const pin = borderedButton(pinned ? t('unpin') : t('pin_to_panel'), () =>
             markSent(pin, Commands.represent(
-                pinned ? null : this._inspecting, ready ? detail.unown_form || null : null)));
+                pinned ? null : this._inspecting, ready ? detail.form || null : null)));
         pin.x_align = Clutter.ActorAlign.START;
         identity.add_child(pin);
         this.add_child(row([spriteBox, identity], 'poketokenbar-companion'));

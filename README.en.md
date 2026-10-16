@@ -69,6 +69,13 @@ tabs render.
   official capture rate. It gets one of 25 natures, and a **1-in-64 chance of being ✨ shiny**.
 - ⚡ **Evolution → 🎓 graduation.** It follows the real evolution tree, and **at a branch it
   prefers a path you haven't caught yet** — so Eevee fills out all eight, not Vaporeon eight times.
+- 🔠 **Alternate appearances are collected separately.** Unown's A–Z, ! and ?, and every
+  generation 1–5 species whose forms all have a Black/White animation: Castform, Deoxys,
+  Burmy and Wormadam, Cherrim, Shellos and Gastrodon, Rotom, Giratina, Shaymin, Arceus,
+  Basculin, Darmanitan, Deerling and Sawsbuck, the forces of nature, Kyurem, Keldeo,
+  Meloetta and Genesect. The appearance is picked at hatch and carried through the line — a
+  Sandy Burmy becomes a Sandy Wormadam. A dex cell shows the tally, and its page lets you
+  look at the ones you have, or pin one to the panel.
 - 🛒 **Shop and bag.** Spent tokens are the currency — Rare Candy, mints, Shiny Charm, eggs in
   three tiers. Hitting a limit pays out candy.
 - ⭐ **Representative.** Press the star in the Pokédex to pin one to the panel and the desktop

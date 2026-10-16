@@ -238,27 +238,27 @@ def test_a_store_built_without_a_path_still_has_one(tmp_path, monkeypatch):
     assert [row["id"] for row in store.snapshot_rows()], "a restore point was taken"
 
 
-def test_a_snapshot_remembers_which_unown_letter_was_being_raised(tmp_path):
+def test_a_snapshot_remembers_which_appearance_was_being_raised(tmp_path):
     """Its thumbnail used the species' default form, so every Unown backup
     looked like the same Pokemon (upstream dc6de41)."""
-    from poketokenbar import snapshots, unown
+    from poketokenbar import forms, snapshots
     from poketokenbar.companion import CompanionState, MonState
 
-    letter = unown.FORMS[7]
+    letter = forms.forms(forms.UNOWN_SPECIES_ID)[7]
     state = CompanionState(active=MonState(
-        base_id=unown.SPECIES_ID, path_ids=[unown.SPECIES_ID],
-        planned_path_ids=[unown.SPECIES_ID], total_forms=1, unown_form=letter))
+        base_id=forms.UNOWN_SPECIES_ID, path_ids=[forms.UNOWN_SPECIES_ID],
+        planned_path_ids=[forms.UNOWN_SPECIES_ID], total_forms=1, form=letter))
     save_path = tmp_path / "companion.json"
 
     taken = snapshots.create(state, save_path)
-    assert taken.unown_form == letter
-    assert snapshots.listing(save_path)[0].unown_form == letter
+    assert taken.form == letter
+    assert snapshots.listing(save_path)[0].form == letter
 
 
-def test_an_ordinary_species_has_no_letter(tmp_path):
+def test_an_ordinary_species_has_no_form(tmp_path):
     from poketokenbar import snapshots
     from poketokenbar.companion import CompanionState, MonState
 
     state = CompanionState(active=MonState(
         base_id=1, path_ids=[1], planned_path_ids=[1], total_forms=1))
-    assert snapshots.create(state, tmp_path / "companion.json").unown_form is None
+    assert snapshots.create(state, tmp_path / "companion.json").form is None

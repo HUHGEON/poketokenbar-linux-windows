@@ -14,8 +14,8 @@ import unicodedata
 from datetime import date as _date
 from pathlib import Path
 
-from . import (balance, companion, l10n, pokeapi, profile, save, shop, snapshots,
-               sprites, transfer, unown)
+from . import (balance, companion, forms, l10n, pokeapi, profile, save, shop,
+               snapshots, sprites, transfer)
 from .companion import CompanionState
 from .format import compact as _compact
 
@@ -91,7 +91,7 @@ class CompanionStore:
         # popup is looking, not progress.
         self.inspected_species_id: int | None = None
         # Which of Unown's 28 letters the open page is about; None otherwise.
-        self.inspected_unown_form: str | None = None
+        self.inspected_form: str | None = None
 
     def migrate_profiles(self) -> None:
         """Give an older save's Pokémon their profiles, once.
@@ -156,7 +156,7 @@ class CompanionStore:
     # --- the Pokédex detail page (upstream b6bf676) ----------------------------
 
     def inspect(self, species_id: int | None, retry: bool = False,
-                unown_form: str | None = None) -> None:
+                form: str | None = None) -> None:
         """Open a species' page, or close it with None.
 
         Only an owned species opens: the page is built from the save, and a
@@ -164,23 +164,24 @@ class CompanionStore:
         """
         if species_id is None or not self.state.owns_species(species_id):
             self.inspected_species_id = None
-            self.inspected_unown_form = None
+            self.inspected_form = None
             return
         self.inspected_species_id = species_id
-        # Which of Unown's letters the page is about. None picks one that is
-        # actually collected, so the page never opens on an empty form.
-        if species_id == unown.SPECIES_ID:
-            letters = self.state.collected_unown_forms()
-            chosen = unown.resolved(species_id, unown_form)
-            self.inspected_unown_form = (
-                chosen if chosen in letters else self._representative_letter(letters)
+        # Which appearance the page is about. None picks one that is actually
+        # collected, so the page never opens on a form nobody has.
+        if forms.has_forms(species_id):
+            collected = self.state.collected_forms(species_id)
+            chosen = forms.resolved(species_id, form)
+            self.inspected_form = (
+                chosen if chosen in collected
+                else self._representative_letter(species_id, collected)
             )
         else:
-            self.inspected_unown_form = None
+            self.inspected_form = None
         if self.detail_loader is not None:
             self.detail_loader.request_details(species_id, retry=retry)
 
-    def individuals(self, species_id: int, unown_form: str | None = None
+    def individuals(self, species_id: int, form: str | None = None
                     ) -> list[tuple[companion.DexEntry | None, object, bool]]:
         """(dex entry or None for the companion, profile, is_shiny) for a species.
 
@@ -189,29 +190,30 @@ class CompanionStore:
         first. An earlier stage of a line has no individual of its own; its
         page is a species reference.
         """
-        def letter_of(record) -> str | None:
-            return unown.resolved(species_id, record.unown_form)
+        def form_of(record) -> str | None:
+            return forms.resolved(species_id, record.form)
 
-        wanted = unown.resolved(species_id, unown_form) if unown_form else None
+        wanted = forms.resolved(species_id, form) if form else None
         out = []
         mon = self.state.active
         if mon is not None and mon.profile is not None and mon.current_id == species_id:
             shiny = mon.displays_shiny
-            if wanted is None or letter_of(mon) == wanted:
+            if wanted is None or form_of(mon) == wanted:
                 out.append((None, mon.profile, shiny))
         stored = [e for e in self.state.dex if e.final_id == species_id and e.profile is not None]
         if wanted is not None:
-            stored = [e for e in stored if letter_of(e) == wanted]
+            stored = [e for e in stored if form_of(e) == wanted]
         stored.sort(key=lambda e: e.caught_at or 0, reverse=True)
         out.extend((e, e.profile, e.is_shiny) for e in stored)
         return out
 
-    def _resource_name(self, kind: str, slug: str) -> str:
-        """A type, ability or move in the UI language.
+    def _resource_name(self, kind: str, slug: str, fallback: str | None = None) -> str:
+        """A type, ability, move or form name in the UI language.
 
         "…" while its name is on the way, as upstream 1a8a725 does, so the
-        page never flashes English first; the slug made readable when no
-        name will come.
+        page never flashes English first; `fallback` — or the slug made
+        readable — when no name will come. A form's slug is a resource number,
+        which reads as nothing, so those pass their own.
         """
         language = self.state.language
         lookup = getattr(self.api, "cached_resource_names", None)
@@ -224,7 +226,7 @@ class CompanionStore:
             self.detail_loader.request_names(kind, [slug])
             if not self.detail_loader.names_failed(kind, slug):
                 return "\N{HORIZONTAL ELLIPSIS}"
-        return slug.replace("-", " ").title()
+        return fallback if fallback else slug.replace("-", " ").title()
 
     def _move_methods(self, move) -> str:
         language = self.state.language
@@ -265,7 +267,7 @@ class CompanionStore:
             if loader is not None:
                 loader.request_details(species_id)
 
-        letter = self.inspected_unown_form if species_id == unown.SPECIES_ID else None
+        letter = self.inspected_form if forms.has_forms(species_id) else None
         individuals = []
         found = self.individuals(species_id, letter)
         for index, (entry, individual, shiny) in enumerate(found):
@@ -348,23 +350,22 @@ class CompanionStore:
         def sprite_for(shiny: bool) -> str:
             if self.sprites is None:
                 return ""
-            path = self.sprites.path(species_id, animated=True, shiny=shiny, unown_form=letter)
+            path = self.sprites.path(species_id, animated=True, shiny=shiny, form=letter)
             return str(path) if path else ""
 
         default_shiny = found[0][2] if found else bool(row.get("is_shiny"))
         return {
             "species_id": species_id,
-            "name": unown.display_name(
-                self.species_name(species_id, language) or f"#{species_id}",
-                species_id, letter),
-            # Unown's 28 letters: which are collected, and which this page is
-            # about. Empty for every other species.
-            "unown_form": letter or "",
-            "unown_forms": self._unown_form_rows(letter) if species_id == unown.SPECIES_ID else [],
-            "unown_forms_text": (
-                l10n.fill("unown_forms_collected", language,
-                          str(len(self.state.collected_unown_forms())), str(len(unown.FORMS)))
-                if species_id == unown.SPECIES_ID else ""
+            "name": self.individual_name(species_id, letter),
+            # The species' appearances: which are collected, and which this
+            # page is about. Empty for a species that has only one.
+            "form": letter or "",
+            "forms": self._form_rows(species_id, letter),
+            "forms_text": (
+                l10n.fill("forms_collected", language,
+                          str(len(self.state.collected_forms(species_id))),
+                          str(len(forms.forms(species_id))))
+                if forms.has_forms(species_id) else ""
             ),
             "rarity": row.get("rarity", ""),
             "is_shiny": bool(row.get("is_shiny")),
@@ -601,10 +602,12 @@ class CompanionStore:
         # The animation first; if that download fails, the still picture keeps
         # Home from drawing an empty box, and the next poll asks for the
         # animation again — a failure is never cached (upstream 2f2fb32).
-        path = self.sprites.path(mon.current_id, animated=True, shiny=mon.displays_shiny)
+        form = forms.resolved(mon.current_id, mon.form)
+        path = self.sprites.path(mon.current_id, animated=True,
+                                 shiny=mon.displays_shiny, form=form)
         if path is None:
             path = self.sprites.path(mon.current_id, animated=False,
-                                     shiny=mon.displays_shiny)
+                                     shiny=mon.displays_shiny, form=form)
         return str(path) if path else ""
 
     def panel_species(self) -> tuple[int | None, bool]:
@@ -613,35 +616,36 @@ class CompanionStore:
         While a species is pinned the panel stops following the egg, the hatch
         and the evolutions — Home still shows all of it.
         """
-        species_id, shiny, _letter = self.panel_individual()
+        species_id, shiny, _form = self.panel_individual()
         return species_id, shiny
 
     def panel_individual(self) -> tuple[int | None, bool, str | None]:
-        """The panel's species, colour and — for Unown — its letter."""
+        """The panel's species, colour and, where it has one, its appearance."""
         self.state.reconcile_representative()
         pinned = self.state.representative_species_id
         if pinned is not None:
-            letter = unown.resolved(pinned, self.state.representative_unown_form)
-            return pinned, self.owns_shiny_individual(pinned, letter), letter
+            form = forms.resolved(pinned, self.state.representative_form)
+            return pinned, self.owns_shiny_individual(pinned, form), form
         mon = self.state.active
         if mon is None:
             return None, False, None
         return (mon.current_id, mon.displays_shiny,
-                unown.resolved(mon.current_id, mon.unown_form))
+                forms.resolved(mon.current_id, mon.form))
 
-    def owns_shiny_individual(self, species_id: int, unown_form: str | None = None) -> bool:
-        """Whether the owned copy is shiny — per letter, for Unown."""
-        if unown_form is None or species_id != unown.SPECIES_ID:
+    def owns_shiny_individual(self, species_id: int, form: str | None = None) -> bool:
+        """Whether the owned copy is shiny — per appearance, where there are
+        several."""
+        if form is None or not forms.has_forms(species_id):
             return self.state.owns_shiny_species(species_id)
         for entry in self.state.dex:
-            if (entry.is_shiny and unown.SPECIES_ID in entry.chain_order
-                    and unown.resolved(unown.SPECIES_ID, entry.unown_form) == unown_form):
+            if (entry.is_shiny and species_id in entry.chain_order
+                    and forms.resolved(species_id, entry.form) == form):
                 return True
         mon = self.state.active
         return bool(
             mon is not None and mon.displays_shiny
-            and unown.resolved(mon.current_id, mon.unown_form) == unown_form
-            and self.state.owns_species(unown.SPECIES_ID)
+            and forms.resolved(mon.current_id, mon.form) == form
+            and self.state.owns_species(species_id)
         )
 
     def panel_sprite_path(self) -> str:
@@ -652,11 +656,11 @@ class CompanionStore:
         # show the egg rather than going blank.
         if species_id is None:
             return self._egg_sprite()
-        path = self.sprites.path(species_id, animated=True, shiny=shiny, unown_form=letter)
+        path = self.sprites.path(species_id, animated=True, shiny=shiny, form=letter)
         return str(path) if path else ""
 
     def set_representative(self, species_id: int | None,
-                           unown_form: str | None = None) -> str:
+                           form: str | None = None) -> str:
         """Pin a species to the panel, or clear the pin with None.
 
         Asking for the species that is already pinned releases it instead. The
@@ -669,21 +673,20 @@ class CompanionStore:
         Refuses a species the user does not own rather than storing it and
         letting reconcile silently drop it — the caller gets told why.
         """
-        letter = unown.resolved(species_id, unown_form) if species_id is not None else None
+        chosen = forms.resolved(species_id, form) if species_id is not None else None
         if (species_id is not None and species_id == self.state.representative_species_id
-                and letter == self.state.representative_unown_form):
-            species_id, letter = None, None
-        if species_id is not None and not self.state.owns_species(species_id, letter):
+                and chosen == self.state.representative_form):
+            species_id, chosen = None, None
+        if species_id is not None and not self.state.owns_species(species_id, chosen):
             raise ValueError(f"species {species_id} is not in your Pokedex")
         self.state.representative_species_id = species_id
-        self.state.representative_unown_form = letter
+        self.state.representative_form = chosen
         self._persist()
         language = self.state.language
         if species_id is None:
             return l10n.t("panel_unpinned", language)
-        name = unown.display_name(
-            self.species_name(species_id, language) or f"#{species_id}", species_id, letter)
-        return l10n.fill("panel_pinned", language, name)
+        return l10n.fill("panel_pinned", language,
+                         self.individual_name(species_id, chosen))
 
     def _panel_fields(self) -> dict:
         """Panel and pet sprite, which the pin overrides.
@@ -702,9 +705,7 @@ class CompanionStore:
             # someone wondering why the panel disagrees with Home.
             "panel_name": (
                 "" if species_id is None
-                else unown.display_name(
-                    self.species_name(species_id, self.state.language),
-                    species_id, self.panel_individual()[2])
+                else self.individual_name(species_id, self.panel_individual()[2])
             ),
         }
 
@@ -773,12 +774,16 @@ class CompanionStore:
         evo_line = []
         if self.sprites is not None:
             for index, species_id in enumerate(mon.path_ids):
+                # The line is drawn in the individual's own appearance, where
+                # that species has it: a Sandy Burmy's line shows the Sandy
+                # Wormadam it is heading for.
                 path = self.sprites.path(species_id, animated=False,
-                                         shiny=mon.displays_shiny)
+                                         shiny=mon.displays_shiny,
+                                         form=forms.resolved(species_id, mon.form))
                 evo_line.append(
                     {
                         "species_id": species_id,
-                        "name": self.species_name(species_id, self.state.language),
+                        "name": self.individual_name(species_id, mon.form),
                         "sprite_path": str(path) if path else "",
                         "current": index == mon.stage_index,
                         "reached": index <= mon.stage_index,
@@ -792,7 +797,7 @@ class CompanionStore:
             "types": ([self._resource_name("type", name) for name in home_details.types]
                       if home_details is not None else []),
             "type_keys": list(home_details.types) if home_details is not None else [],
-            "name": self.species_name(mon.current_id, self.state.language),
+            "name": self.individual_name(mon.current_id, mon.form),
             "is_final_form": mon.is_final_form,
             "remaining_tokens": remaining,
             "remaining_text": _compact(remaining),
@@ -1025,24 +1030,56 @@ class CompanionStore:
             if count > 0
         ]
 
-    def _unown_form_rows(self, selected: str | None) -> list[dict]:
-        """All 28 letters, in order, with the ones not collected marked.
+    def _form_rows(self, species_id: int, selected: str | None) -> list[dict]:
+        """Every appearance of this species, in order, with the ones not
+        collected marked. Empty for a species that has only one.
 
         The whole set is shipped rather than only what is owned: the page is
-        how someone sees which letters are still missing.
+        how someone sees which are still missing.
         """
-        collected = self.state.collected_unown_forms()
-        # The letter alone, not a sprite: 28 more textures in an open popup is
-        # a lot of decoding for tiles that read better as "B" and "?" anyway.
+        if not forms.has_forms(species_id):
+            return []
+        collected = self.state.collected_forms(species_id)
+        # A label rather than a sprite: Unown's 28 letters alone would be 28
+        # more textures in an open popup, and they read better as "B" and "?"
+        # anyway. Other species name their form.
         return [
             {
                 "form": form,
-                "symbol": unown.symbol(form),
+                "symbol": self.form_label(species_id, form),
                 "collected": form in collected,
                 "selected": form == selected,
             }
-            for form in unown.FORMS
+            for form in forms.forms(species_id)
         ]
+
+    def form_label(self, species_id: int, form: str | None) -> str:
+        """What this appearance is called: Unown's letter, or the form's own
+        localized name once PokeAPI has answered for it."""
+        resolved = forms.resolved(species_id, form)
+        if resolved is None:
+            return ""
+        if species_id == forms.UNOWN_SPECIES_ID:
+            return forms.symbol(resolved)
+        if forms.has_unnamed_default(species_id, resolved):
+            return l10n.t("normal_form", self.state.language)
+        readable = resolved.replace("-", " ").title()
+        resource = forms.name_resource(species_id, resolved)
+        if resource is None:
+            return readable
+        return self._resource_name("pokemon-form", str(resource), fallback=readable)
+
+    def individual_name(self, species_id: int, form: str | None) -> str:
+        """The species' name with its appearance beside it, where it has one:
+        "Unown [B]", "Shaymin [Sky Forme]"."""
+        name = self.species_name(species_id, self.state.language) or f"#{species_id}"
+        resolved = forms.resolved(species_id, form)
+        if resolved is None or forms.is_default(species_id, resolved):
+            # Unown still names its letter; the default A is one of 28.
+            if species_id != forms.UNOWN_SPECIES_ID or resolved is None:
+                return name
+        return forms.display_name(name, species_id, resolved,
+                                  self.form_label(species_id, resolved))
 
     def _candy_payload(self) -> dict:
         """The stage ladder a candy batch is measured against.
@@ -1111,20 +1148,20 @@ class CompanionStore:
         pinned = self.state.representative_species_id
         raising = mon.current_id if mon is not None else None
 
-        # Unown is one cell whatever its letter: 28 of them would swamp a grid
-        # of species, and the letters are collected on its own page
-        # (upstream 10d1a07).
-        letters = self.state.collected_unown_forms()
+        # A species is one cell whatever it is wearing: 28 Unown would swamp
+        # a grid of species, and the forms are collected on the species' own
+        # page (upstream 10d1a07, 04b12da).
         out = []
         for species_id in sorted(acc):
             slot = acc[species_id]
-            is_unown = species_id == unown.SPECIES_ID
-            # The cell shows a letter actually owned, not the default A.
-            letter = self._representative_letter(letters) if is_unown else None
+            owned_forms = self.state.collected_forms(species_id)
+            # The cell shows an appearance actually owned, not the default.
+            letter = (self._representative_letter(species_id, owned_forms)
+                      if owned_forms else None)
             sprite = ""
             if self.sprites is not None:
                 path = self.sprites.path(
-                    species_id, animated=False, shiny=slot["is_shiny"], unown_form=letter
+                    species_id, animated=False, shiny=slot["is_shiny"], form=letter
                 )
                 sprite = str(path) if path else ""
             out.append(
@@ -1139,43 +1176,42 @@ class CompanionStore:
                     "is_pinned": species_id == pinned,
                     "sprite_path": sprite,
                     "search": self._search_text([species_id]),
-                    # How many of Unown's 28 letters are collected; "" for
-                    # every other species, which has one appearance to collect.
-                    # Bare, because a dex cell is 72px wide: the sentence is on
-                    # the page the cell opens.
+                    # How many of this species' appearances are collected; ""
+                    # for one that has a single appearance. Bare, because a dex
+                    # cell is 72px wide: the sentence is on the page it opens.
                     "form_count_text": (
-                        f"{len(letters)}/{len(unown.FORMS)}" if is_unown else ""
+                        f"{len(owned_forms)}/{len(forms.forms(species_id))}"
+                        if forms.has_forms(species_id) else ""
                     ),
                 }
             )
         return out
 
-    def _representative_letter(self, letters) -> str | None:
-        """Which Unown the grid draws: the pinned one, the one being raised,
-        else the first letter collected."""
-        if (self.state.representative_species_id == unown.SPECIES_ID
-                and self.state.representative_unown_form in letters):
-            return self.state.representative_unown_form
+    def _representative_letter(self, species_id: int, owned) -> str | None:
+        """Which appearance the grid draws for a species: the pinned one, the
+        one being raised, else the first collected."""
+        if (self.state.representative_species_id == species_id
+                and self.state.representative_form in owned):
+            return self.state.representative_form
         mon = self.state.active
-        if mon is not None and mon.current_id == unown.SPECIES_ID:
-            return unown.resolved(unown.SPECIES_ID, mon.unown_form)
-        return min(letters, key=unown.sort_order) if letters else None
+        if mon is not None and mon.current_id == species_id:
+            return forms.resolved(species_id, mon.form)
+        return (min(owned, key=lambda form: forms.sort_order(species_id, form))
+                if owned else None)
 
-    def _chain(self, species_ids, shiny: bool, unown_form: str | None = None) -> list[dict]:
+    def _chain(self, species_ids, shiny: bool, form: str | None = None) -> list[dict]:
         out = []
         for species_id in species_ids:
-            letter = unown.resolved(species_id, unown_form)
+            resolved = forms.resolved(species_id, form)
             sprite = ""
             if self.sprites is not None:
                 path = self.sprites.path(species_id, animated=False, shiny=shiny,
-                                         unown_form=letter)
+                                         form=resolved)
                 sprite = str(path) if path else ""
             out.append(
                 {
                     "species_id": species_id,
-                    "name": unown.display_name(
-                        self.species_name(species_id, self.state.language),
-                        species_id, letter),
+                    "name": self.individual_name(species_id, resolved),
                     "sprite_path": sprite,
                 }
             )
@@ -1192,7 +1228,7 @@ class CompanionStore:
                 "rarity": str(e.rarity),
                 "nature": l10n.nature_name(e.nature, self.state.language),
                 "is_shiny": e.is_shiny,
-                "chain": self._chain(e.chain_order, e.is_shiny, e.unown_form),
+                "chain": self._chain(e.chain_order, e.is_shiny, e.form),
                 "caught_at": e.caught_at,
                 "raised_text": _duration(e.raised_seconds, self.state.language),
                 "raising": False,
@@ -1201,7 +1237,7 @@ class CompanionStore:
                 # shows the whole chain.
                 "search": self._search_text(e.chain_order),
                 "species_id": e.final_id,
-                "name": self.species_name(e.final_id, self.state.language),
+                "name": self.individual_name(e.final_id, e.form),
             }
             for e in self.state.dex
         ]
@@ -1217,15 +1253,14 @@ class CompanionStore:
                     "nature": l10n.nature_name(mon.nature, self.state.language),
                     "is_shiny": mon.displays_shiny,
                     "chain": self._chain(mon.path_ids[: mon.stage_index + 1],
-                                        mon.displays_shiny,
-                                         mon.unown_form),
+                                         mon.displays_shiny, mon.form),
                     "caught_at": mon.hatched_at,
                     "raised_text": "",
                     "raising": True,
                     "released": False,
                     "search": self._search_text(mon.path_ids[: mon.stage_index + 1]),
                     "species_id": mon.current_id,
-                    "name": self.species_name(mon.current_id, self.state.language),
+                    "name": self.individual_name(mon.current_id, mon.form),
                 },
             )
         return out
@@ -1249,13 +1284,11 @@ class CompanionStore:
             if self.sprites is not None:
                 path = self.sprites.path(
                     entry.final_id, animated=False, shiny=entry.is_shiny,
-                    unown_form=unown.resolved(entry.final_id, entry.unown_form))
+                    form=forms.resolved(entry.final_id, entry.form))
                 sprite = str(path) if path else ""
             out.append({
                 "species_id": entry.final_id,
-                "name": unown.display_name(
-                    self.species_name(entry.final_id, language) or f"#{entry.final_id}",
-                    entry.final_id, entry.unown_form),
+                "name": self.individual_name(entry.final_id, entry.form),
                 "rarity": str(entry.rarity),
                 "is_shiny": entry.is_shiny,
                 "sprite_path": sprite,
@@ -1326,7 +1359,7 @@ class CompanionStore:
                 "sprite_path": (
                     str(self.sprites.path(snapshot.species_id, animated=False,
                                           shiny=snapshot.is_shiny,
-                                          unown_form=snapshot.unown_form) or "")
+                                          form=snapshot.form) or "")
                     if self.sprites is not None and snapshot.species_id else ""
                 ),
             })

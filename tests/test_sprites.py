@@ -10,7 +10,7 @@ def test_a_failed_animation_falls_back_to_the_still_and_is_asked_for_again(tmp_p
     asked = []
 
     class Sprites:
-        def path(self, species_id, animated=True, shiny=False, unown_form=None):
+        def path(self, species_id, animated=True, shiny=False, form=None):
             asked.append(animated)
             # The animation is unavailable; the still picture is there.
             return None if animated else tmp_path / f"{species_id}.png"

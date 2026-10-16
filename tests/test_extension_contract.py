@@ -29,8 +29,8 @@ from poketokenbar.models import BlockUsage, DailyUsage
 class _StubSprites:
     """Enough of SpriteStore for the payload builders to fill their sprite rows."""
 
-    def path(self, species_id, animated=True, shiny=False, unown_form=None):
-        letter = f"-{unown_form}" if unown_form and unown_form != "a" else ""
+    def path(self, species_id, animated=True, shiny=False, form=None):
+        letter = f"-{form}" if form and form != "a" else ""
         return Path(
             f"/cache/{species_id}{letter}{'-sh' if shiny else ''}{'a' if animated else 's'}")
 
@@ -375,7 +375,7 @@ ROW_ACCESSORS = {
     "todayRow": "month_trend_day",
     "snapshotRow": "snapshot",
     "recapBucket": "recap_bucket",
-    "unownForm": "unown_form",
+    "formOption": "detail_form",
     "limitAccount": "limit_account",
     "graduatedRow": "recap_graduated",
     "individual": "detail_individual",
@@ -448,13 +448,13 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(payload["providers"]["claude_code"])
     if name == "limit_account":
         return set(payload["limits"]["accounts"][0])
-    if name == "unown_form":
+    if name == "detail_form":
         store = CompanionStore(api=None, sprite_store=_StubSprites())
         store.state = CompanionState(
             dex=[DexEntry(base_id=201, final_id=201, chain_order=[201],
-                          rarity=Rarity.RARE, unown_form="b")])
+                          rarity=Rarity.RARE, form="b")])
         store.inspect(201)
-        return set(store.detail_payload()["unown_forms"][0])
+        return set(store.detail_payload()["forms"][0])
     if name == "recap_bucket":
         return set(payload["recap"]["buckets"][0])
     if name == "recap_graduated":

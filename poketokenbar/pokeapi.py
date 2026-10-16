@@ -40,7 +40,9 @@ USER_AGENT = "poketokenbar/0.1 (+https://github.com/chattymin/PokeTokenBar)"
 DETAIL_TTL_SECONDS = 30 * 86400
 # The resources a detail page names. Anything else is refused before it can
 # become part of a URL or a cache path.
-NAME_KINDS = ("type", "ability", "move")
+# `pokemon-form` carries the localized name of an alternate appearance:
+# "Sky Forme", "Forme Céleste" (upstream 04b12da).
+NAME_KINDS = ("type", "ability", "move", "pokemon-form")
 _RESOURCE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,79}$")
 
 

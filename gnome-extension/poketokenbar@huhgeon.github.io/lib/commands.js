@@ -73,17 +73,18 @@ export const buy = (key, count = 1) => enqueue('buy', {key, count});
 export const use = (key, count = 1) => enqueue('use', {key, count});
 // Open a species' Pokédex page, or close it with null. `retry` asks again for
 // details that failed to load.
-// `unownForm` names one of Unown's 28 letters; every other species ignores it.
-export const inspect = (speciesId, retry = false, unownForm = null) =>
+// `form` names one of the species' appearances — Unown's letter, Shaymin's
+// forme; a species with only one ignores it.
+export const inspect = (speciesId, retry = false, form = null) =>
     enqueue('inspect', {
         species_id: speciesId === null ? 'none' : String(speciesId),
         retry,
-        unown_form: unownForm ?? '',
+        form: form ?? '',
     });
-export const represent = (speciesId, unownForm = null) =>
+export const represent = (speciesId, form = null) =>
     enqueue('represent', {
         species_id: speciesId === null ? 'none' : String(speciesId),
-        unown_form: unownForm ?? '',
+        form: form ?? '',
     });
 export const exportSave = path => enqueue('export', {path});
 export const importSave = path => enqueue('import', {path});
