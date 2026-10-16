@@ -39,7 +39,7 @@ import {
 const TREND_STACK_TINTS = 4;
 const DEX_COLUMNS = 4;
 const DEX_ROWS = 6;
-const DEX_SPRITE_SIZE = 44;
+const DEX_SPRITE_SIZE = 56;
 // Catch log cards per page. Every card carries a sprite per stage, so a page
 // bounds how many are decoded at once; the log itself is never cut short.
 const LOG_PER_PAGE = 20;
@@ -1701,7 +1701,7 @@ class CollectionSection extends Section {
             (catchRecord.chain ?? []).forEach((chainStage, index) => {
                 if (index > 0)
                     chain.add_child(label('→', 'poketokenbar-arrow'));
-                const sprite = new Sprite({size: 40});
+                const sprite = new Sprite({size: 48});
                 sprite.setPath(chainStage.sprite_path || null);
                 const name = ellipsized(chainStage.name || `#${chainStage.species_id}`,
                     'poketokenbar-caption2 poketokenbar-secondary');
@@ -1829,10 +1829,15 @@ class CollectionSection extends Section {
                 || detail.sprite_path
             : dexRow.sprite_path) || null);
         const pinned = ready ? detail.is_pinned : dexRow.is_pinned;
-        const pin = borderedButton(pinned ? t('unpin') : t('pin_to_panel'), () =>
-            markSent(pin, Commands.represent(
-                pinned ? null : this._inspecting, ready ? detail.form || null : null)));
+        // The same star the grid's cells carry, so the two places that pin
+        // read as one control rather than two different ideas.
+        const pin = borderedButton(
+            `${pinned ? '★' : '☆'} ${pinned ? t('unpin') : t('pin_to_panel')}`, () =>
+                markSent(pin, Commands.represent(
+                    pinned ? null : this._inspecting, ready ? detail.form || null : null)));
         pin.x_align = Clutter.ActorAlign.START;
+        if (pinned)
+            pin.add_style_class_name('poketokenbar-pinned-button');
         identity.add_child(pin);
         this.add_child(row([spriteBox, identity], 'poketokenbar-companion'));
 

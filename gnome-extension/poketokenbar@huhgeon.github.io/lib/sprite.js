@@ -291,7 +291,11 @@ class Sprite extends St.Widget {
         // not mean re-reading and re-uploading the whole GIF.
         this._sourceFrames = [];
 
-        this.connect('destroy', () => this._stopTimer());
+        this._destroyed = false;
+        this.connect('destroy', () => {
+            this._destroyed = true;
+            this._stopTimer();
+        });
     }
 
     /** Point the actor at a sprite file. A repeat of the same path is a no-op.
@@ -387,6 +391,11 @@ class Sprite extends St.Widget {
     }
 
     _scheduleNext() {
+        // The frame callback reschedules itself, so a destroy that lands in
+        // the middle of one would otherwise leave a timer running against a
+        // disposed actor — which GJS reports as a callback during GC.
+        if (this._destroyed || this._paused || this._frames.length <= 1)
+            return;
         const frame = this._frames[this._index];
         // framecap works in seconds, GLib in milliseconds.
         const delay = Math.max(

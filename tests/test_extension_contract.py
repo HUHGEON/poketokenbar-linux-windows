@@ -668,6 +668,60 @@ def test_a_rebuild_never_takes_the_search_box_out_of_the_tree():
     assert "this._updating" in source, "the rebuild lost its re-entrancy guard"
 
 
+def test_the_state_reader_goes_quiet_the_moment_it_is_stopped():
+    """A monitor event that was already queued arrives after the cancel.
+
+    By then the listeners have been torn down and the reader itself may be
+    mid-collection, and GJS blocks the emission with:
+
+        Attempting to call back into JSAPI during the sweeping phase of GC
+        The offending signal was changed on ...StateReader
+
+    Sixty-seven of those came out of one disable/enable with the daemon
+    writing, which is what every upgrade does to a running session.
+    """
+    source = (EXTENSION_DIR / "lib" / "state.js").read_text(encoding="utf-8")
+    assert "this._stopped" in source, "the reader lost its stopped guard"
+    read_body = source.split("    read() {", 1)[1][:200]
+    assert "if (this._stopped)" in read_body, (
+        "read() no longer refuses to run after stop()")
+    stop_body = source.split("    stop() {", 1)[1].split("\n    }", 1)[0]
+    assert stop_body.index("disconnect") < stop_body.index("_monitor?.cancel()"), (
+        "the monitor handler must come off before the monitor is cancelled; "
+        "cancelling does not unqueue an event already handed to the main loop")
+
+
+def test_a_burst_of_writes_is_read_once():
+    """The payload is over a megabyte and it is parsed on the compositor's own
+    main loop. The daemon replaces the file on every poll and after every
+    command, and a replace is two monitor events."""
+    source = (EXTENSION_DIR / "lib" / "state.js").read_text(encoding="utf-8")
+    assert "_readSoon" in source and "COALESCE_MS" in source, (
+        "monitor events are no longer coalesced")
+    assert "connect('changed', () => this._readSoon())" in source, (
+        "the monitor reads straight through again")
+
+
+def test_the_popup_is_closed_before_the_indicator_is_destroyed():
+    """An open menu holds a grab. Destroying the actor under it leaves the
+    grab behind and the desktop stops answering clicks — which is what an
+    upgrade does to a session with the popup open."""
+    source = (EXTENSION_DIR / "lib" / "indicator.js").read_text(encoding="utf-8")
+    destroy = source.split("    destroy() {", 1)[1].split("\n    }", 1)[0]
+    assert "this.menu.close" in destroy, "destroy() no longer closes the menu"
+    assert destroy.index("this.menu.close") < destroy.index("super.destroy"), (
+        "the menu must be closed before the actor goes")
+
+
+def test_a_sprite_never_rearms_its_timer_after_it_is_destroyed():
+    """The frame callback schedules the next one, so a destroy landing in the
+    middle of a frame left a timer ticking against a disposed actor."""
+    source = (EXTENSION_DIR / "lib" / "sprite.js").read_text(encoding="utf-8")
+    schedule = source.split("    _scheduleNext() {", 1)[1][:400]
+    assert "this._destroyed" in schedule, "_scheduleNext() lost its destroyed guard"
+    assert "this._destroyed = true" in source, "nothing ever sets it"
+
+
 def test_every_row_variable_is_bound_where_it_is_used():
     """A row variable used outside the loop that binds it is a crash.
 

@@ -459,9 +459,11 @@
 }
 
 .poketokenbar-dexbutton {
-  /* Four of these and three gaps fit beside the scrollbar in a 380px popup. */
-  width: 72px;
-  padding: 3px;
+  /* Four of these and three gaps fit beside the scrollbar in a 380px popup.
+     St adds the padding and the border on top of this width, so the four
+     cells are 85px each: any wider and the fourth one is cut off. */
+  width: 76px;
+  padding: 4px 3px;
   border-radius: 8px;
   /* Every cell carries a border, transparent unless pinned, so a pinned cell
      is not wider than the others and the fourth column never clips. */
@@ -530,11 +532,11 @@
 }
 
 .poketokenbar-dexcell {
-  spacing: 1px;
+  spacing: 2px;
 }
 
 .poketokenbar-dexnum {
-  font-size: 0.66em;
+  font-size: 0.74em;
   font-weight: bold;
   padding: 0 4px;
   border-radius: 99px;
@@ -550,7 +552,7 @@
 .poketokenbar-dexnum-orange { color: #ffb340; }
 
 .poketokenbar-dexname {
-  font-size: 0.72em;
+  font-size: 0.85em;
   text-align: center;
 }
 
@@ -753,3 +755,9 @@
 
 .poketokenbar-dexstar:hover { background-color: rgba(255, 255, 255, 0.14); }
 .poketokenbar-dexstar-on { color: #ffd60a; }
+
+/* The species' page while it is the one on the panel. */
+.poketokenbar-pinned-button {
+  color: #ffd60a;
+  border-color: rgba(255, 214, 10, 0.55);
+}

@@ -38,6 +38,11 @@ export function statePath() {
     return GLib.build_filenamev([base, 'poketokenbar', 'state.json']);
 }
 
+// A replace is two monitor events, and a daemon answering a click writes
+// again right after its poll did. Long enough to fold those together, short
+// enough that a click still feels answered at once.
+const COALESCE_MS = 120;
+
 export const StateReader = GObject.registerClass({
     Signals: {'changed': {}},
 }, class StateReader extends GObject.Object {
@@ -47,8 +52,15 @@ export const StateReader = GObject.registerClass({
         this._file = Gio.File.new_for_path(this._path);
         this._pollSeconds = pollSeconds;
         this._monitor = null;
+        this._monitorHandler = 0;
         this._timer = 0;
+        this._coalesce = 0;
         this._parseFailures = 0;
+        // Set by stop(). A file monitor can deliver an event that was already
+        // queued when it was cancelled, and reading — let alone emitting — at
+        // that point reaches listeners that have been torn down, or the
+        // reader itself while it is being collected.
+        this._stopped = false;
 
         /** Last successfully parsed payload, or null before the first read. */
         this.state = null;
@@ -57,10 +69,11 @@ export const StateReader = GObject.registerClass({
     }
 
     start() {
+        this._stopped = false;
         this.read();
         try {
             this._monitor = this._file.monitor_file(Gio.FileMonitorFlags.NONE, null);
-            this._monitor.connect('changed', () => this.read());
+            this._monitorHandler = this._monitor.connect('changed', () => this._readSoon());
         } catch (_e) {
             // No monitor available; the poll below still keeps things current.
             this._monitor = null;
@@ -73,15 +86,47 @@ export const StateReader = GObject.registerClass({
     }
 
     stop() {
+        this._stopped = true;
+        if (this._coalesce) {
+            GLib.Source.remove(this._coalesce);
+            this._coalesce = 0;
+        }
         if (this._timer) {
             GLib.Source.remove(this._timer);
             this._timer = 0;
+        }
+        // Disconnected before the cancel, not after: cancelling does not
+        // unqueue an event the monitor has already handed to the main loop.
+        if (this._monitorHandler) {
+            this._monitor?.disconnect(this._monitorHandler);
+            this._monitorHandler = 0;
         }
         this._monitor?.cancel();
         this._monitor = null;
     }
 
+    /**
+     * Read once for a burst of writes.
+     *
+     * The daemon replaces this file on every poll and after every command, and
+     * a replace is two monitor events. The payload is over a megabyte — a full
+     * Pokédex, every string in the UI language — and parsing it happens on the
+     * compositor's own main loop, where it is a visible stutter. One read for
+     * everything that lands inside a frame or two costs nothing in freshness.
+     */
+    _readSoon() {
+        if (this._stopped || this._coalesce)
+            return;
+        this._coalesce = GLib.timeout_add(GLib.PRIORITY_DEFAULT, COALESCE_MS, () => {
+            this._coalesce = 0;
+            this.read();
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
     read() {
+        if (this._stopped)
+            return;
         let contents;
         try {
             const [ok, bytes] = this._file.load_contents(null);

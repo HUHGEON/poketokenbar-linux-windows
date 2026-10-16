@@ -136,6 +136,14 @@ class Indicator extends PanelMenu.Button {
             this._reader.disconnect(this._readerHandler);
             this._readerHandler = 0;
         }
+        // Closed before it is destroyed. An open menu holds a keyboard and
+        // pointer grab; tearing the actor out from under it — which is what
+        // an upgrade or a disable does — leaves the grab behind, and the
+        // desktop stops answering clicks until something else takes it.
+        if (this.menu.isOpen)
+            this.menu.close(false);
+        for (const section of Object.values(this._sections))
+            section.release();
         super.destroy();
     }
 
