@@ -137,3 +137,52 @@ def test_the_readout_writes_the_day_in_the_language_order(language, stamp):
                            "coverage": CostCoverage(estimated=True)}}
     days = state._month_trend({"month_daily": rows}, language, "2026-09-17")["days"]
     assert days[16]["readout"] == f"{stamp} 1.5M $1.25"
+
+
+# MARK: whose tokens are in a day's bar (upstream 142fa08)
+
+
+def _stacked(providers, today="2026-10-05"):
+    """A periods dict as the daemon builds it, for `providers` = {id: {day: tokens}}."""
+    daily = {}
+    for series in providers.values():
+        for day, tokens in series.items():
+            bucket = daily.setdefault(day, {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()})
+            bucket["tokens"] += tokens
+    periods = {
+        "month_daily": daily,
+        "by_provider": {pid: {"month_daily": dict(series)} for pid, series in providers.items()},
+    }
+    return state._month_trend(periods, "en", today,
+                              {pid: pid.title() for pid in providers})
+
+
+def test_one_provider_leaves_the_bars_plain():
+    trend = _stacked({"claude_code": {"2026-10-01": 100, "2026-10-02": 50}})
+    assert trend["stack"] == []
+    assert all(day["segments"] == [] for day in trend["days"])
+
+
+def test_two_providers_split_each_day_biggest_first():
+    trend = _stacked({
+        "claude_code": {"2026-10-01": 60, "2026-10-02": 20},
+        "codex": {"2026-10-01": 40, "2026-10-03": 100},
+    })
+    # Codex spent 140 this month against Claude Code's 80, so it leads.
+    assert [row["id"] for row in trend["stack"]] == ["codex", "claude_code"]
+    assert trend["stack"][0]["display_name"] == "Codex"
+
+    days = {day["date"]: day for day in trend["days"]}
+    # The peak is the 3rd's 100, and every segment is a fraction of it.
+    assert days["2026-10-01"]["segments"] == [0.4, 0.6]
+    assert days["2026-10-02"]["segments"] == [0.0, 0.2]
+    assert days["2026-10-03"]["segments"] == [1.0, 0.0]
+    # A day's segments add up to the bar's own height.
+    for day in trend["days"]:
+        if day["tokens"]:
+            assert abs(sum(day["segments"]) - day["fraction"]) < 0.001
+
+
+def test_a_provider_with_nothing_this_month_is_not_in_the_stack():
+    trend = _stacked({"claude_code": {"2026-10-01": 10}, "codex": {}})
+    assert trend["stack"] == []

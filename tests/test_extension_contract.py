@@ -370,6 +370,7 @@ ROW_ACCESSORS = {
     "dexRow": "dex",
     "periodRow": "period",
     "monthTrend": "month_trend",
+    "stackRow": "trend_stack",
     "trendDay": "month_trend_day",
     "todayRow": "month_trend_day",
     "snapshotRow": "snapshot",
@@ -405,6 +406,19 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(payload["settings"]["providers"][0])
     if name == "update":
         return set(payload["update"])
+    if name == "trend_stack":
+        # The legend only exists with two providers, which a one-provider
+        # fixture cannot show; the keys come from the daemon all the same.
+        from poketokenbar import state as state_module
+
+        periods = {"by_provider": {
+            pid: {"month_daily": {"2026-10-01": 10}}
+            for pid in ("claude_code", "codex")
+        }}
+        return set(state_module._month_trend(
+            {**periods, "month_daily": {"2026-10-01": {"tokens": 20, "cost": 0.0,
+                                                       "coverage": None}}},
+            "en", "2026-10-01", {})["stack"][0])
     if name == "config":
         # Not the fixture's config, which is a stub: the real defaults, because
         # config.load drops any key that has no default and the setting would

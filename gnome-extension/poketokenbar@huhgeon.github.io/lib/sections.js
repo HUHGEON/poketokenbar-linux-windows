@@ -33,6 +33,9 @@ import {
 } from './widgets.js';
 
 // The Pokédex grid, as upstream's: four across and six down per page.
+// How many providers the trend stack has its own colour for; beyond that they
+// share the last one.
+const TREND_STACK_TINTS = 4;
 const DEX_COLUMNS = 4;
 const DEX_ROWS = 6;
 const DEX_SPRITE_SIZE = 44;
@@ -668,13 +671,33 @@ class HomeSection extends Section {
             barColumn.add_child(new St.Widget({y_expand: true}));
             // The axis is the calendar month, so the days still to come are
             // columns with nothing in them rather than bars at zero.
-            barColumn.add_child(new St.Widget({
-                style_class: trendDay.is_future ? '' : classes.join(' '),
-                x_expand: true,
-                height: trendDay.is_future
-                    ? 0
-                    : Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
-            }));
+            const segments = trendDay.segments ?? [];
+            if (!trendDay.is_future && segments.length > 1) {
+                // One piece per provider. They are added top-first, so the
+                // list is walked backwards to leave the biggest at the foot
+                // of the bar; the pieces still add up to the day's own height
+                // (upstream 142fa08).
+                [...segments].reverse().forEach((fraction, position) => {
+                    const index = segments.length - 1 - position;
+                    const piece = Math.round(fraction * TREND_TRACK);
+                    if (piece <= 0)
+                        return;
+                    barColumn.add_child(new St.Widget({
+                        style_class: `poketokenbar-trend-bar poketokenbar-trend-stack${
+                            Math.min(index, TREND_STACK_TINTS - 1)}`,
+                        x_expand: true,
+                        height: piece,
+                    }));
+                });
+            } else {
+                barColumn.add_child(new St.Widget({
+                    style_class: trendDay.is_future ? '' : classes.join(' '),
+                    x_expand: true,
+                    height: trendDay.is_future
+                        ? 0
+                        : Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
+                }));
+            }
             barColumn.connect('notify::hover', () => {
                 readout.text = barColumn.hover ? trendDay.readout : todayRow.readout;
             });
@@ -693,6 +716,19 @@ class HomeSection extends Section {
         this.add_child(bars);
         this.add_child(ticks);
         this.add_child(axis);
+        // Which colour is which tool; only drawn when there is a stack.
+        const stack = monthTrend.stack ?? [];
+        if (stack.length > 1) {
+            const legend = row([], 'poketokenbar-typerow');
+            stack.forEach((stackRow, index) => {
+                legend.add_child(new St.Widget({
+                    style_class: `poketokenbar-trend-key poketokenbar-trend-stack${
+                        Math.min(index, TREND_STACK_TINTS - 1)}`,
+                }));
+                legend.add_child(caption(stackRow.display_name ?? stackRow.id, 'tertiary'));
+            });
+            this.add_child(legend);
+        }
     }
 
     /** Provider pills when more than one tool was used, then the chosen one's row. */

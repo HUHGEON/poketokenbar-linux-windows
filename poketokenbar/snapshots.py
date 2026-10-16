@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from . import save, transfer
+from . import save, transfer, unown
 from .companion import CompanionState
 
 PREFIX = "companion-snapshot-"
@@ -42,6 +42,16 @@ class Snapshot:
     used_since_install: int
     species_id: int | None
     is_shiny: bool
+    # Which of Unown's letters was being raised, so the thumbnail is the save's
+    # own companion rather than the species' default form (upstream dc6de41).
+    unown_form: str | None = None
+
+
+def _form_of(active) -> str | None:
+    """The companion's resolved Unown letter, or None for every other species."""
+    if active is None:
+        return None
+    return unown.resolved(active.current_id, active.unown_form)
 
 
 def directory(state_path: Path) -> Path:
@@ -109,6 +119,7 @@ def listing(state_path: Path) -> list[Snapshot]:
             used_since_install=state.used_since_install,
             species_id=active.current_id if active is not None else None,
             is_shiny=bool(active.displays_shiny) if active is not None else False,
+            unown_form=_form_of(active),
         ))
     # The name breaks a tie, as it carries the same instant plus its serial.
     out.sort(key=lambda s: (s.taken_at, s.id), reverse=True)
@@ -140,6 +151,7 @@ def create(state: CompanionState, state_path: Path, now: float | None = None) ->
         used_since_install=state.used_since_install,
         species_id=active.current_id if active is not None else None,
         is_shiny=bool(active.displays_shiny) if active is not None else False,
+        unown_form=_form_of(active),
     )
 
 

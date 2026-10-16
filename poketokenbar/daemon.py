@@ -476,6 +476,12 @@ class Daemon:
             by_provider[provider.id] = {
                 "week": dict(result["week"]),
                 "month": dict(result["month"]),
+                # This provider's own day-by-day month, so the trend can show
+                # which tool a day's tokens went to (upstream 142fa08).
+                "month_daily": {
+                    day: row["tokens"]
+                    for day, row in (result.get("month_daily") or {}).items()
+                },
             }
             for key in ("week", "month"):
                 bucket = periods.setdefault(

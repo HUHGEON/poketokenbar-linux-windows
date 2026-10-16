@@ -1325,7 +1325,8 @@ class CompanionStore:
                     str(snapshot.dex_count), _compact(snapshot.used_since_install)),
                 "sprite_path": (
                     str(self.sprites.path(snapshot.species_id, animated=False,
-                                          shiny=snapshot.is_shiny) or "")
+                                          shiny=snapshot.is_shiny,
+                                          unown_form=snapshot.unown_form) or "")
                     if self.sprites is not None and snapshot.species_id else ""
                 ),
             })

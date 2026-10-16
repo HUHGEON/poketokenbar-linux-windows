@@ -403,6 +403,12 @@
 .poketokenbar-trend-empty { background-color: rgba(255, 255, 255, 0.16); }
 .poketokenbar-trend-today { background-color: #0a84ff; }
 .poketokenbar-trend-weekend { background-color: rgba(255, 255, 255, 0.45); }
+/* A day's bar split by provider, and the key under the axis (142fa08). */
+.poketokenbar-trend-stack0 { background-color: #0a84ff; }
+.poketokenbar-trend-stack1 { background-color: #ff9f0a; }
+.poketokenbar-trend-stack2 { background-color: #30d158; }
+.poketokenbar-trend-stack3 { background-color: #bf5af2; }
+.poketokenbar-trend-key { width: 8px; height: 8px; border-radius: 2px; }
 .poketokenbar-trend-label { font-size: 0.72em; color: rgba(255, 255, 255, 0.55); }
 .poketokenbar-trend-label-today { font-size: 0.72em; color: #0a84ff; }
 

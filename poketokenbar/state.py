@@ -262,7 +262,34 @@ def _period_rows(periods: dict | None, language: str = "en") -> dict:
     return out
 
 
-def _month_trend(periods: dict | None, language: str, today: str) -> dict:
+def _trend_stack(periods: dict | None, provider_names: dict) -> list[dict]:
+    """The providers that used anything this month, biggest first.
+
+    One bar is a day's total; this says whose tokens are in it, so a day's
+    height can be read as "which tool" rather than only "how much"
+    (upstream 142fa08). Below two providers there is nothing to stack and the
+    list is empty, which leaves the bars plain.
+    """
+    by_provider = (periods or {}).get("by_provider") or {}
+    rows = []
+    for pid, entry in by_provider.items():
+        daily = entry.get("month_daily") or {}
+        total = sum(daily.values())
+        if total > 0:
+            rows.append({
+                "id": pid,
+                "display_name": provider_names.get(pid, pid),
+                "total": total,
+                "daily": daily,
+            })
+    if len(rows) < 2:
+        return []
+    rows.sort(key=lambda row: (-row["total"], row["id"]))
+    return rows
+
+
+def _month_trend(periods: dict | None, language: str, today: str,
+                 provider_names: dict | None = None) -> dict:
     """This month's day-by-day bars, ready to draw. Ports MonthDailyTrend.
 
     Heights are fractions of the peak day; a day with usage never draws
@@ -282,6 +309,7 @@ def _month_trend(periods: dict | None, language: str, today: str) -> dict:
         today_number = int(today[-2:])
     except ValueError:
         return {}
+    stack = _trend_stack(periods, provider_names or {})
     out = []
     for number in range(1, length + 1):
         day = f"{month}-{number:02d}"
@@ -308,10 +336,20 @@ def _month_trend(periods: dict | None, language: str, today: str) -> dict:
             "is_weekend": datetime.strptime(day, "%Y-%m-%d").weekday() >= 5,
             "axis_label": str(number) if is_today or (regular and not near_today) else "",
             "readout": readout,
+            # Each provider's share of this day, in the stack's order. Empty
+            # when there is only one provider to draw.
+            "segments": [
+                round(provider["daily"].get(day, 0) / peak, 4) for provider in stack
+            ] if tokens > 0 else [],
         })
     # With one day's usage the peak is the readout's own number, said twice.
     used_days = sum(1 for column in out if column["tokens"] > 0)
-    return {"days": out, "peak_text": fmt.compact(peak) if used_days > 1 else ""}
+    return {
+        "days": out,
+        "peak_text": fmt.compact(peak) if used_days > 1 else "",
+        "stack": [{"id": provider["id"], "display_name": provider["display_name"]}
+                  for provider in stack],
+    }
 
 
 def _provider_period(periods: dict | None, provider_id: str, key: str) -> int:
@@ -523,7 +561,8 @@ def build(
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
         "periods": _period_rows(periods, language),
-        "month_trend": _month_trend(periods, language, time.strftime("%Y-%m-%d")),
+        "month_trend": _month_trend(periods, language, time.strftime("%Y-%m-%d"),
+                                    provider_names or {}),
         "strings": l10n.catalogue(config_values.get("language", "en")),
         "celebration": celebration or {},
         # The Pokédex page the popup has open, or {} for none.
