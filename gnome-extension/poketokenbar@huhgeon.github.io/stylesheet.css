@@ -538,6 +538,13 @@
   text-align: center;
 }
 
+/* A pager arrow is a tap target: the glyph is small, the button is not
+   (upstream 656d603). */
+.poketokenbar-pagerbutton {
+  min-width: 28px;
+  padding: 4px 10px;
+}
+
 .poketokenbar-pager {
   spacing: 6px;
 }
@@ -693,4 +700,24 @@
   border-radius: 3px;
   padding: 0 4px;
   font-size: 0.6em;
+}
+
+/* A sprite that opens its dex page says so under the pointer
+   (upstream 26efe4e). */
+.poketokenbar-dexlink:hover {
+  background-color: rgba(255, 255, 255, 0.10);
+  border-radius: 8px;
+}
+
+/* A type badge carries its own colour inline; this is the rest of it
+   (upstream 46d5d91). */
+.poketokenbar-typebadge {
+  color: #ffffff;
+  font-weight: bold;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.45);
+}
+
+.poketokenbar-typerow {
+  spacing: 4px;
+  padding: 2px 0;
 }

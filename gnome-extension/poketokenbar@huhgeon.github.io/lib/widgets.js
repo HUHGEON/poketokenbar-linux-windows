@@ -11,6 +11,8 @@ import St from 'gi://St';
 
 import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 
+import {typeColor} from './types.js';
+
 /** Utilisation bands, matching limits.level() in the daemon. */
 /**
  * The colour a pace tier is drawn in, slowest to fastest.
@@ -357,6 +359,20 @@ export const RARITY_TINT = {
 /** A capsule badge in one of the fixed tints. */
 export function pill(text, tint = 'gray') {
     return label(text, `poketokenbar-pill poketokenbar-pill-${tint}`);
+}
+
+/**
+ * A type badge in that type's colour, or the plain pill for a type this does
+ * not know — a new generation's type should still show its name.
+ */
+export function typeBadge(text, apiName) {
+    const color = typeColor(apiName);
+    if (!color)
+        return pill(text, 'soft-blue');
+    const badge = label(text, 'poketokenbar-pill poketokenbar-typebadge');
+    // White on a light type needs the shadow to stay legible, as upstream's.
+    badge.style = `background-color: ${color};`;
+    return badge;
 }
 
 /** A small caption, upstream's .caption with a secondary or tertiary colour. */

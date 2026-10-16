@@ -319,6 +319,10 @@ class CompanionStore:
         if details is not None:
             species = {
                 "types": [self._resource_name("type", name) for name in details.types],
+                # The API's own names as well, for the badge colours: the names
+                # above are translated and cannot be keyed on (upstream
+                # 46d5d91).
+                "type_keys": list(details.types),
                 "height_text": f"{details.height / 10:.1f} m",
                 "weight_text": f"{details.weight / 10:.1f} kg",
                 "base_total": details.base_stat_total,
@@ -732,6 +736,8 @@ class CompanionStore:
                 "stage": "egg",
                 "label": f"\N{EGG}{round(progress * 100)}%",
                 "egg_usage": self.state.egg_usage,
+                # What the bar is a fraction of, for the readout on it.
+                "egg_threshold": self.state.egg_hatch_threshold,
                 "egg_progress": round(progress, 4),
                 # Upstream's egg header: "about to hatch" from 90%, and how
                 # many tokens are left until it does.
@@ -772,10 +778,14 @@ class CompanionStore:
                         "reached": index <= mon.stage_index,
                     }
                 )
+        home_details = self.cached_details(mon.current_id)
         return {
             "stage": "mon",
             "label": "",
             "species_id": mon.current_id,
+            "types": ([self._resource_name("type", name) for name in home_details.types]
+                      if home_details is not None else []),
+            "type_keys": list(home_details.types) if home_details is not None else [],
             "name": self.species_name(mon.current_id, self.state.language),
             "is_final_form": mon.is_final_form,
             "remaining_tokens": remaining,

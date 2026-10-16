@@ -88,3 +88,34 @@ def test_the_default_language_comes_from_the_desktop(monkeypatch):
     assert l10n.system_default("ko_KR.UTF-8") == "ko"
     assert l10n.system_default("pt_BR") == "pt"
     assert l10n.system_default("zz_ZZ") == "en", "an unknown locale falls back"
+
+
+# --- the two alert thresholds share a scale (upstream 231002d) --------------
+
+
+def test_raising_the_warning_line_pushes_the_critical_one_up(tmp_path):
+    """A critical line below the warning line raises a critical alert for a
+    window the warning tier never fired on."""
+    path = tmp_path / "config.json"
+    config.set_value(path, "crit_threshold", "90")
+    config.set_value(path, "warn_threshold", "92")
+    values = config.load(path)
+    assert values["warn_threshold"] == 92
+    assert values["crit_threshold"] == 97
+
+
+def test_lowering_the_critical_line_pulls_the_warning_one_down(tmp_path):
+    path = tmp_path / "config.json"
+    config.set_value(path, "warn_threshold", "80")
+    config.set_value(path, "crit_threshold", "80")
+    values = config.load(path)
+    assert values["crit_threshold"] == 80
+    assert values["warn_threshold"] == 75
+
+
+def test_thresholds_that_are_already_apart_are_left_alone(tmp_path):
+    path = tmp_path / "config.json"
+    config.set_value(path, "warn_threshold", "70")
+    config.set_value(path, "crit_threshold", "90")
+    values = config.load(path)
+    assert (values["warn_threshold"], values["crit_threshold"]) == (70, 90)

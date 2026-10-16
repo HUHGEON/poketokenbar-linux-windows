@@ -28,7 +28,8 @@ import {Sprite} from './sprite.js';
 import {
     Meter, RARITY_TINT, TIER_TINT, ago, borderedButton, button, caption, card, column,
     compact, divider, ellipsized, grouped, label, levelClass, markSent, paragraph, pill,
-    placeholder, resetsIn, row, segmented, spacer, switchButton, valuePair, verticalBox,
+    placeholder, resetsIn, row, segmented, spacer, switchButton, typeBadge, valuePair,
+    verticalBox,
 } from './widgets.js';
 
 // The Pokédex grid, as upstream's: four across and six down per page.
@@ -126,6 +127,17 @@ class HomeSection extends Section {
             y_align: Clutter.ActorAlign.START,
         });
         this._spriteHolder.set_child(this._sprite);
+        // The companion's own sprite opens its dex page once that species is
+        // in the dex; the holder outlives a rebuild, so the handler reads the
+        // target set by the last update (upstream 26efe4e).
+        this._spriteTarget = 0;
+        this._spriteHolder.reactive = true;
+        this._spriteHolder.connect('button-release-event', () => {
+            if (!this._spriteTarget)
+                return Clutter.EVENT_PROPAGATE;
+            this.openDexEntry?.(this._spriteTarget);
+            return Clutter.EVENT_STOP;
+        });
         // Which recap period this page has open, or null for the ordinary
         // Home. The daemon computes it; this is what was asked for.
         this._recapScope = null;
@@ -166,6 +178,13 @@ class HomeSection extends Section {
             return;
         }
         const companion = state?.companion;
+        this._spriteTarget =
+            this._hasDexEntry(companion?.species_id) ? companion.species_id : 0;
+        this._spriteHolder.track_hover = this._spriteTarget !== 0;
+        if (this._spriteTarget)
+            this._spriteHolder.add_style_class_name('poketokenbar-dexlink');
+        else
+            this._spriteHolder.remove_style_class_name('poketokenbar-dexlink');
         this._sprite.setPaused(!companion);
         this._sprite.setQuality(effectiveQuality(
             state?.config?.animation_quality ?? DEFAULT_QUALITY, isPowerSaver()));
@@ -212,8 +231,9 @@ class HomeSection extends Section {
             const meter = new Meter();
             meter.setFraction(companion.egg_progress ?? 0, 'ok', 'orange');
             lines.add_child(meter);
-            lines.add_child(caption(
-                t('egg_to_hatch').replace('%1', companion.egg_remaining_text ?? ''), 'tertiary'));
+            lines.add_child(this._growthReadout(
+                t('egg_to_hatch').replace('%1', companion.egg_remaining_text ?? ''),
+                meter, companion.egg_usage, companion.egg_threshold));
             // Ready, but the species could not be fetched: without this the egg
             // looks stuck at 100% for no stated reason.
             if (companion.egg_delayed)
@@ -228,6 +248,15 @@ class HomeSection extends Section {
             if (companion.level)
                 nameRow.add_child(caption(`Lv. ${companion.level}`, 'tertiary'));
             lines.add_child(nameRow);
+            // The companion's types, in their own colours, once its details
+            // are in the cache (upstream 46d5d91).
+            const types = companion.types ?? [];
+            if (types.length) {
+                const keys = companion.type_keys ?? [];
+                lines.add_child(row(types.map((name, index) =>
+                    typeBadge(String(name).toUpperCase(), keys[index])),
+                    'poketokenbar-typerow'));
+            }
 
             const stage = companion.is_final_form
                 ? t('final_form')
@@ -247,10 +276,10 @@ class HomeSection extends Section {
             const meter = new Meter();
             meter.setFraction(companion.stage_progress ?? 0, 'ok', 'orange');
             lines.add_child(meter);
-            lines.add_child(caption(
+            lines.add_child(this._growthReadout(
                 t(companion.is_final_form ? 'to_graduation' : 'to_next_evolution')
                     .replace('%1', companion.remaining_text ?? ''),
-                'tertiary'));
+                meter, companion.used_at_stage, companion.stage_threshold));
         }
         lines.add_child(caption(companion.status_message ?? '', 'secondary'));
         this.add_child(row([this._spriteHolder, lines], 'poketokenbar-companion'));
@@ -259,10 +288,56 @@ class HomeSection extends Section {
             this.add_child(this._evolutionLine(companion));
     }
 
+    /**
+     * `sprite`, clickable when that species has a dex page to open.
+     *
+     * Eggs, forms the companion has not reached and species nobody has caught
+     * have no page, and stay inert rather than opening an empty one.
+     */
+    _dexLink(sprite, speciesId) {
+        if (!this._hasDexEntry(speciesId))
+            return sprite;
+        sprite.reactive = true;
+        sprite.track_hover = true;
+        sprite.add_style_class_name('poketokenbar-dexlink');
+        sprite.connect('button-release-event', () => {
+            this.openDexEntry?.(speciesId);
+            return Clutter.EVENT_STOP;
+        });
+        return sprite;
+    }
+
+    _hasDexEntry(speciesId) {
+        if (!speciesId)
+            return false;
+        return (this._state?.dex ?? []).some(entry => entry.species_id === speciesId);
+    }
+
+    /**
+     * The line under a growth bar, and the exact figures while the pointer is
+     * on the bar itself (upstream abe0b9a).
+     *
+     * The line rounds — "281.1M to go" — which answers a different question
+     * from "how far into this stage am I", and the numbers behind it were
+     * nowhere in the popup.
+     */
+    _growthReadout(text, meter, used, total) {
+        const line = caption(text, 'tertiary');
+        if (typeof used !== 'number' || typeof total !== 'number' || total <= 0)
+            return line;
+        const exact = `${grouped(used)} / ${grouped(total)}`;
+        meter.reactive = true;
+        meter.track_hover = true;
+        meter.connect('notify::hover', () => {
+            line.text = meter.hover ? exact : text;
+        });
+        return line;
+    }
+
     _evolutionLine(companion) {
         const line = row([], 'poketokenbar-evoline');
         for (const evoStage of companion.evo_line ?? []) {
-            const sprite = new Sprite({size: 30});
+            const sprite = this._dexLink(new Sprite({size: 30}), evoStage.species_id);
             sprite.setPath(evoStage.sprite_path || null);
             // Forms not reached yet are dimmed rather than hidden, so the line
             // still shows where the companion is heading.
@@ -380,13 +455,21 @@ class HomeSection extends Section {
         back.opacity = recap.can_go_back ? 255 : 110;
         forward.reactive = Boolean(recap.can_go_forward);
         forward.opacity = recap.can_go_forward ? 255 : 110;
-        this.add_child(row([
+        const stepper = row([
             back,
             label(recap.title ?? '', 'poketokenbar-callout-bold'),
             forward,
             spacer(),
-            recap.is_in_progress ? caption(t('recap_in_progress'), 'tertiary') : spacer(),
-        ], 'poketokenbar-pager'));
+        ], 'poketokenbar-pager');
+        if (recap.is_in_progress) {
+            stepper.add_child(caption(t('recap_in_progress'), 'tertiary'));
+        } else {
+            // Stepping back four months and then back again to read today is
+            // four more taps than it needs to be.
+            stepper.add_child(button(t('recap_current'), () => this._openRecap(recap.scope, 0),
+                'poketokenbar-valuepill'));
+        }
+        this.add_child(stepper);
 
         this.add_child(caption(t('recap_total'), 'secondary'));
         const total = row([
@@ -1023,6 +1106,10 @@ class BagSection extends Section {
         const items = state?.bag ?? [];
         if (items.length === 0) {
             this.add_child(placeholder(t('bag_empty')));
+            // Where to get something, rather than a dead end.
+            const shop = borderedButton(t('shop'), () => this.selectTab?.('shop'));
+            shop.x_align = Clutter.ActorAlign.CENTER;
+            this.add_child(shop);
             return;
         }
         for (const bagItem of items) {
@@ -1278,6 +1365,13 @@ class CollectionSection extends Section {
         this.add_child(reset);
     }
 
+    /** The dex page for a species, from somewhere other than the grid. */
+    openSpecies(speciesId) {
+        // Whatever the grid was filtered to, the page asked for is shown.
+        this._showingCatchLog = false;
+        this._open(speciesId);
+    }
+
     _open(speciesId, unownForm = null) {
         this._inspecting = speciesId;
         // Which of Unown's letters the page is about; the daemon answers with
@@ -1373,9 +1467,11 @@ class CollectionSection extends Section {
         const info = caption(describe(page.find(dexEntry => dexEntry.is_pinned) ?? page[0]), 'secondary');
 
         let currentRow = null;
+        const grid = [];
         page.forEach((dexEntry, index) => {
             if (index % DEX_COLUMNS === 0) {
                 currentRow = row([], 'poketokenbar-dexrow');
+                grid.push(currentRow);
                 this.add_child(currentRow);
             }
             const cell = this._dexCell(dexEntry, t);
@@ -1386,11 +1482,36 @@ class CollectionSection extends Section {
             currentRow.add_child(cell);
         });
 
+        // The wheel pages the grid: it is a list of 24 cells and the popup's
+        // own scroller has nothing left to move here (upstream e2d01af).
+        for (const gridRow of grid) {
+            gridRow.reactive = true;
+            gridRow.connect('scroll-event', (_actor, event) => {
+                const direction = event.get_scroll_direction();
+                if (direction === Clutter.ScrollDirection.DOWN)
+                    this._turnPage(1, pages);
+                else if (direction === Clutter.ScrollDirection.UP)
+                    this._turnPage(-1, pages);
+                else
+                    return Clutter.EVENT_PROPAGATE;
+                return Clutter.EVENT_STOP;
+            });
+        }
+
         const footer = row([info, spacer()], 'poketokenbar-pager');
         this._addPager(footer, this._page, pages, page => {
             this._page = page;
         });
         this.add_child(footer);
+    }
+
+    /** One page on from where the grid is, within its own ends. */
+    _turnPage(by, pages) {
+        const wanted = Math.max(0, Math.min(pages - 1, this._page + by));
+        if (wanted === this._page)
+            return;
+        this._page = wanted;
+        this.update(this._state);
     }
 
     /** "‹ 1 / 2 ›" at the end of `footer`, when there is more than one page. */
@@ -1401,8 +1522,10 @@ class CollectionSection extends Section {
             setPage(page);
             this.update(this._state);
         };
-        const previous = button('‹', () => go(Math.max(0, current - 1)));
-        const next = button('›', () => go(Math.min(pages - 1, current + 1)));
+        const previous = button('‹', () => go(Math.max(0, current - 1)),
+            'poketokenbar-pagerbutton');
+        const next = button('›', () => go(Math.min(pages - 1, current + 1)),
+            'poketokenbar-pagerbutton');
         previous.reactive = current > 0;
         previous.opacity = current > 0 ? 255 : 110;
         next.reactive = current < pages - 1;
@@ -1600,6 +1723,10 @@ class CollectionSection extends Section {
             label(t(rarity), 'poketokenbar-caption poketokenbar-strong poketokenbar-secondary'),
         ], 'poketokenbar-companion-lines');
         identity.x_expand = true;
+        // The types belong with the name rather than three cards down, and
+        // each one wears its own colour (upstream 46d5d91).
+        if ((detail?.species?.types ?? []).length)
+            identity.add_child(this._typeRow(detail.species));
         if (showingShiny)
             identity.add_child(caption(`✨ ${t('shiny')}`, 'secondary'));
         if (ready ? detail.is_raising : dexRow.is_raising)
@@ -1710,16 +1837,22 @@ class CollectionSection extends Section {
         this.add_child(card(parts));
     }
 
+    _typeRow(source) {
+        const types = row([], 'poketokenbar-typerow');
+        const names = source?.types ?? [];
+        const keys = source?.type_keys ?? [];
+        names.forEach((name, index) => {
+            types.add_child(typeBadge(String(name).toUpperCase(), keys[index]));
+        });
+        return types;
+    }
+
     _addSpecies(detail, t) {
         const species = detail.species;
         if (!species)
             return;
-        const types = row([]);
-        for (const name of species.types ?? [])
-            types.add_child(pill(String(name).toUpperCase(), 'soft-blue'));
         this.add_child(card([
             label(t('species_data'), 'poketokenbar-callout-bold poketokenbar-secondary'),
-            types,
             row([
                 valuePair(t('height'), species.height_text),
                 valuePair(t('weight'), species.weight_text),
@@ -1837,6 +1970,7 @@ class SettingsSection extends Section {
         this._transferNotice = '';
         // The restore point waiting on a confirmation, by file name.
         this._pendingSnapshot = '';
+        this._snapshotsOpen = false;
     }
 
     release() {
@@ -1888,8 +2022,10 @@ class SettingsSection extends Section {
             ...THRESHOLDS.map(spec => this._item(t(spec.string), this._stepper(spec, config))),
         ]);
 
+        const ends = `${Math.round(DIFFICULTY_STEPS[0] * 100)}% – ${
+            Math.round(DIFFICULTY_STEPS.at(-1) * 100)}%`;
         this._group(t('difficulty_section'), DIFFICULTIES.map(spec =>
-            this._item(t(spec.string), this._difficultyStepper(spec, config))),
+            this._item(t(spec.string), this._difficultyStepper(spec, config), ends)),
         `${Math.round(DIFFICULTY_STEPS[0] * 100)}%–${Math.round(DIFFICULTY_STEPS.at(-1) * 100)}% · ${
             t('difficulty_hint')}`);
 
@@ -2109,8 +2245,17 @@ class SettingsSection extends Section {
         ];
         if (rows.length === 0) {
             items.push(this._item('', caption(t('no_snapshots_yet'), 'tertiary')));
+        } else {
+            // Ten of them pushed everything else off the page, and they are
+            // for the day something goes wrong rather than for every visit.
+            items.push(this._item(
+                t('snapshot_history').replace('%1', String(rows.length)),
+                button(this._snapshotsOpen ? '▾' : '▸', () => {
+                    this._snapshotsOpen = !this._snapshotsOpen;
+                    this.update(this._state);
+                })));
         }
-        for (const snapshotRow of rows) {
+        for (const snapshotRow of (this._snapshotsOpen ? rows : [])) {
             const sprite = new Sprite({size: 24});
             sprite.setPath(snapshotRow.sprite_path || null);
             const elapsed = Math.max(0, Date.now() / 1000 - (snapshotRow.taken_at ?? 0));

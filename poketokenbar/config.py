@@ -117,12 +117,32 @@ def _coerce(key: str, raw: str):
     return raw
 
 
+# The two alert thresholds share a scale and their ranges overlap, so one can
+# be moved past the other. A window between them would then raise a critical
+# alert below the warning line, and the warning tier would never fire at all
+# (upstream 231002d). Moving one pushes the other along by this much.
+THRESHOLD_GAP = 5
+
+
 def set_value(path: Path, key: str, raw: str) -> None:
     if key not in DEFAULTS:
         raise KeyError(f"unknown setting: {key}")
     values = load(path)
     values[key] = _coerce(key, raw)
+    _keep_thresholds_apart(values, moved=key)
     save(path, values)
+
+
+def _keep_thresholds_apart(values: dict, moved: str) -> None:
+    """Whichever threshold was just moved stays; the other gets out of its way."""
+    warn = values.get("warn_threshold", DEFAULTS["warn_threshold"])
+    crit = values.get("crit_threshold", DEFAULTS["crit_threshold"])
+    if crit > warn:
+        return
+    if moved == "crit_threshold":
+        values["warn_threshold"] = max(0, crit - THRESHOLD_GAP)
+    elif moved == "warn_threshold":
+        values["crit_threshold"] = min(100, warn + THRESHOLD_GAP)
 
 
 def set_scan_roots(path: Path, provider_id: str, raw: str) -> None:

@@ -60,6 +60,18 @@ class Indicator extends PanelMenu.Button {
             collection: new CollectionSection(reader),
             settings: new SettingsSection(reader),
         };
+        // A section that wants to send someone to another tab — the empty bag
+        // pointing at the shop — asks through this rather than reaching into
+        // the indicator.
+        for (const section of Object.values(this._sections)) {
+            section.selectTab = name => this._selectTab(name);
+            // A sprite of a species already in the dex opens its page
+            // (upstream 26efe4e).
+            section.openDexEntry = speciesId => {
+                this._selectTab('collection');
+                this._sections.collection.openSpecies(speciesId);
+            };
+        }
         this._currentTab = 'home';
         // Settings is a page behind the gear, not a fifth tab, as upstream's.
         this._settingsOpen = false;
