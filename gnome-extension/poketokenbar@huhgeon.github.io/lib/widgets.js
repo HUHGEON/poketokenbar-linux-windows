@@ -331,6 +331,23 @@ export function markSent(widget, sent) {
 // control, rounded cards, capsule badges, bordered buttons and thin bars. These
 // are those shapes, so the sections read as the same layout.
 
+/**
+ * Whether the scroller `actor` sits in has reached its end, so a wheel turn
+ * there has nothing left to scroll and may mean something else.
+ *
+ * True as well when nothing above it scrolls at all.
+ */
+export function atScrollEnd(actor, downwards) {
+    let parent = actor;
+    while (parent && !(parent instanceof St.ScrollView))
+        parent = parent.get_parent();
+    const adjustment = parent?.vadjustment;
+    if (!adjustment)
+        return true;
+    const {value, upper, page_size: pageSize} = adjustment;
+    return downwards ? value >= upper - pageSize - 1 : value <= 1;
+}
+
 /** Soaks up the free space in a row. */
 export function spacer() {
     return new St.Widget({x_expand: true});

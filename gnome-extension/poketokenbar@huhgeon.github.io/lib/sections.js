@@ -26,8 +26,9 @@ import {LANGUAGES, LANGUAGE_NAMES} from './languages.js';
 import {resetClock} from './resetclock.js';
 import {Sprite} from './sprite.js';
 import {
-    Meter, RARITY_TINT, TIER_TINT, ago, borderedButton, button, caption, card, column,
-    compact, divider, ellipsized, grouped, label, levelClass, markSent, paragraph, pill,
+    Meter, RARITY_TINT, TIER_TINT, ago, atScrollEnd, borderedButton, button, caption,
+    card, column, compact, divider, ellipsized, grouped, label, levelClass, markSent,
+    paragraph, pill,
     placeholder, resetsIn, row, segmented, spacer, switchButton, typeBadge, valuePair,
     verticalBox,
 } from './widgets.js';
@@ -1529,18 +1530,21 @@ class CollectionSection extends Section {
             currentRow.add_child(cell);
         });
 
-        // The wheel pages the grid: it is a list of 24 cells and the popup's
-        // own scroller has nothing left to move here (upstream e2d01af).
+        // The wheel pages the grid once the page itself has nowhere left to
+        // scroll in that direction (upstream e2d01af). The popup's own
+        // scroller comes first: taking the wheel outright would strand
+        // anyone whose collection page is taller than the view.
         for (const gridRow of grid) {
             gridRow.reactive = true;
-            gridRow.connect('scroll-event', (_actor, event) => {
+            gridRow.connect('scroll-event', (actor, event) => {
                 const direction = event.get_scroll_direction();
-                if (direction === Clutter.ScrollDirection.DOWN)
-                    this._turnPage(1, pages);
-                else if (direction === Clutter.ScrollDirection.UP)
-                    this._turnPage(-1, pages);
-                else
+                const down = direction === Clutter.ScrollDirection.DOWN;
+                const up = direction === Clutter.ScrollDirection.UP;
+                if (!down && !up)
                     return Clutter.EVENT_PROPAGATE;
+                if (!atScrollEnd(actor, down))
+                    return Clutter.EVENT_PROPAGATE;
+                this._turnPage(down ? 1 : -1, pages);
                 return Clutter.EVENT_STOP;
             });
         }
