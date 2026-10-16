@@ -84,20 +84,47 @@ def test_bars_are_fractions_of_the_peak_and_today_is_marked():
     trend = _trend({"2026-09-01": 50, "2026-09-02": 0, "2026-09-03": 200}, today="2026-09-03")
     assert trend["peak_text"] == "200"
     days = trend["days"]
-    assert [d["fraction"] for d in days] == [0.25, 0.0, 1.0]
-    assert [d["is_today"] for d in days] == [False, False, True]
+    assert [d["fraction"] for d in days[:3]] == [0.25, 0.0, 1.0]
+    assert [d["is_today"] for d in days[:3]] == [False, False, True]
     assert days[1]["is_empty"]
+
+
+def test_the_axis_is_the_calendar_month_not_the_days_so_far():
+    """Dividing the row by the days elapsed made one bar fill it on the 1st,
+    and moved every bar and label a little each day (upstream 0269dad)."""
+    first = _trend({"2026-09-01": 50}, today="2026-09-01")
+    assert len(first["days"]) == 30
+    assert [d["date"] for d in first["days"]][:2] == ["2026-09-01", "2026-09-02"]
+    assert [d["is_future"] for d in first["days"]][:2] == [False, True]
+
+    # The same month a fortnight later: same columns, same widths.
+    later = _trend({"2026-09-01": 50, "2026-09-15": 10}, today="2026-09-15")
+    assert [d["date"] for d in later["days"]] == [d["date"] for d in first["days"]]
+    assert sum(1 for d in later["days"] if d["is_future"]) == 15
+
+
+def test_a_month_with_one_day_of_usage_leaves_out_the_peak():
+    """It is the readout's own number, written twice."""
+    assert _trend({"2026-09-03": 200}, today="2026-09-05")["peak_text"] == ""
+    assert _trend({"2026-09-03": 200, "2026-09-04": 1}, today="2026-09-05")["peak_text"] == "200"
+
+
+def test_a_day_with_no_record_reads_as_the_day_alone():
+    days = _trend({"2026-09-03": 200}, today="2026-09-05")["days"]
+    assert days[0]["readout"] == l10n.day_stamp("2026-09-01", "en")
+    assert days[2]["readout"].startswith(l10n.day_stamp("2026-09-03", "en"))
 
 
 def test_the_axis_labels_the_1st_every_7th_day_and_today_but_not_beside_today():
     series = {f"2026-09-{n:02d}": 1 for n in range(1, 23)}
     labels = [d["axis_label"] for d in _trend(series, today="2026-09-22")["days"]]
-    assert [label for label in labels if label] == ["1", "7", "14", "22"], "21 is too close to 22"
+    assert [label for label in labels if label] == ["1", "7", "14", "22", "28"], \
+        "21 is too close to 22, and the axis runs to the end of the month"
 
 
 def test_weekends_follow_the_calendar():
     days = _trend({"2026-09-18": 1, "2026-09-19": 1, "2026-09-20": 1}, today="2026-09-20")["days"]
-    assert [d["is_weekend"] for d in days] == [False, True, True]
+    assert [d["is_weekend"] for d in days[17:20]] == [False, True, True]
 
 
 @pytest.mark.parametrize("language,stamp", [
@@ -109,4 +136,4 @@ def test_the_readout_writes_the_day_in_the_language_order(language, stamp):
     rows = {"2026-09-17": {"tokens": 1_500_000, "cost": 1.25,
                            "coverage": CostCoverage(estimated=True)}}
     days = state._month_trend({"month_daily": rows}, language, "2026-09-17")["days"]
-    assert days[0]["readout"] == f"{stamp} 1.5M $1.25"
+    assert days[16]["readout"] == f"{stamp} 1.5M $1.25"

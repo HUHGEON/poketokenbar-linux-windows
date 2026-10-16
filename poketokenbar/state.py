@@ -7,9 +7,11 @@ partial document.
 
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import time
+
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -183,6 +185,9 @@ def _recap_payload(recap_view, language: str) -> dict:
                 ),
                 "tokens": bucket.tokens,
                 "tokens_text": fmt.compact(bucket.tokens),
+                # The exact figure for the readout: a rounded "1.2M" is not
+                # what someone pointing at one bar is asking for (5afeb2a).
+                "tokens_grouped": f"{bucket.tokens:,}",
                 "fraction": round(bucket.tokens / peak, 4) if peak > 0 else 0.0,
                 "is_current": bucket.is_current,
                 # A day nobody was recording is drawn as unknown, not as zero.
@@ -268,32 +273,45 @@ def _month_trend(periods: dict | None, language: str, today: str) -> dict:
     series = (periods or {}).get("month_daily") or {}
     if not series:
         return {}
-    days = sorted(series)
-    peak = max(series[day]["tokens"] for day in days)
+    peak = max(row["tokens"] for row in series.values())
     if peak <= 0:
         return {}
-    today_number = int(today[-2:]) if today[:7] == days[0][:7] else None
+    month = today[:7]
+    try:
+        length = calendar.monthrange(int(today[:4]), int(month[5:7]))[1]
+        today_number = int(today[-2:])
+    except ValueError:
+        return {}
     out = []
-    for day in days:
-        row = series[day]
-        number = int(day[-2:])
+    for number in range(1, length + 1):
+        day = f"{month}-{number:02d}"
+        row = series.get(day)
+        tokens = row["tokens"] if row else 0
         is_today = day == today
         regular = number == 1 or number % 7 == 0
-        near_today = today_number is not None and abs(number - today_number) < 3
-        tokens = row["tokens"]
-        cost_text = _cost_texts(row["cost"], row.get("coverage"), language, tokens)[0]
+        near_today = abs(number - today_number) < 3
         stamp = l10n.day_stamp(day, language)
+        if row is None:
+            readout = stamp
+        else:
+            cost_text = _cost_texts(row["cost"], row.get("coverage"), language, tokens)[0]
+            readout = " ".join(p for p in (stamp, fmt.compact(tokens), cost_text) if p)
         out.append({
             "date": day,
             "tokens": tokens,
             "fraction": round(min(1.0, tokens / peak), 4),
             "is_today": is_today,
             "is_empty": tokens == 0,
+            # Days this month that have not happened yet: drawn as a gap rather
+            # than as a day with no usage.
+            "is_future": number > today_number,
             "is_weekend": datetime.strptime(day, "%Y-%m-%d").weekday() >= 5,
             "axis_label": str(number) if is_today or (regular and not near_today) else "",
-            "readout": " ".join(part for part in (stamp, fmt.compact(tokens), cost_text) if part),
+            "readout": readout,
         })
-    return {"days": out, "peak_text": fmt.compact(peak)}
+    # With one day's usage the peak is the readout's own number, said twice.
+    used_days = sum(1 for column in out if column["tokens"] > 0)
+    return {"days": out, "peak_text": fmt.compact(peak) if used_days > 1 else ""}
 
 
 def _provider_period(periods: dict | None, provider_id: str, key: str) -> int:

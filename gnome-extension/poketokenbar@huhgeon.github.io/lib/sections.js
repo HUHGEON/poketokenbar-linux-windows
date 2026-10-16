@@ -602,8 +602,14 @@ class HomeSection extends Section {
                     : TREND_BASELINE,
             }));
             column_.connect('notify::hover', () => {
-                if (column_.hover)
-                    readout.text = `${recapBucket.label} · ${recapBucket.tokens_text}`;
+                if (!column_.hover)
+                    return;
+                // A period with nothing recorded is not a period with no
+                // usage, and the readout says which it is (upstream 5afeb2a).
+                readout.text = recapBucket.has_data
+                    ? `${recapBucket.label} · ${recapBucket.tokens_text} (${
+                        recapBucket.tokens_grouped ?? recapBucket.tokens})`
+                    : `${recapBucket.label} · ${t('recap_no_record')}`;
             });
             bars.add_child(column_);
             // The 1st, every 7th and the current one, as the month trend does;
@@ -632,13 +638,14 @@ class HomeSection extends Section {
             return;
         const todayRow = days.find(trendDay => trendDay.is_today) ?? days[days.length - 1];
         const readout = label(todayRow.readout, 'poketokenbar-caption poketokenbar-secondary');
-        this.add_child(row([
-            caption(t('daily_trend'), 'tertiary'),
-            readout,
-            spacer(),
-            caption(t('peak_day'), 'tertiary'),
-            label(monthTrend.peak_text ?? '', 'poketokenbar-caption2 poketokenbar-strong'),
-        ]));
+        const heading = row([caption(t('daily_trend'), 'tertiary'), readout, spacer()]);
+        // With one day's usage the peak is the readout's own number (0269dad).
+        if (monthTrend.peak_text) {
+            heading.add_child(caption(t('peak_day'), 'tertiary'));
+            heading.add_child(label(monthTrend.peak_text,
+                'poketokenbar-caption2 poketokenbar-strong'));
+        }
+        this.add_child(heading);
 
         const bars = new St.BoxLayout({style_class: 'poketokenbar-trend', x_expand: true});
         const ticks = new St.BoxLayout({style_class: 'poketokenbar-trend-ticks', x_expand: true});
@@ -659,10 +666,14 @@ class HomeSection extends Section {
             else if (trendDay.is_empty)
                 classes.push('poketokenbar-trend-empty');
             barColumn.add_child(new St.Widget({y_expand: true}));
+            // The axis is the calendar month, so the days still to come are
+            // columns with nothing in them rather than bars at zero.
             barColumn.add_child(new St.Widget({
-                style_class: classes.join(' '),
+                style_class: trendDay.is_future ? '' : classes.join(' '),
                 x_expand: true,
-                height: Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
+                height: trendDay.is_future
+                    ? 0
+                    : Math.max(TREND_BASELINE, Math.round(trendDay.fraction * TREND_TRACK)),
             }));
             barColumn.connect('notify::hover', () => {
                 readout.text = barColumn.hover ? trendDay.readout : todayRow.readout;

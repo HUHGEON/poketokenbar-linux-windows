@@ -598,7 +598,13 @@ class CompanionStore:
             return ""
         if mon is None:
             return self._egg_sprite()
+        # The animation first; if that download fails, the still picture keeps
+        # Home from drawing an empty box, and the next poll asks for the
+        # animation again — a failure is never cached (upstream 2f2fb32).
         path = self.sprites.path(mon.current_id, animated=True, shiny=mon.displays_shiny)
+        if path is None:
+            path = self.sprites.path(mon.current_id, animated=False,
+                                     shiny=mon.displays_shiny)
         return str(path) if path else ""
 
     def panel_species(self) -> tuple[int | None, bool]:

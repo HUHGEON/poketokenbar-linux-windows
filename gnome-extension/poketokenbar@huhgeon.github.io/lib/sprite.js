@@ -19,6 +19,7 @@ import St from 'gi://St';
 
 import {DEFAULT_QUALITY, LOOP_SIGNATURE, capFrameRate, frameFloor, loopLength}
     from './framecap.js';
+import {fitSize} from './spritefit.js';
 
 // GIF authoring commonly writes 0 or 10ms delays meaning "as fast as possible",
 // which browsers clamp. Without a floor a sprite would spin the compositor.
@@ -268,7 +269,9 @@ class Sprite extends St.Widget {
         // `new Sprite({size: 18})` throw "Wrong type number; boxed type
         // GrapheneSize expected" — which took the whole extension down before
         // it had drawn anything, because the panel builds a sprite first.
-        const {size = 22, ...actorParams} = params;
+        // `maxWidth` is ours as well: the panel lets a wide sprite grow past
+        // its box rather than shrink to fit the width (upstream 481ad3a).
+        const {size = 22, maxWidth = 0, ...actorParams} = params;
         super._init({
             style_class: 'poketokenbar-sprite',
             // Pixel art: never smooth it.
@@ -277,6 +280,7 @@ class Sprite extends St.Widget {
             ...actorParams,
         });
         this._size = size;
+        this._maxWidth = maxWidth || size;
         this._frames = [];
         this._index = 0;
         this._timer = 0;
@@ -344,6 +348,8 @@ class Sprite extends St.Widget {
     }
 
     setSize(size) {
+        if (this._maxWidth === this._size)
+            this._maxWidth = size;
         if (size === this._size)
             return;
         this._size = size;
@@ -376,14 +382,8 @@ class Sprite extends St.Widget {
         // height as out-parameters, so in GJS it is [ok, width, height] —
         // destructuring two names off it silently binds the boolean to width.
         const {width, height} = frame;
-        if (!width || !height) {
-            this.set_size(this._size, this._size);
-            return;
-        }
-        // contentMode "fit": the long edge touches the box, the aspect holds.
-        const scale = Math.min(this._size / width, this._size / height);
-        this.set_size(Math.max(1, Math.round(width * scale)),
-            Math.max(1, Math.round(height * scale)));
+        const fitted = fitSize(width, height, this._size, this._maxWidth);
+        this.set_size(fitted.width, fitted.height);
     }
 
     _scheduleNext() {

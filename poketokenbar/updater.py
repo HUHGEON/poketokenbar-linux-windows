@@ -121,12 +121,16 @@ class Updater:
         if not force and self._checked_at is not None:
             if now - self._checked_at < MIN_CHECK_INTERVAL:
                 return self.available
-        self._checked_at = now
         try:
             latest = latest_revision()
         except (UpdateError, urllib.error.URLError, OSError, TimeoutError) as exc:
             self.last_error = str(exc)
+            # The hour's cooldown is stamped below, on an answer that arrived.
+            # Stamping it here made one dropped connection — opening the popup
+            # on a train, say — hide updates for the next hour (upstream
+            # a2ec364).
             return self.available
+        self._checked_at = now
         self.last_error = ""
         installed = self.installed
         # No recorded revision means an install from before this existed. It is

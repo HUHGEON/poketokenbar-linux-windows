@@ -39,7 +39,9 @@ class Indicator extends PanelMenu.Button {
 
         // --- panel ----------------------------------------------------------
         this._panelBox = new St.BoxLayout({style_class: 'poketokenbar-panel'});
-        this._sprite = new Sprite({size: 18});
+        // 18px tall, and a wide species may spread to 32 rather than shrink
+        // itself to 9px to fit a square (upstream 481ad3a).
+        this._sprite = new Sprite({size: 18, maxWidth: 32});
         this._eggLabel = label('', 'poketokenbar-panel-text');
         this._limitBox = new St.BoxLayout({style_class: 'poketokenbar-panel-limits'});
         this._tokensLabel = label('', 'poketokenbar-panel-text');

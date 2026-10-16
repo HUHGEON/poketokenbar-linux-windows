@@ -276,6 +276,8 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "Tokens del periodo", "Jetons de la période", "Tokens do período",
         "Tokens in diesem Zeitraum",
     ),
+    "recap_no_record": ("No record", "기록 없음", "記録なし", "Sin registro",
+        "Aucun relevé", "Sem registro", "Keine Aufzeichnung"),
     "recap_current": ("Now", "현재", "現在", "Ahora", "Actuel", "Agora", "Jetzt"),
     "recap_in_progress": ("Still running", "진행 중", "進行中", "En curso", "En cours",
         "Em andamento", "Läuft noch",

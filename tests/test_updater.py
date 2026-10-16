@@ -9,6 +9,7 @@ tests touch the network.
 
 import io
 import json
+import urllib.error
 import zipfile
 from pathlib import Path
 
@@ -132,6 +133,37 @@ def test_checking_is_rate_limited(tmp_path, offline):
     now[0] += updater_module.MIN_CHECK_INTERVAL + 1
     subject.check()
     assert calls["commits"] == 2
+
+
+def test_a_check_that_failed_does_not_start_the_cooldown(tmp_path, offline, monkeypatch):
+    """Stamping the hour before the answer arrived meant one dropped
+    connection hid updates for the next hour (upstream a2ec364)."""
+    _state, calls = offline
+    now = [1000.0]
+    subject = Updater(root=make_install(tmp_path), clock=lambda: now[0])
+
+    working = updater_module._get
+
+    def refuse(url, timeout=15.0):
+        calls["commits"] += 1
+        raise urllib.error.URLError("no route to host")
+
+    monkeypatch.setattr(updater_module, "_get", refuse)
+    assert subject.check() == ""
+    assert subject.last_error
+
+    # A second later, not an hour: the next check goes out.
+    now[0] += 1
+    assert subject.check() == ""
+    assert calls["commits"] == 2
+
+    # And once one succeeds, the hour does start.
+    monkeypatch.setattr(updater_module, "_get", working)
+    now[0] += 1
+    assert subject.check() == "b" * 40
+    now[0] += 1
+    subject.check()
+    assert calls["commits"] == 3
 
 
 def test_a_forced_check_ignores_the_interval(tmp_path, offline):
