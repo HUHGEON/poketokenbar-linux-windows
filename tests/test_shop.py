@@ -374,3 +374,58 @@ def test_candy_has_no_plan_without_a_companion_or_a_candy():
     assert shop.max_candy_uses(s) == 0 and shop.plan_candy_use(s, 1) is None
     with pytest.raises(shop.ShopError):
         shop.use_item(s, "rareCandy", count=3)
+
+
+# --- a window that only looks like it reset (upstream d888793) ---------------
+
+
+def _full(state, resets_at, kind="session"):
+    """One evaluation of a window sitting at its limit."""
+    return shop.grant_candy(state, {kind: 100.0}, {kind: resets_at})
+
+
+def test_microsecond_jitter_in_the_reset_instant_is_not_a_reset():
+    """The live defect: the endpoint answers with microseconds that differ on
+    every fetch, every fetch read as a new window, and the grant rearmed and
+    paid out again — over and over, for as long as the window stayed full."""
+    s = CompanionState()
+    s.candy_feature_seeded = True
+    assert _full(s, "2026-10-16T12:30:00.384419+00:00") > 0
+    for microseconds in ("517903", "118264", "999001"):
+        assert _full(s, f"2026-10-16T12:30:00.{microseconds}+00:00") == 0
+
+
+def test_a_rolling_window_creeping_forward_is_not_a_reset_either():
+    """A weekly window that drifts a few seconds every poll would otherwise
+    add up to a reset eventually, and pay out when it did."""
+    from datetime import datetime, timedelta, timezone
+
+    s = CompanionState()
+    s.candy_feature_seeded = True
+    start = datetime(2026, 10, 17, tzinfo=timezone.utc)
+    assert shop.grant_candy(s, {"weekly": 100.0}, {"weekly": start.isoformat()}) > 0
+    for poll in range(1, 200):
+        drifted = (start + timedelta(seconds=3 * poll)).isoformat()
+        assert shop.grant_candy(s, {"weekly": 100.0}, {"weekly": drifted}) == 0
+
+
+def test_the_window_actually_resetting_still_pays_out():
+    s = CompanionState()
+    s.candy_feature_seeded = True
+    assert _full(s, "2026-10-16T12:30:00Z") > 0
+    assert _full(s, "2026-10-16T12:45:00Z") == 0, "a quarter of an hour is drift"
+    assert _full(s, "2026-10-16T17:30:00Z") > 0, "five hours on is the next window"
+
+
+def test_a_weekly_window_needs_a_day_before_it_counts_as_new():
+    s = CompanionState()
+    s.candy_feature_seeded = True
+    assert shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-10-17T00:00:00Z"}) > 0
+    assert shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-10-17T20:00:00Z"}) == 0
+    assert shop.grant_candy(s, {"weekly": 100.0}, {"weekly": "2026-10-24T00:00:00Z"}) > 0
+
+
+def test_an_instant_that_cannot_be_read_falls_back_to_comparing_the_text():
+    # Synthetic values in tests, and anything a provider invents.
+    assert shop.window_advanced("a", "b", "session") is True
+    assert shop.window_advanced("a", "a", "session") is False

@@ -10,7 +10,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 
-from . import balance, companion
+from . import balance, companion, pace
 from .balance import Rarity
 from .companion import CompanionState
 
@@ -271,6 +271,31 @@ def window_key(kind: str) -> str:
     return f"limit:{kind}"
 
 
+# How far a reset instant has to move before it means a new window rather than
+# noise. The endpoint answers with microseconds that differ on every fetch, and
+# a rolling window drifts forward a little each time; either one read as a reset
+# rearms the grant and pays out again, over and over, while the window sits at
+# 100% (upstream d888793).
+WINDOW_MIN_ADVANCE = {"session": 30 * 60.0, "weekly": 24 * 3600.0}
+
+
+def window_advanced(previous: str, current: str, kind: str) -> bool:
+    """Whether the window actually reset between these two instants.
+
+    Instants that cannot be read fall back to comparing them as text, which is
+    what a synthetic value in a test is.
+    """
+    if previous == current:
+        return False
+    before = pace.instant(previous)
+    after = pace.instant(current)
+    if before is None or after is None:
+        return True
+    # A window whose reset moved backwards is a different window too, but not
+    # one this ever has to pay out twice for: only a forward jump counts.
+    return (after - before) >= WINDOW_MIN_ADVANCE.get(kind.partition("@")[0], 30 * 60.0)
+
+
 def grant_candy(
     state: CompanionState,
     windows: dict[str, float],
@@ -292,8 +317,11 @@ def grant_candy(
         # utilization test, because a fresh window usually reports a high
         # utilization straight away rather than dipping through zero first.
         if epoch is not None:
-            if key in state.candy_window_epoch and state.candy_window_epoch[key] != epoch:
+            previous_epoch = state.candy_window_epoch.get(key)
+            if previous_epoch is not None and window_advanced(previous_epoch, epoch, kind):
                 state.candy_grant_tier.pop(key, None)
+            # Recorded either way, so the next comparison is against the last
+            # thing seen rather than against a baseline the drift creeps past.
             state.candy_window_epoch[key] = epoch
         tier = 2 if utilization >= 100 else (1 if utilization >= 80 else 0)
         previous = state.candy_grant_tier.get(key, 0)

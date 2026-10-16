@@ -56,7 +56,7 @@ def fraction(resets_at: str | None, span: float | None, now: float | None = None
     """
     if not resets_at or not span or span <= 0:
         return None
-    reset = _epoch(resets_at)
+    reset = instant(resets_at)
     if reset is None:
         return None
     elapsed = (span - (reset - (time.time() if now is None else now))) / span
@@ -119,15 +119,31 @@ def is_calm(name: str) -> bool:
     return name in TIERS and TIERS.index(name) <= TIERS.index("on_pace")
 
 
-def _epoch(resets_at: str) -> float | None:
-    """An ISO-8601 instant as epoch seconds, or None when it cannot be read.
+def instant(value) -> float | None:
+    """A reset instant as epoch seconds, or None when it cannot be read.
 
-    A naive stamp is read as UTC, as everything else in this port does: the
-    limits API always answers in UTC, and guessing local time would move the
-    mark by hours.
+    ISO-8601, or a bare number: providers report the same thing both ways, and
+    a number may be in seconds or in milliseconds (upstream d888793). A naive
+    stamp is read as UTC, as everything else in this port does: the limits API
+    always answers in UTC, and guessing local time would move the mark by
+    hours.
     """
+    if value is None:
+        return None
+    text = str(value).strip()
     try:
-        moment = datetime.fromisoformat(str(resets_at).replace("Z", "+00:00"))
+        number = float(text)
+    except ValueError:
+        pass
+    else:
+        # Milliseconds past some point in 33000 AD is not a plausible second.
+        if number > 1_000_000_000_000:
+            return number / 1000.0
+        if number > 100_000_000:
+            return number
+        return None
+    try:
+        moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
     if moment.tzinfo is None:

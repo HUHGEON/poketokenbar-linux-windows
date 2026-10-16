@@ -113,3 +113,24 @@ def test_on_pace_or_slower_is_calm():
     assert [name for name in pace.TIERS if pace.is_calm(name)] == [
         "way_under", "under", "on_pace"]
     assert not pace.is_calm("whatever")
+
+
+# --- reading a reset instant (upstream d888793) -----------------------------
+
+
+@pytest.mark.parametrize("value,expected", [
+    ("2026-10-16T12:30:00Z", 1792153800.0),
+    ("2026-10-16T12:30:00+00:00", 1792153800.0),
+    # The microseconds the endpoint actually answers with.
+    ("2026-10-16T12:30:00.384419+00:00", 1792153800.384419),
+    # Providers report the same instant as a number, in seconds or milliseconds.
+    ("1792153800", 1792153800.0),
+    ("1792153800123", 1792153800.123),
+])
+def test_an_instant_is_read_however_it_was_written(value, expected):
+    assert pace.instant(value) == pytest.approx(expected, abs=1e-5)
+
+
+@pytest.mark.parametrize("value", [None, "", "nonsense", "5", "2026-13-40T00:00:00Z"])
+def test_something_that_is_not_an_instant_reads_as_none(value):
+    assert pace.instant(value) is None
