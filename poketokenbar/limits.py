@@ -18,6 +18,8 @@ import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import format as fmt
+
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
 OAUTH_BETA = "oauth-2025-04-20"
 
@@ -286,7 +288,7 @@ def display_percent(utilization: float, mode: str | None) -> float:
 
 
 def format_percent(value: float) -> str:
-    return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
+    return fmt.percent(value)
 
 
 def _format(window: LimitWindow | None, label: str, percent_mode: str = "used") -> str:

@@ -42,6 +42,8 @@ TABLE: dict[str, ModelRate] = {
     # Opus 5.5 is cheaper than Opus 5, with cache reads at 0.05x input.
     "claude-opus-5-5": per_million(4, 20, 5, 0.2),
     "claude-sonnet-5": per_million(2, 10, 2.5, 0.2),
+    # Sonnet 5.5, checked upstream 2026-10-16: cache reads at 0.05x input.
+    "claude-sonnet-5-5": per_million(2, 10, 2.5, 0.1),
     "claude-opus-4-20250514": per_million(15, 75, 18.75, 1.5),
     "claude-sonnet-4-20250514": per_million(3, 15, 3.75, 0.3),
     "claude-sonnet-4-5-20250929": per_million(3, 15, 3.75, 0.3),
@@ -53,6 +55,11 @@ TABLE: dict[str, ModelRate] = {
     # Same base rates as Fable 5, with cache reads cut to 0.025x input.
     "claude-fable-5-1": per_million(10, 50, 12.5, 0.25),
     "gpt-6-astra": per_million(10, 50, 12.5, 1),
+    # The GPT-6 Sol and Luna rows, checked upstream against the OpenAI pricing
+    # page (1e5603a). 6.1 Sol reads cache at half what 6 Sol does.
+    "gpt-6-sol": per_million(2, 10, 2.5, 0.2),
+    "gpt-6.1-sol": per_million(2, 10, 2.5, 0.1),
+    "gpt-6-luna": per_million(0.1, 0.5, 0.125, 0.01),
     "gpt-5.6-sol": per_million(4, 20, 5, 0.4),
     "gpt-5.6-terra": per_million(2, 12, 2.5, 0.2),
     "gpt-5.6-luna": per_million(0.2, 1.2, 0.25, 0.02),
@@ -115,6 +122,9 @@ def rate(model: str) -> ModelRate:
 # billed at 2x and output at 1.5x.
 _LONG_CONTEXT = {
     "gpt-6-astra": 272_000,
+    "gpt-6-sol": 272_000,
+    "gpt-6.1-sol": 272_000,
+    "gpt-6-luna": 272_000,
     "gpt-5.6-sol": 272_000,
     "gpt-5.6-terra": 272_000,
     "gpt-5.6-luna": 272_000,

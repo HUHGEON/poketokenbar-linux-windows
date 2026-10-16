@@ -110,6 +110,7 @@ def test_antigravity_prefix_is_not_a_namespace():
     ("claude-opus-5", (5, 25, 6.25, 0.5)),
     ("claude-opus-5-5", (4, 20, 5, 0.2)),
     ("claude-sonnet-5", (2, 10, 2.5, 0.2)),
+    ("claude-sonnet-5-5", (2, 10, 2.5, 0.1)),
 ])
 def test_the_claude_5_family_is_priced(model, rates):
     assert pricing.rate(model) == per_token(*rates)
@@ -122,8 +123,9 @@ def test_every_model_a_provider_log_names_can_be_priced():
     a row without a write rate is unpriced in practice.
     """
     for model in ("claude-opus-5", "claude-opus-5-5", "claude-sonnet-5",
-                  "claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-4-6",
-                  "claude-haiku-4-5", "claude-fable-5", "claude-fable-5-1"):
+                  "claude-sonnet-5-5", "claude-opus-4-8", "claude-opus-4-7",
+                  "claude-sonnet-4-6", "claude-haiku-4-5", "claude-fable-5",
+                  "claude-fable-5-1"):
         cost = pricing.estimated_cost(model, 2, 175, 26_939, 42_676)
         assert cost is not None, f"{model} has no price, so its cost reads as unavailable"
         assert cost > 0, model
@@ -164,3 +166,22 @@ def test_an_unpriced_model_is_reported_once(forget_unpriced, capsys):
 def test_one_model_under_several_spellings_is_one_sighting(forget_unpriced):
     assert pricing.first_unpriced_sighting("openai/Brand-New ") is True
     assert pricing.first_unpriced_sighting("brand-new") is False
+
+
+@pytest.mark.parametrize("model,rates", [
+    # The GPT-6 Sol and Luna rows (upstream 1e5603a).
+    ("gpt-6-sol", (2, 10, 2.5, 0.2)),
+    ("gpt-6.1-sol", (2, 10, 2.5, 0.1)),
+    ("gpt-6-luna", (0.1, 0.5, 0.125, 0.01)),
+])
+def test_the_gpt_6_family_is_priced(model, rates):
+    assert pricing.rate(model) == per_token(*rates)
+
+
+def test_the_gpt_6_family_bills_a_long_prompt_at_the_higher_tier():
+    """Every GPT row with a long-context tier has to be listed, or a 300K-token
+    prompt is quoted at the short rate."""
+    for model in ("gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna"):
+        short = pricing.estimated_cost(model, 100_000, 0, 0, 0)
+        long = pricing.estimated_cost(model, 300_000, 0, 0, 0)
+        assert long / 300_000 > short / 100_000 * 1.9

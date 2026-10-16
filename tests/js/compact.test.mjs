@@ -16,6 +16,16 @@ test('it matches the daemon at each magnitude', () => {
     assert.equal(compact(-12345), '-12.3K');
 });
 
+test('a unit is promoted where its rounded text would overflow', () => {
+    // "1000.0K" is not a thing anyone writes.
+    assert.equal(compact(999_949), '999.9K');
+    assert.equal(compact(999_950), '1M');
+    assert.equal(compact(999_999), '1M');
+    assert.equal(compact(999_949_999), '999.9M');
+    assert.equal(compact(999_950_000), '1B');
+    assert.equal(compact(-999_950), '-1M');
+});
+
 test('grouped is still the exact form', () => {
     assert.equal(grouped(190612940), '190,612,940');
 });

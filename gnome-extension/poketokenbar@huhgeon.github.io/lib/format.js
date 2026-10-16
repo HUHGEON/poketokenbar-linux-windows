@@ -19,11 +19,14 @@ export function compact(value) {
     const magnitude = Math.abs(n);
     const sign = n < 0 ? '-' : '';
     const trim = (scaled, decimals) => String(Number(scaled.toFixed(decimals)));
+    // The unit changes where its rounded text would overflow, not at the round
+    // number: K and M carry one decimal, so 999,950 reads "1M" rather than
+    // "1000.0K" (upstream 4cab9f0). poketokenbar/format.py says the same.
     if (magnitude < 1_000)
         return String(n);
-    if (magnitude < 1_000_000)
+    if (magnitude < 999_950)
         return `${sign}${trim(magnitude / 1_000, 1)}K`;
-    if (magnitude < 1_000_000_000)
+    if (magnitude < 999_950_000)
         return `${sign}${trim(magnitude / 1_000_000, 1)}M`;
     return `${sign}${trim(magnitude / 1_000_000_000, 2)}B`;
 }

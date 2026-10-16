@@ -15,14 +15,19 @@ def _trim(value: float, decimals: int) -> str:
 
 
 def compact(value: int) -> str:
-    """987 -> '987', 12345 -> '12.3K', 190612940 -> '190.6M', 1.24e9 -> '1.24B'."""
+    """987 -> '987', 12345 -> '12.3K', 190612940 -> '190.6M', 1.24e9 -> '1.24B'.
+
+    The unit changes where its *rounded* text would overflow, not at the round
+    number: K and M carry one decimal, so 999,950 reads "1M" rather than
+    "1000.0K" (upstream 4cab9f0).
+    """
     v = float(abs(value))
     sign = "-" if value < 0 else ""
     if v < 1_000:
         return str(value)
-    if v < 1_000_000:
+    if v < 999_950:
         return sign + _trim(v / 1_000, 1) + "K"
-    if v < 1_000_000_000:
+    if v < 999_950_000:
         return sign + _trim(v / 1_000_000, 1) + "M"
     return sign + _trim(v / 1_000_000_000, 2) + "B"
 
@@ -37,16 +42,26 @@ def cost(usd: float) -> str:
 
 
 def cost_compact(usd: float) -> str:
-    """Panel cost: $9.5 / $311 / $12.0K."""
-    if usd < 100:
-        return f"${usd:.1f}"
-    if usd < 10_000:
-        return f"${usd:.0f}"
+    """Panel cost: $9.5 / $311 / $12.0K.
+
+    Each band is chosen from the text it would print, not from the raw value:
+    branching on 99.96 and then rounding printed "$100.0", which is the band
+    above (upstream 711fca7).
+    """
+    tenths = f"{usd:.1f}"
+    if float(tenths) < 100:
+        return f"${tenths}"
+    whole = f"{usd:.0f}"
+    if float(whole) < 10_000:
+        return f"${whole}"
     return f"${usd / 1_000:.1f}K"
 
 
 def percent(value: float) -> str:
-    return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
+    """79.96 reads "80%", not "80.0%": the decimal is dropped on the rounded
+    text rather than on the raw value (upstream 711fca7)."""
+    tenths = f"{value:.1f}"
+    return (tenths[:-2] if tenths.endswith(".0") else tenths) + "%"
 
 
 RESET_CLOCK_NEARBY_SECONDS = 6 * 3600

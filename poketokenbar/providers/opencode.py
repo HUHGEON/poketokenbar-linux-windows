@@ -24,13 +24,18 @@ from typing import Mapping
 
 from .. import platform_paths
 from ..models import Entry
-from .base import loads
+from .base import dedup_keep_max, loads, to_int
 from .sqlite_source import SQLiteProvider, date_value, make_entry, query
 
 # Newer stores can filter on a real column; older ones have no such column and
 # the query fails, which is the signal to use the second form.
 _SQL_WITH_TIME = "SELECT id, session_id, data FROM message WHERE time_created IS NOT NULL"
 _SQL_LEGACY = "SELECT id, session_id, data FROM message"
+# V2 keeps assistant usage in an event-sourced projection instead, with the
+# instant in a column rather than in the payload (upstream 3ea40af). Both are
+# read: a store upgraded in place still holds its V1 history.
+_SQL_V2 = ("SELECT id, time_created, data FROM session_message "
+           "WHERE type = 'assistant'")
 
 
 def parse_message(obj: dict, fallback_id: str) -> Entry | None:
@@ -69,27 +74,78 @@ def parse_message(obj: dict, fallback_id: str) -> Entry | None:
     )
 
 
+def parse_session_message(obj: dict, fallback_id: str, created_at) -> Entry | None:
+    """One V2 assistant message.
+
+    The same usage as V1, written differently: the model is nested, the token
+    breakdown has no `total`, reasoning tokens are counted separately, and the
+    instant comes from the row rather than the payload.
+    """
+    tokens = obj.get("tokens")
+    model = obj.get("model")
+    if not isinstance(tokens, dict) or not isinstance(model, dict):
+        return None
+    date = date_value(created_at)
+    if date is None:
+        return None
+    model_id = model.get("id")
+    if not isinstance(model_id, str) or not model_id:
+        return None
+    # providerID must be present: a payload without it is not a billed message.
+    if not isinstance(model.get("providerID"), str):
+        return None
+
+    cache = tokens.get("cache")
+    cache = cache if isinstance(cache, dict) else {}
+    cost = obj.get("cost")
+    return make_entry(
+        f"opencode|{fallback_id}",
+        date,
+        model_id,
+        input=tokens.get("input"),
+        # Reasoning is output nobody sees; it is billed as output.
+        output=to_int(tokens.get("output")) + to_int(tokens.get("reasoning")),
+        cache_write=cache.get("write"),
+        cache_read=cache.get("read"),
+        cost=cost if isinstance(cost, (int, float)) else None,
+    )
+
+
 def parse_database(path: Path) -> list[Entry]:
+    out: list[Entry] = []
+
+    # V2 first, then V1: an upgraded store holds both, and the same message can
+    # appear in each, so the two are deduplicated at the end.
+    for row_id, created_at, payload in query(path, _SQL_V2) or []:
+        obj = _payload(payload)
+        if obj is None:
+            continue
+        entry = parse_session_message(obj, fallback_id=str(row_id), created_at=created_at)
+        if entry is not None:
+            out.append(entry)
+
     rows = query(path, _SQL_WITH_TIME)
     if rows is None:
         # Older databases have no time_created column at all.
         rows = query(path, _SQL_LEGACY)
-    if not rows:
-        return []
-    out: list[Entry] = []
-    for row_id, _session_id, payload in rows:
-        if not isinstance(payload, str):
-            continue
-        try:
-            obj = loads(payload)
-        except Exception:
-            continue
-        if not isinstance(obj, dict):
+    for row_id, _session_id, payload in rows or []:
+        obj = _payload(payload)
+        if obj is None:
             continue
         entry = parse_message(obj, fallback_id=str(row_id))
         if entry is not None:
             out.append(entry)
-    return out
+    return dedup_keep_max(out)
+
+
+def _payload(payload) -> dict | None:
+    if not isinstance(payload, str):
+        return None
+    try:
+        obj = loads(payload)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
 
 
 def parse_legacy_file(path: Path) -> list[Entry]:

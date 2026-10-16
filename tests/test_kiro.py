@@ -9,6 +9,8 @@ pass here and miss every live session.
 import json
 import sqlite3
 
+import pytest
+
 from poketokenbar.providers import kiro
 
 MODEL = "claude-sonnet-4.5"
@@ -447,3 +449,34 @@ def test_provider_identity():
     provider = kiro.KiroProvider()
     assert provider.id == "kiro"
     assert provider.display_name == "Kiro CLI"
+
+
+# --- content blocks the CLI writes besides plain text (upstream cf91ddc) -----
+
+
+@pytest.mark.parametrize("block,expected", [
+    # The payload, never the envelope: an id or a signature is not what was
+    # sent to the model, and an image would dwarf the text it sits beside.
+    ({"kind": "text", "data": "hello"}, 5),
+    ({"kind": "toolUse", "data": {"toolUseId": "x" * 40, "input": {"path": "a.py"}}}, 4),
+    ({"kind": "toolResult", "data": {"toolUseId": "x" * 40, "content": "ok"}}, 2),
+    ({"kind": "thinking", "data": {"signature": "s" * 80, "text": "hmm"}}, 3),
+    ({"kind": "json", "data": {"value": "abcd"}}, 4),
+    ({"kind": "image", "data": {"bytes": "A" * 1000}}, 0),
+    ({"kind": "redactedThinking", "data": {"data": "R" * 500}}, 0),
+])
+def test_a_content_block_is_measured_by_what_it_carried(block, expected):
+    assert kiro.text_byte_length(block) == expected
+
+
+def test_a_turn_counts_its_tool_calls_and_its_thinking():
+    """Leaving them out under-counted every turn that used a tool, which on
+    this provider is most of them."""
+    turn = [
+        {"kind": "text", "data": "fix the test"},
+        {"kind": "thinking", "data": {"text": "look at the file first"}},
+        {"kind": "toolUse", "data": {"input": {"command": "pytest -q"}}},
+        {"kind": "toolResult", "data": {"content": "1 failed"}},
+    ]
+    text_only = kiro.text_byte_length([turn[0]])
+    assert kiro.text_byte_length(turn) > text_only

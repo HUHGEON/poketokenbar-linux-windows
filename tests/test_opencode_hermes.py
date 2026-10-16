@@ -334,3 +334,97 @@ def test_shm_is_excluded_from_the_signature(tmp_path):
 
     (tmp_path / "state.db-shm").write_bytes(b"y" * 64)
     assert provider.file_signature(database) == before
+
+
+# OpenCode V2 keeps assistant usage in an event-sourced projection: the model is
+# nested, reasoning tokens are their own bucket, there is no reported total, and
+# the instant lives in a column rather than in the payload (upstream 3ea40af).
+OPENCODE_V2_PAYLOAD = {
+    "model": {"id": "claude-sonnet-5", "providerID": "anthropic"},
+    "tokens": {"input": 100, "output": 50, "reasoning": 7, "cache": {"read": 10, "write": 20}},
+    "cost": 0.25,
+}
+
+
+def _v2_database(path, rows):
+    statements = [
+        "CREATE TABLE session_message (id TEXT PRIMARY KEY, type TEXT NOT NULL, "
+        "time_created REAL NOT NULL, data TEXT NOT NULL);"
+    ]
+    for row_id, kind, created, payload in rows:
+        statements.append(
+            "INSERT INTO session_message VALUES ('%s', '%s', %s, '%s');"
+            % (row_id, kind, created, json.dumps(payload).replace("'", "''"))
+        )
+    return execute(path, "\n".join(statements))
+
+
+def test_opencode_reads_the_v2_session_messages(tmp_path):
+    database = _v2_database(tmp_path / "opencode.db", [
+        ("msg-1", "assistant", 1767312000, OPENCODE_V2_PAYLOAD),
+    ])
+    entries = opencode.parse_database(database)
+    assert len(entries) == 1
+    entry = entries[0]
+    assert entry.input == 100
+    assert entry.output == 57, "reasoning is output nobody sees, and still billed"
+    assert entry.cache_read == 10 and entry.cache_write == 20
+    assert entry.explicit_cost == 0.25
+    assert entry.model == "claude-sonnet-5"
+
+
+def test_a_v2_row_that_is_not_an_assistant_message_is_not_usage(tmp_path):
+    database = _v2_database(tmp_path / "opencode.db", [
+        ("msg-1", "user", 1767312000, OPENCODE_V2_PAYLOAD),
+    ])
+    assert opencode.parse_database(database) == []
+
+
+def test_a_v2_row_without_a_provider_is_not_a_billed_message(tmp_path):
+    database = _v2_database(tmp_path / "opencode.db", [
+        ("msg-1", "assistant", 1767312000, {"model": {"id": "x"},
+                                            "tokens": {"input": 5}}),
+    ])
+    assert opencode.parse_database(database) == []
+
+
+def test_a_store_upgraded_in_place_keeps_its_v1_history(tmp_path):
+    """Both projections are read: the V1 table is where the history before the
+    upgrade lives."""
+    database = tmp_path / "opencode.db"
+    _v2_database(database, [("msg-2", "assistant", 1767312000, OPENCODE_V2_PAYLOAD)])
+    execute(
+        database,
+        """
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+            time_created INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        INSERT INTO message VALUES ('msg-1', 'session-1', 1767312000000, '%s');
+        """
+        % json.dumps(OPENCODE_PAYLOAD).replace("'", "''"),
+    )
+    entries = opencode.parse_database(database)
+    assert {entry.id for entry in entries} == {"opencode|msg-1", "opencode|msg-2"}
+
+
+def test_a_message_written_to_both_projections_is_counted_once(tmp_path):
+    """An upgrade can copy a message forward; counting it twice would double
+    that day."""
+    database = tmp_path / "opencode.db"
+    _v2_database(database, [("msg-1", "assistant", 1767312000, OPENCODE_V2_PAYLOAD)])
+    execute(
+        database,
+        """
+        CREATE TABLE message (
+            id TEXT PRIMARY KEY, session_id TEXT NOT NULL,
+            time_created INTEGER NOT NULL, data TEXT NOT NULL
+        );
+        INSERT INTO message VALUES ('msg-1', 'session-1', 1767312000000, '%s');
+        """
+        % json.dumps(OPENCODE_PAYLOAD).replace("'", "''"),
+    )
+    entries = opencode.parse_database(database)
+    assert len(entries) == 1
+    # The completed copy wins, which is what the shared dedup rule says.
+    assert entries[0].total == 250

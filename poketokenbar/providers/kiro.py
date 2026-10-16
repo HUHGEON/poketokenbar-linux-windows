@@ -106,7 +106,23 @@ def text_byte_length(value) -> int:
         return 0
     kind = value.get("kind")
     if isinstance(kind, str):
-        return text_byte_length(value.get("data")) if kind == "text" else 0
+        # The payload's text, not the envelope around it: ids, signatures,
+        # redacted data and images are not what was sent to the model. CLI
+        # 2.25.0 writes tool calls, tool results and thinking as their own
+        # blocks, and leaving them out under-counted a turn (upstream cf91ddc).
+        data = value.get("data")
+        if kind == "text":
+            return text_byte_length(data)
+        if kind == "toolUse":
+            return json_byte_length(data.get("input")) if isinstance(data, dict) else 0
+        if kind == "toolResult":
+            return text_byte_length(data.get("content")) if isinstance(data, dict) else 0
+        if kind == "thinking":
+            text = data.get("text") if isinstance(data, dict) else None
+            return len(text.encode("utf-8")) if isinstance(text, str) else 0
+        if kind == "json":
+            return json_byte_length(data)
+        return 0
     for key in ("content", "text", "data"):
         if key in value:
             return text_byte_length(value[key])
@@ -456,7 +472,9 @@ class KiroProvider(SQLiteProvider):
     display_name = "Kiro CLI"
     # Tokens here are an estimate, and usage_summary credits are not API dollars.
     # v2: byte-estimated turns are unpriced (69ff39b).
-    PARSER_VERSION = 2
+    # v3: tool calls, tool results and thinking count toward a turn's size
+    # (upstream cf91ddc), so blobs parsed under v2 under-report.
+    PARSER_VERSION = 3
     database_names = ("data.sqlite3",)
 
     def curated_roots(self) -> list[Path]:
