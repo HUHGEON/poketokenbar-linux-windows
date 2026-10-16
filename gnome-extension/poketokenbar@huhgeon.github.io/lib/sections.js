@@ -1189,7 +1189,12 @@ class BagSection extends Section {
                 const uses = plan?.count ?? 1;
                 const use = borderedButton(
                     uses > 1 ? `${t('use')} ${t('times_count').replace('%1', String(uses))}` : t('use'),
-                    () => markSent(use, Commands.use(bagItem.key, uses)));
+                    () => {
+                        // Back to one afterwards: a batch size left over from
+                        // the last press is not what the next press means.
+                        this._candyCount = 1;
+                        markSent(use, Commands.use(bagItem.key, uses));
+                    });
                 bottom.add_child(use);
             } else if (bagItem.passive) {
                 bottom.add_child(label(`✓ ${t('active')}`,

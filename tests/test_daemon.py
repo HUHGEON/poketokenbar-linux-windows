@@ -530,3 +530,50 @@ def test_a_second_account_filling_its_window_earns_candy_too(tmp_path):
     assert shop.window_key("session@work") in store.state.candy_grant_tier
     # The default account's own key is untouched by the suffixed ones.
     assert store.state.candy_grant_tier.get("limit:session", 0) == 0
+
+
+def test_using_items_is_written_to_the_journal(tmp_path, capsys):
+    """"It used several at once" arrived with nothing to check it against.
+    One line per use says what was asked for and what left the bag."""
+    from poketokenbar import commands
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import CompanionState, MonState
+
+    d, _provider, _limits, store, key = _clicky_daemon(tmp_path)
+    store.state = CompanionState(active=MonState(
+        base_id=1, path_ids=[1, 2, 3], planned_path_ids=[1, 2, 3], total_forms=3,
+        rarity=Rarity.COMMON))
+    store.state.inventory[key] = 5
+    d.poll_once()
+    capsys.readouterr()
+
+    commands.enqueue("use", {"key": key, "count": 2}, spool=d.spool)
+    d.react()
+
+    line = capsys.readouterr().err.strip().splitlines()[-1]
+    assert line == f"poketokenbar: use {key} x2 requested, 2 spent, 3 left"
+    assert store.state.inventory[key] == 3
+
+
+def test_a_use_the_bag_cannot_cover_says_what_actually_left_it(tmp_path, capsys):
+    """The daemon clamps a batch to what graduation can absorb; the line
+    records the clamp rather than the request."""
+    from poketokenbar import commands
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import CompanionState, MonState
+
+    d, _provider, _limits, store, key = _clicky_daemon(tmp_path)
+    store.state = CompanionState(active=MonState(
+        base_id=1, path_ids=[1], planned_path_ids=[1], total_forms=1,
+        rarity=Rarity.COMMON))
+    store.state.inventory[key] = 50
+    d.poll_once()
+    capsys.readouterr()
+
+    commands.enqueue("use", {"key": key, "count": 50}, spool=d.spool)
+    d.react()
+
+    line = capsys.readouterr().err.strip().splitlines()[-1]
+    spent = 50 - store.state.inventory.get(key, 0)
+    assert line.startswith(f"poketokenbar: use {key} x50 requested, {spent} spent")
+    assert spent < 50, "a single-stage line cannot absorb fifty candies"

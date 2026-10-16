@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 import time
 from pathlib import Path
 
@@ -438,7 +439,16 @@ class Daemon:
                     if name == "buy":
                         message = self.companion_store.buy(key, count)
                     else:
+                        before = self.companion_store.state.inventory.get(key, 0)
                         message = self.companion_store.use_item(key, count)
+                        after = self.companion_store.state.inventory.get(key, 0)
+                        # One line per item used, in the journal. "It used
+                        # several at once" was reported with nothing to check
+                        # it against: this says what was asked for and what
+                        # actually left the bag.
+                        print(f"poketokenbar: use {key} x{count} requested, "
+                              f"{before - after} spent, {after} left",
+                              file=sys.stderr, flush=True)
                     if self.notifier is not None and self.config_values.get(
                         "item_notifications", True
                     ):
