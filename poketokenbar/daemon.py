@@ -459,6 +459,11 @@ class Daemon:
                 daily_by_provider[provider.id] = daily
 
         periods: dict = {}
+        # Each provider's own week and month, kept rather than only summed: a
+        # provider used yesterday but not today still has a week behind it, and
+        # dropping its row made the tab disappear on an idle day (upstream
+        # a8dd806, 11eebe6).
+        by_provider: dict[str, dict] = {}
         for provider in self.providers:
             fetch_periods = getattr(provider, "fetch_periods", None)
             if fetch_periods is None:
@@ -468,6 +473,10 @@ class Daemon:
             except Exception as exc:
                 scan_errors.append(f"{provider.id} periods: {exc}")
                 continue
+            by_provider[provider.id] = {
+                "week": dict(result["week"]),
+                "month": dict(result["month"]),
+            }
             for key in ("week", "month"):
                 bucket = periods.setdefault(
                     key, {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()})
@@ -485,6 +494,7 @@ class Daemon:
                 bucket["tokens"] += row["tokens"]
                 bucket["cost"] += row["cost"]
                 bucket["coverage"].merge(row["coverage"])
+        periods["by_provider"] = by_provider
         self._last_scan = (daily_by_provider, periods, scan_errors)
         self._last_full_poll_at = time.monotonic()
 

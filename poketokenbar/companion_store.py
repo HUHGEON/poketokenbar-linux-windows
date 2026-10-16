@@ -196,7 +196,7 @@ class CompanionStore:
         out = []
         mon = self.state.active
         if mon is not None and mon.profile is not None and mon.current_id == species_id:
-            shiny = mon.is_shiny and (mon.ditto_disguise is None or mon.ditto_revealed)
+            shiny = mon.displays_shiny
             if wanted is None or letter_of(mon) == wanted:
                 out.append((None, mon.profile, shiny))
         stored = [e for e in self.state.dex if e.final_id == species_id and e.profile is not None]
@@ -465,7 +465,7 @@ class CompanionStore:
         language = self.state.language
         name = self.species_name(mon.current_id, language) if mon else ""
         label = name or l10n.t("raising", language)
-        shiny = mon is not None and mon.is_shiny
+        shiny = mon is not None and mon.displays_shiny
 
         def banner(kind: str, title_key: str, body_key: str, *subjects: str) -> dict:
             return {
@@ -594,7 +594,7 @@ class CompanionStore:
             return ""
         if mon is None:
             return self._egg_sprite()
-        path = self.sprites.path(mon.current_id, animated=True, shiny=mon.is_shiny)
+        path = self.sprites.path(mon.current_id, animated=True, shiny=mon.displays_shiny)
         return str(path) if path else ""
 
     def panel_species(self) -> tuple[int | None, bool]:
@@ -616,7 +616,8 @@ class CompanionStore:
         mon = self.state.active
         if mon is None:
             return None, False, None
-        return mon.current_id, mon.is_shiny, unown.resolved(mon.current_id, mon.unown_form)
+        return (mon.current_id, mon.displays_shiny,
+                unown.resolved(mon.current_id, mon.unown_form))
 
     def owns_shiny_individual(self, species_id: int, unown_form: str | None = None) -> bool:
         """Whether the owned copy is shiny — per letter, for Unown."""
@@ -628,7 +629,7 @@ class CompanionStore:
                 return True
         mon = self.state.active
         return bool(
-            mon is not None and mon.is_shiny
+            mon is not None and mon.displays_shiny
             and unown.resolved(mon.current_id, mon.unown_form) == unown_form
             and self.state.owns_species(unown.SPECIES_ID)
         )
@@ -760,7 +761,8 @@ class CompanionStore:
         evo_line = []
         if self.sprites is not None:
             for index, species_id in enumerate(mon.path_ids):
-                path = self.sprites.path(species_id, animated=False, shiny=mon.is_shiny)
+                path = self.sprites.path(species_id, animated=False,
+                                         shiny=mon.displays_shiny)
                 evo_line.append(
                     {
                         "species_id": species_id,
@@ -780,7 +782,7 @@ class CompanionStore:
             "remaining_text": _compact(remaining),
             "goal": "graduation" if mon.is_final_form else "next evolution",
             "evo_line": evo_line,
-            "is_shiny": mon.is_shiny,
+            "is_shiny": mon.displays_shiny,
             "nature": l10n.nature_name(mon.nature, self.state.language),
             "rarity": str(mon.rarity),
             "stage_index": mon.stage_index,
@@ -1081,7 +1083,7 @@ class CompanionStore:
                     species_id,
                     {"rarity": str(mon.rarity), "is_shiny": False, "has_normal": False},
                 )
-                if mon.is_shiny:
+                if mon.displays_shiny:
                     slot["is_shiny"] = True
                 else:
                     slot["has_normal"] = True
@@ -1197,8 +1199,9 @@ class CompanionStore:
                 {
                     "rarity": str(mon.rarity),
                     "nature": l10n.nature_name(mon.nature, self.state.language),
-                    "is_shiny": mon.is_shiny,
-                    "chain": self._chain(mon.path_ids[: mon.stage_index + 1], mon.is_shiny,
+                    "is_shiny": mon.displays_shiny,
+                    "chain": self._chain(mon.path_ids[: mon.stage_index + 1],
+                                        mon.displays_shiny,
                                          mon.unown_form),
                     "caught_at": mon.hatched_at,
                     "raised_text": "",

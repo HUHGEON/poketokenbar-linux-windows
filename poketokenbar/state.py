@@ -243,8 +243,8 @@ def _period_rows(periods: dict | None, language: str = "en") -> dict:
     """
     out = {}
     for key, bucket in (periods or {}).items():
-        if key == "month_daily":
-            continue  # a series, not a bucket: see _month_trend
+        if key in ("month_daily", "by_provider"):
+            continue  # a series and a per-provider map, not period buckets
         tokens = bucket.get("tokens", 0)
         cost = bucket.get("cost", 0.0)
         out[key] = {
@@ -294,6 +294,32 @@ def _month_trend(periods: dict | None, language: str, today: str) -> dict:
             "readout": " ".join(part for part in (stamp, fmt.compact(tokens), cost_text) if part),
         })
     return {"days": out, "peak_text": fmt.compact(peak)}
+
+
+def _provider_period(periods: dict | None, provider_id: str, key: str) -> int:
+    """One provider's own week or month total, or zero when it has none."""
+    found = ((periods or {}).get("by_provider") or {}).get(provider_id) or {}
+    bucket = found.get(key) or {}
+    return int(bucket.get("tokens", 0) or 0)
+
+
+def _provider_rows(daily_by_provider: dict, periods: dict | None) -> dict:
+    """Today's providers, plus any that have a week or a month behind them.
+
+    A provider nobody used today still belongs on the tab strip while its
+    history is worth reading; dropping it made the strip change shape on a
+    quiet day, and on the 1st of a month (upstream a8dd806, 11eebe6). The row
+    an idle provider gets is an empty day, which is what it is.
+    """
+    out = dict(daily_by_provider)
+    for provider_id in ((periods or {}).get("by_provider") or {}):
+        if provider_id in out:
+            continue
+        if _provider_period(periods, provider_id, "week") <= 0 and \
+                _provider_period(periods, provider_id, "month") <= 0:
+            continue
+        out[provider_id] = DailyUsage(date="")
+    return out
 
 
 def _combined_models(daily_by_provider: dict) -> dict[str, int]:
@@ -453,8 +479,14 @@ def build(
                 # route them all through one file — so the day is broken down
                 # by the model that actually answered.
                 "models": _model_rows(d.models),
+                # What this provider has spent over the longer runs. Without
+                # them a provider used yesterday and not today had nothing to
+                # show, so its row disappeared on an idle day (upstream
+                # a8dd806).
+                "week_compact": fmt.compact(_provider_period(periods, pid, "week")),
+                "month_compact": fmt.compact(_provider_period(periods, pid, "month")),
             }
-            for pid, d in daily_by_provider.items()
+            for pid, d in _provider_rows(daily_by_provider, periods).items()
         },
         "limits": _limits_payload(
             limit_status,

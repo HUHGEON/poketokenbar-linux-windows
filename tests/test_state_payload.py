@@ -88,3 +88,47 @@ def test_the_shipped_config_is_a_copy():
     payload = state.build({}, values, [])
     values["language"] = "ko"
     assert payload["config"]["language"] == "en"
+
+
+# --- a provider nobody used today (upstream a8dd806, 11eebe6) ---------------
+
+
+def test_a_provider_with_a_week_behind_it_keeps_its_row_on_an_idle_day():
+    """The tab strip changed shape on a quiet day, and again on the 1st of a
+    month, because a row only existed while the provider had usage *today*."""
+    from poketokenbar import state
+    from poketokenbar.models import CostCoverage, DailyUsage
+
+    periods = {
+        "week": {"tokens": 10, "cost": 0.0, "coverage": CostCoverage()},
+        "month": {"tokens": 10, "cost": 0.0, "coverage": CostCoverage()},
+        "by_provider": {
+            "claude_code": {"week": {"tokens": 7}, "month": {"tokens": 9}},
+            "codex": {"week": {"tokens": 3}, "month": {"tokens": 3}},
+            # Installed, never used: still nothing to show.
+            "gemini": {"week": {"tokens": 0}, "month": {"tokens": 0}},
+        },
+    }
+    payload = state.build(
+        {"claude_code": DailyUsage(date="2026-10-16", total_tokens=5)},
+        {"language": "en"}, [], periods=periods,
+    )
+    rows = payload["providers"]
+    assert set(rows) == {"claude_code", "codex"}
+    assert rows["codex"]["total_tokens"] == 0, "an idle day is an empty day"
+    assert rows["codex"]["week_compact"] == "3"
+    assert rows["claude_code"]["month_compact"] == "9"
+
+
+def test_the_period_rows_are_not_confused_by_the_per_provider_map():
+    from poketokenbar import state
+    from poketokenbar.models import CostCoverage, DailyUsage
+
+    payload = state.build(
+        {"claude_code": DailyUsage(date="2026-10-16", total_tokens=5)},
+        {"language": "en"}, [],
+        periods={"week": {"tokens": 10, "cost": 0.0, "coverage": CostCoverage()},
+                 "by_provider": {"claude_code": {"week": {"tokens": 10},
+                                                 "month": {"tokens": 10}}}},
+    )
+    assert set(payload["periods"]) == {"week"}

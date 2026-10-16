@@ -639,6 +639,13 @@ class HomeSection extends Section {
             this._tokenType('cache w', usageRow.cache_write_compact),
             this._tokenType('cache r', usageRow.cache_read_compact),
         ]));
+        // What this provider has behind today, so a quiet day still says
+        // something rather than reading as a tool nobody uses.
+        this.add_child(row([
+            this._tokenType(t('this_week'), usageRow.week_compact),
+            this._tokenType(t('this_month'), usageRow.month_compact),
+            spacer(),
+        ]));
 
         // Only worth the rows when the day spanned several models.
         const models = usageRow.models ?? [];

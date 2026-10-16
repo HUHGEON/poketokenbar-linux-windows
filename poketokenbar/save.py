@@ -247,6 +247,17 @@ def decode(raw: dict) -> CompanionState:
 MAX_SPECIES_ID = 1025
 
 
+def _deduped(species_ids: list[int]) -> list[int]:
+    """The same line with each species kept once, in the order it first appears.
+
+    A chain holding one species twice is only reachable by hand-editing, and it
+    makes the dex name lookup, the release record and the graduation record
+    disagree with themselves (upstream 9c9c805).
+    """
+    seen: set[int] = set()
+    return [i for i in species_ids if not (i in seen or seen.add(i))]
+
+
 def reconcile(state: CompanionState) -> list[str]:
     """Pull a save back inside the rules, and say what had to move.
 
@@ -291,8 +302,14 @@ def reconcile(state: CompanionState) -> list[str]:
 
     mon = state.active
     if mon is not None:
-        mon.path_ids = [i for i in mon.path_ids if _is_species(i)]
-        mon.planned_path_ids = [i for i in mon.planned_path_ids if _is_species(i)]
+        showing = mon.current_id
+        mon.path_ids = _deduped([i for i in mon.path_ids if _is_species(i)])
+        mon.planned_path_ids = _deduped(
+            [i for i in mon.planned_path_ids if _is_species(i)])
+        if showing in mon.path_ids:
+            # The stage follows the form that was on screen, wherever the
+            # deduplication left it.
+            mon.stage_index = mon.path_ids.index(showing)
         if not mon.path_ids or not _is_species(mon.base_id):
             # Nothing left to show. An egg is the honest state, and the dex is
             # untouched — losing one companion beats rendering a ghost.
@@ -311,6 +328,8 @@ def reconcile(state: CompanionState) -> list[str]:
                 notes.append("used_at_stage was negative")
                 mon.used_at_stage = 0
 
+    for entry in state.dex:
+        entry.chain_order = _deduped(entry.chain_order)
     kept = [entry for entry in state.dex if _is_species(entry.final_id)
             and _is_species(entry.base_id)]
     if len(kept) != len(state.dex):

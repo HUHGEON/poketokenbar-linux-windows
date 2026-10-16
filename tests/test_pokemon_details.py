@@ -367,3 +367,27 @@ def test_the_page_carries_both_appearances_so_the_picker_can_switch(tmp_path, ne
     appearances = [one["is_shiny"] for one in page["individuals"]]
     assert appearances == [True, False], "newest first, both kept"
     assert "✨" in page["individuals"][0]["label"]
+
+
+def test_shedinja_has_one_hp_at_every_level():
+    """The main series pins it to 1; the generic formula gives it level + 12 or
+    more, and Nincada's branch makes it reachable here (upstream fad8f1a)."""
+    from poketokenbar.profile import PokemonDetails, compute_stats
+
+    details = PokemonDetails(
+        species_id=292, name="shedinja", height=8, weight=12, base_experience=83,
+        gender_rate=-1, types=["bug", "ghost"],
+        base_stats={"hp": 1, "attack": 90, "defense": 45,
+                    "special-attack": 30, "special-defense": 30, "speed": 40},
+        abilities=[], moves=[],
+    )
+    for level in (5, 50, 100):
+        individual = P.generate(level)
+        individual.level = level
+        hp = next(s for s in compute_stats(details, individual, None) if s.name == "hp")
+        assert hp.value == 1, f"level {level}"
+
+    # Any other species keeps the formula.
+    details.species_id = 291
+    hp = next(s for s in compute_stats(details, P.generate(1), None) if s.name == "hp")
+    assert hp.value > 1

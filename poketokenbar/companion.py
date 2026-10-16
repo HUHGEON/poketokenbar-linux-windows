@@ -164,6 +164,18 @@ class MonState:
     unown_form: str | None = None
 
     @property
+    def displays_shiny(self) -> bool:
+        """Whether this may be drawn shiny yet.
+
+        A disguised Ditto keeps its colour secret until the reveal, and every
+        surface that draws it goes through here — the save snapshots listed in
+        the settings were reading `is_shiny` directly and showing a shiny
+        sprite for a Pokemon the popup was still drawing plain (upstream
+        1a71018).
+        """
+        return self.is_shiny and (self.ditto_disguise is None or self.ditto_revealed)
+
+    @property
     def growth_multiplier(self) -> int:
         return balance.REPEAT_GROWTH_MULTIPLIER if self.has_growth_boost else 1
 
@@ -722,6 +734,10 @@ def apply_usage(
         if mon.ditto_disguise is not None and not mon.ditto_revealed:
             mon.ditto_revealed = True
             events.ditto_revealed = True
+            # The hatch borrowed the disguise's line, boost included. From the
+            # reveal on it is a Ditto, so only a repeat Ditto keeps the faster
+            # growth (upstream eb6ea0c). The level it reached is its own.
+            mon.has_growth_boost = state.has_collected_final(balance.DITTO_SPECIES_ID)
             if mon.profile is not None:
                 # Same individual, new species: keep the IVs, reroll the rest
                 # once Ditto's details are known.

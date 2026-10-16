@@ -295,6 +295,10 @@ def nature_modifier(nature: str | None, stat: str) -> float:
     return 1.0
 
 
+# Shedinja: 1 HP at every level, in every game.
+SHEDINJA_SPECIES_ID = 292
+
+
 def compute_stats(details: PokemonDetails, profile: PokemonProfile,
                   nature: str | None) -> list[ComputedStat]:
     """Actual stats at the profile's level. No EVs, as upstream."""
@@ -306,7 +310,13 @@ def compute_stats(details: PokemonDetails, profile: PokemonProfile,
             continue
         iv = profile.ivs.get(stat, 0)
         if stat == "hp":
-            value = ((2 * base + iv) * level) // 100 + level + 10
+            # The main series pins Shedinja to exactly 1 HP; the formula would
+            # give it level + 12 or more (upstream fad8f1a). Nincada's branch
+            # makes it reachable here.
+            value = (
+                1 if details.species_id == SHEDINJA_SPECIES_ID
+                else ((2 * base + iv) * level) // 100 + level + 10
+            )
         else:
             neutral = ((2 * base + iv) * level) // 100 + 5
             # A plain floor of the double, as Swift's rounded(.down), so both

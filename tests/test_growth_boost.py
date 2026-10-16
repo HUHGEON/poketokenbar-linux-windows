@@ -94,13 +94,25 @@ def test_the_boost_survives_a_save_and_old_saves_grow_normally(tmp_path):
     assert loaded.phase_threshold == 125_000_000
 
 
-def test_a_boosted_disguise_reveals_at_the_halved_threshold_and_keeps_the_boost():
+def test_a_boosted_disguise_reveals_at_the_halved_threshold_and_a_new_ditto_drops_the_boost():
+    """The hatch borrowed the disguise's line, boost included. From the reveal
+    on it is a Ditto, and only a repeat Ditto grows faster (upstream eb6ea0c);
+    the level it reached while disguised is its own either way."""
     state = CompanionState(active=MonState(
         base_id=1, path_ids=[1, 2, 3], planned_path_ids=[1, 2, 3], total_forms=3,
         ditto_disguise=1, has_growth_boost=True))
     events = apply_usage(state, 62_500_000)
     assert events.ditto_revealed
     assert state.active.ditto_revealed
+    assert not state.active.has_growth_boost
+
+
+def test_a_repeat_ditto_keeps_the_boost_through_the_reveal():
+    state = CompanionState(active=MonState(
+        base_id=1, path_ids=[1, 2, 3], planned_path_ids=[1, 2, 3], total_forms=3,
+        ditto_disguise=1, has_growth_boost=True))
+    state.collected_finals.add(f"{balance.DITTO_SPECIES_ID}:{balance.DITTO_SPECIES_ID}")
+    apply_usage(state, 62_500_000)
     assert state.active.has_growth_boost
 
 

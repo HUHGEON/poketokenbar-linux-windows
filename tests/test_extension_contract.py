@@ -430,6 +430,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(store.payload()["evo_line"][0])
     if name == "catch_chain":
         return set(payload["catch_log"][0]["chain"][0])
+    if name == "provider_usage":
+        return set(payload["providers"]["claude_code"])
     if name == "limit_account":
         return set(payload["limits"]["accounts"][0])
     if name == "unown_form":

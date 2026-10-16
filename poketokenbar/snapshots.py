@@ -108,7 +108,7 @@ def listing(state_path: Path) -> list[Snapshot]:
             dex_count=len(state.dex),
             used_since_install=state.used_since_install,
             species_id=active.current_id if active is not None else None,
-            is_shiny=bool(active.is_shiny) if active is not None else False,
+            is_shiny=bool(active.displays_shiny) if active is not None else False,
         ))
     # The name breaks a tie, as it carries the same instant plus its serial.
     out.sort(key=lambda s: (s.taken_at, s.id), reverse=True)
@@ -139,7 +139,7 @@ def create(state: CompanionState, state_path: Path, now: float | None = None) ->
         dex_count=len(state.dex),
         used_since_install=state.used_since_install,
         species_id=active.current_id if active is not None else None,
-        is_shiny=bool(active.is_shiny) if active is not None else False,
+        is_shiny=bool(active.displays_shiny) if active is not None else False,
     )
 
 

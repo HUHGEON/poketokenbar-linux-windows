@@ -73,3 +73,54 @@ def test_undisguised_evolution_does_not_report_a_reveal():
     apply_usage(s, balance.EGG_HATCH_THRESHOLD, line_for_egg=_line(), rng=Rigged(False))
     events = apply_usage(s, balance.phase_threshold(Rarity.COMMON, 2, 0))
     assert events.ditto_revealed is False
+
+
+def test_a_disguised_ditto_keeps_its_colour_secret_everywhere(tmp_path):
+    """Every surface that draws the companion asks the same question. A save
+    snapshot asked a different one and listed a shiny sprite for a Pokemon the
+    popup was still drawing plain (upstream 1a71018)."""
+    from poketokenbar import snapshots
+    from poketokenbar.companion import CompanionState, MonState
+    from poketokenbar.companion_store import CompanionStore
+
+    mon = MonState(base_id=1, path_ids=[1, 2], planned_path_ids=[1, 2], total_forms=2,
+                   is_shiny=True, ditto_disguise=1)
+    store = CompanionStore(save_path=tmp_path / "companion.json", api=None, sprite_store=None)
+    store.state = CompanionState(active=mon)
+
+    assert mon.is_shiny, "it really is shiny underneath"
+    assert not mon.displays_shiny
+    assert store.payload()["is_shiny"] is False
+    assert store.panel_individual()[1] is False
+    assert snapshots.create(store.state, store.save_path).is_shiny is False
+    assert store.catch_log_payload()[0]["is_shiny"] is False
+    assert all(not row["is_shiny"] for row in store.dex_payload())
+
+    mon.ditto_revealed = True
+    assert mon.displays_shiny
+    assert store.payload()["is_shiny"] is True
+    assert snapshots.create(store.state, store.save_path).is_shiny is True
+
+
+def test_a_chain_holding_one_species_twice_is_read_once(tmp_path):
+    """Only reachable by hand-editing, and it made the dex name lookup, the
+    release record and the graduation record disagree (upstream 9c9c805)."""
+    import json
+
+    from poketokenbar import save
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import CompanionState, DexEntry, MonState
+
+    state = CompanionState(
+        active=MonState(base_id=1, path_ids=[1, 2, 2, 3], planned_path_ids=[1, 2, 2, 3],
+                        stage_index=2, total_forms=4),
+        dex=[DexEntry(base_id=1, final_id=3, chain_order=[1, 2, 2, 3], rarity=Rarity.COMMON)],
+    )
+    path = tmp_path / "companion.json"
+    save.save(state, path)
+    loaded = save.load(path)
+
+    assert loaded.active.path_ids == [1, 2, 3]
+    assert loaded.active.current_id == 2, "the form on screen is still the one showing"
+    assert loaded.dex[0].chain_order == [1, 2, 3]
+    assert json.loads(path.read_text())  # the file itself is untouched until the next save
