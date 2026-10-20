@@ -577,3 +577,43 @@ def test_a_use_the_bag_cannot_cover_says_what_actually_left_it(tmp_path, capsys)
     spent = 50 - store.state.inventory.get(key, 0)
     assert line.startswith(f"poketokenbar: use {key} x50 requested, {spent} spent")
     assert spent < 50, "a single-stage line cannot absorb fifty candies"
+
+
+def test_one_poll_reads_the_logs_once(tmp_path):
+    """Today's totals, the periods and the rolling block each asked for every
+    entry, so a poll rebuilt the whole list three times — a million entries a
+    minute on a large history."""
+    from poketokenbar.providers.base import ScanningProvider
+
+    scans = []
+
+    class Counting(ScanningProvider):
+        id = "counting"
+        display_name = "Counting"
+
+        def curated_roots(self):
+            return [tmp_path / "logs"]
+
+        def parse_file(self, path):
+            scans.append(str(path))
+            return []
+
+    (tmp_path / "logs").mkdir()
+    (tmp_path / "logs" / "a.jsonl").write_text("{}\n", encoding="utf-8")
+
+    provider = Counting()
+    provider.fetch_daily()
+    provider.fetch_periods()
+    provider.fetch_enrichment()
+    assert scans == [str(tmp_path / "logs" / "a.jsonl")], "the file was parsed more than once"
+
+    # A new file is picked up at once: the held scan is keyed on what it was
+    # built from, not on a timer.
+    (tmp_path / "logs" / "b.jsonl").write_text("{}\n", encoding="utf-8")
+    provider.fetch_daily()
+    assert len(scans) == 3, "a changed folder must be read again"
+
+    # And the poll hands it back.
+    provider.release_scan()
+    provider.fetch_daily()
+    assert len(scans) == 5

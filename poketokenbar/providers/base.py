@@ -191,6 +191,9 @@ class ScanningProvider:
     ) -> None:
         self._cache = cache
         self._home = home
+        # The deduplicated entries of the poll in flight, with the file
+        # signature they were built from. See scan_entries().
+        self._scanned: tuple | None = None
         # A callable, not a value: the daemon reloads its config in place, and a
         # captured dict would keep serving the settings from process start.
         self._custom_roots = custom_roots
@@ -274,7 +277,43 @@ class ScanningProvider:
         return out
 
     def scan_entries(self) -> list[Entry]:
-        """Every parsed entry across all roots, globally deduplicated."""
+        """Every parsed entry across all roots, globally deduplicated.
+
+        One poll asks three times — today's totals, the periods, the rolling
+        block — and each answer used to rebuild the whole list from the parsed
+        blobs. For a four-gigabyte Claude history that is three passes over a
+        million entries a minute. The list is held between those calls and
+        dropped by `release_scan()` once the poll has published, so the memory
+        is a spike rather than a resident cost.
+        """
+        signature = self._scan_signature()
+        if self._scanned is not None and self._scanned[0] == signature:
+            return self._scanned[1]
+        entries = self._scan_uncached()
+        self._scanned = (signature, entries)
+        return entries
+
+    def release_scan(self) -> None:
+        """Forget the entries held for this poll. The daemon calls it once the
+        payload is out; the next poll reads the blobs again."""
+        self._scanned = None
+
+    def _scan_signature(self) -> tuple:
+        """What the scan was built from: every file, its mtime and its size.
+
+        Stat'ing the files costs milliseconds against parsing them, and it is
+        what makes holding the list safe — a session written to between two
+        calls changes the signature and the scan is redone.
+        """
+        out = []
+        for root in self.roots():
+            for path in sorted(self.files(root)):
+                signature = self.file_signature(path)
+                if signature is not None:
+                    out.append((str(path), signature))
+        return tuple(out)
+
+    def _scan_uncached(self) -> list[Entry]:
         all_entries: list[Entry] = []
         live: set[str] = set()
         seen_files: set[str] = set()

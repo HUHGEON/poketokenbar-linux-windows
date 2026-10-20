@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import gc
 import sys
 import time
 from pathlib import Path
@@ -46,6 +47,21 @@ from .models import CostCoverage, DailyUsage
 # near-empty directory, so checking often costs nothing; sleeping two seconds
 # between checks was most of what made a click feel ignored.
 COMMAND_POLL_SECONDS = 0.25
+
+
+def _trim_memory() -> None:
+    """Ask glibc to give its freed arenas back to the kernel.
+
+    Measured on this history, dropping the entry lists already returns almost
+    all of it — this is for the allocations underneath them. glibc-only and
+    best effort: anywhere it is missing, nothing happens.
+    """
+    try:
+        import ctypes
+
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
 
 # Commands whose effect is not right until the logs have been read again: a
 # refresh is a request for fresh numbers, and a config change can add scan
@@ -559,7 +575,26 @@ class Daemon:
             except Exception as exc:
                 self._status_error = f"status: {exc}"
 
-        return self._publish(errors, fresh_limits=True)
+        payload = self._publish(errors, fresh_limits=True)
+        self._release_scans()
+        return payload
+
+    def _release_scans(self) -> None:
+        """Hand back what the scan held, once the payload is out.
+
+        A poll parses every session file it has not already cached and builds
+        one entry per message; on a four-gigabyte history that is a spike of
+        hundreds of megabytes, and the entries are of no use once the payload
+        is written. CPython gives most of that back by itself when the lists
+        go; the trim is for what the decompression buffers underneath leave
+        behind, and does nothing where it is not available.
+        """
+        for provider in self.providers:
+            release = getattr(provider, "release_scan", None)
+            if release is not None:
+                release()
+        gc.collect()
+        _trim_memory()
 
     def _limits_error(self, language: str) -> str:
         source = self.limits_source
