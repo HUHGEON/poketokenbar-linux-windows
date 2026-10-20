@@ -1,4 +1,5 @@
 import random
+from pathlib import Path
 
 from poketokenbar import balance
 from poketokenbar.balance import Rarity
@@ -287,3 +288,113 @@ def test_a_delayed_hatch_says_so_and_stops_saying_it(tmp_path):
     s.update({"claude_code": balance.EGG_HATCH_THRESHOLD + 1}, today="2026-08-18")
     assert s.state.active is not None
     assert "egg_delayed" not in s.payload(), "a hatched companion is not an egg"
+
+
+# MARK: the grid and the log are built from the save alone
+
+
+class _CountingSprites:
+    """A sprite store that says how often it was asked."""
+
+    def __init__(self, missing: set[int] | None = None):
+        self.asked = 0
+        self.missing = missing or set()
+
+    def path(self, species_id, animated=True, shiny=False, form=None):
+        self.asked += 1
+        if species_id in self.missing:
+            return None
+        return Path(f"/cache/{species_id}.png")
+
+    def item_path(self, name):
+        return None
+
+    def egg_path(self):
+        return None
+
+
+def _stocked_store(tmp_path, sprites_stub):
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import CompanionState, DexEntry
+
+    store = CompanionStore(save_path=tmp_path / "companion.json", api=None,
+                           sprite_store=sprites_stub)
+    store.state = CompanionState(dex=[
+        DexEntry(base_id=1, final_id=3, chain_order=[1, 2, 3], rarity=Rarity.COMMON),
+        DexEntry(base_id=4, final_id=6, chain_order=[4, 5, 6], rarity=Rarity.RARE),
+    ])
+    # Settled: the save on disk says what the state says, as it does on every
+    # poll after the first.
+    store._persist()
+    return store
+
+
+def test_a_quiet_poll_rebuilds_neither_the_grid_nor_the_log(tmp_path):
+    """Both were rebuilt every poll — a thousand rows, a sprite lookup each —
+    whether or not anything had happened."""
+    sprites_stub = _CountingSprites()
+    store = _stocked_store(tmp_path, sprites_stub)
+
+    first_dex, first_log = store.dex_payload(), store.catch_log_payload()
+    asked = sprites_stub.asked
+    assert asked > 0
+
+    store._persist()  # what every poll does
+    assert store.dex_payload() is first_dex
+    assert store.catch_log_payload() is first_log
+    assert sprites_stub.asked == asked, "the sprite store was asked again"
+
+
+def test_a_catch_rebuilds_them(tmp_path):
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import DexEntry
+
+    sprites_stub = _CountingSprites()
+    store = _stocked_store(tmp_path, sprites_stub)
+    before = store.dex_payload()
+
+    store.state.dex.append(
+        DexEntry(base_id=7, final_id=9, chain_order=[7, 8, 9], rarity=Rarity.COMMON))
+    store._persist()
+
+    after = store.dex_payload()
+    assert after is not before
+    assert len(after) > len(before)
+
+
+def test_the_language_changing_rebuilds_them(tmp_path):
+    store = _stocked_store(tmp_path, _CountingSprites())
+    before = store.dex_payload()
+    store.state.language = "ja"
+    store._persist()
+    assert store.dex_payload() is not before
+
+
+def test_a_row_still_waiting_for_its_sprite_is_not_kept(tmp_path):
+    """Otherwise the cell stays blank until the next catch."""
+    sprites_stub = _CountingSprites(missing={3})
+    store = _stocked_store(tmp_path, sprites_stub)
+
+    first = store.dex_payload()
+    assert any(row["sprite_path"] == "" for row in first)
+    store._persist()
+    assert store.dex_payload() is not first, "a half-drawn grid was cached"
+
+    # Once the file is there, it settles.
+    sprites_stub.missing.clear()
+    settled = store.dex_payload()
+    assert store.dex_payload() is settled
+
+
+def test_a_save_that_says_nothing_new_is_not_written(tmp_path):
+    store = _stocked_store(tmp_path, _CountingSprites())
+    store._persist()
+    path = tmp_path / "companion.json"
+    stamp = path.stat().st_mtime_ns
+
+    store._persist()
+    assert path.stat().st_mtime_ns == stamp, "a quiet poll rewrote the save"
+
+    store.state.spent_tokens += 1
+    store._persist()
+    assert path.stat().st_mtime_ns != stamp

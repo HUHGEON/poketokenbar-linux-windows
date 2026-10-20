@@ -460,9 +460,22 @@ def _quarantine(path: Path) -> None:
         pass
 
 
-def save(state: CompanionState, path: Path | None = None) -> None:
+def encoded_text(state: CompanionState) -> str:
+    """The save exactly as `save()` would write it."""
+    return json.dumps(encode(state), indent=2)
+
+
+def save(state: CompanionState, path: Path | None = None, text: str | None = None) -> str:
+    """Write the save and return what was written.
+
+    `text` is what `encoded_text` already produced for this state, so a caller
+    that had to encode it anyway — to see whether anything changed — does not
+    encode it twice.
+    """
     path = path or default_path()
     path.parent.mkdir(parents=True, exist_ok=True)
+    text = encoded_text(state) if text is None else text
     tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(encode(state), indent=2), encoding="utf-8")
+    tmp.write_text(text, encoding="utf-8")
     tmp.replace(path)
+    return text

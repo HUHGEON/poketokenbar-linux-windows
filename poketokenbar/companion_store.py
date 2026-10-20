@@ -61,6 +61,14 @@ class CompanionStore:
         # file — but everything that has to name that file (restore points,
         # most of all) saw None and quietly did nothing.
         self.save_path = save_path or save.default_path()
+        # What the save last said, and how many times it has changed. The
+        # Pokedex grid and the catch log are built from the save alone, so
+        # they are rebuilt when this moves and reused when it does not. Set
+        # before anything can persist: the migration below does.
+        self._saved_text: str | None = None
+        self._revision = 0
+        self._dex_rows: tuple | None = None
+        self._catch_rows: tuple | None = None
         # Restore points, described once and kept until this process changes
         # them; the popup asks for them on every poll.
         self._snapshot_rows: list[dict] | None = None
@@ -90,7 +98,7 @@ class CompanionStore:
         # The species whose Pokédex page is open. Not saved: it is where the
         # popup is looking, not progress.
         self.inspected_species_id: int | None = None
-        # Which of Unown's 28 letters the open page is about; None otherwise.
+        # Which appearance the open page is about; None otherwise.
         self.inspected_form: str | None = None
 
     def migrate_profiles(self) -> None:
@@ -1119,6 +1127,23 @@ class CompanionStore:
         }
 
     def dex_payload(self) -> list[dict]:
+        """The Pokedex grid, rebuilt only when the save has changed.
+
+        Nine hundred and seventy-nine cells, each one asking the sprite store
+        for a file, built fresh on every poll whether or not anything had
+        happened. A row that is still missing its sprite is not kept, so the
+        picture appears as soon as it has been fetched rather than at the next
+        catch.
+        """
+        key = (self._revision, self.state.language)
+        if self._dex_rows is not None and self._dex_rows[0] == key:
+            return self._dex_rows[1]
+        rows = self._build_dex_payload()
+        if all(row["sprite_path"] for row in rows):
+            self._dex_rows = (key, rows)
+        return rows
+
+    def _build_dex_payload(self) -> list[dict]:
         """Species-level collection — ports dexSpecies.
 
         Includes every species in a graduated chain, plus the CURRENT
@@ -1236,6 +1261,20 @@ class CompanionStore:
         return out
 
     def catch_log_payload(self) -> list[dict]:
+        """The catch log, rebuilt only when the save has changed.
+
+        Same reasoning as the grid above: a thousand rows, each with its whole
+        evolution chain and a sprite per stage.
+        """
+        key = (self._revision, self.state.language)
+        if self._catch_rows is not None and self._catch_rows[0] == key:
+            return self._catch_rows[1]
+        rows = self._build_catch_log_payload()
+        if all(stage["sprite_path"] for row in rows for stage in row["chain"]):
+            self._catch_rows = (key, rows)
+        return rows
+
+    def _build_catch_log_payload(self) -> list[dict]:
         """Every catch, newest first, with its full evolution chain.
 
         Entries predating caught_at sort last rather than pretending to be
@@ -1341,7 +1380,19 @@ class CompanionStore:
         return counts
 
     def _persist(self) -> None:
-        save.save(self.state, self.save_path)
+        """Write the save, if it would say anything new.
+
+        Every poll calls this, whether or not the usage moved anything: it is
+        the one place that knows the state is settled. Encoding it is cheap
+        against writing it, so the text is compared first — a quiet minute now
+        costs no disk write, and the revision below only moves when the save
+        really changed, which is what the built payloads are keyed on.
+        """
+        text = save.encoded_text(self.state)
+        if text != self._saved_text:
+            save.save(self.state, self.save_path, text=text)
+            self._saved_text = text
+            self._revision += 1
         self._auto_snapshot()
 
     # --- restore points (upstream 13e3bf2) -----------------------------------
