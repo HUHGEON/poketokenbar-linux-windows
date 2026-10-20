@@ -95,3 +95,30 @@ def test_cache_miss_after_file_changes(home, tmp_path):
     _write(root, "a.jsonl", when=now, output=1_570, req="req_2")
     assert provider.fetch_daily().total_tokens == 41_930
     cache.close()
+
+
+def test_a_log_is_read_without_keeping_its_pages(tmp_path, monkeypatch):
+    """Four gigabytes of sessions read into the page cache showed up as the
+    daemon's own memory in every system monitor."""
+    import os
+
+    from poketokenbar.providers import base, claude
+
+    advised = []
+    real = os.posix_fadvise
+
+    def spy(fd, offset, length, advice):
+        advised.append(advice)
+        return real(fd, offset, length, advice)
+
+    monkeypatch.setattr(os, "posix_fadvise", spy)
+    path = tmp_path / "session.jsonl"
+    path.write_text("{}\n", encoding="utf-8")
+
+    claude.parse_file(path)
+    assert advised == [os.POSIX_FADV_DONTNEED]
+
+    # A platform without it still reads the file.
+    monkeypatch.delattr(os, "posix_fadvise")
+    with base.streamed(path) as handle:
+        assert handle.read() == "{}\n"

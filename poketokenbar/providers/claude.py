@@ -17,8 +17,8 @@ from .. import pricing
 from ..cache import ScanCache
 from ..models import DailyUsage, Entry, ProviderEnrichment
 
-from .base import (ScanningProvider, dedup_keep_max, loads as _loads, number as _number,
-                   parse_iso, to_int as _int)
+from .base import (ScanningProvider, dedup_keep_max, loads as _loads,
+                   number as _number, parse_iso, streamed, to_int as _int)
 
 # Re-exported under their original names: the tests and the Codex provider
 # already import them from here.
@@ -131,7 +131,9 @@ def parse_file(path: Path) -> list[Entry]:
     out: list[Entry] = []
     cost_state: dict[str, float] | None = None
     try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
+        # Streamed, and the pages handed back afterwards: this is the file
+        # that makes a four-gigabyte history (see base.streamed).
+        with streamed(path) as fh:
             for line in fh:
                 # The ledger is cumulative, so the last record in the file
                 # wins. Checked before the assistant prefilter: a cost-state

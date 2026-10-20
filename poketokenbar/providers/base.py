@@ -57,6 +57,40 @@ class UsageProvider(Protocol):
 # MARK: shared parsing helpers
 
 
+def streamed(path: Path, encoding: str = "utf-8", errors: str = "replace"):
+    """Open a log for one sequential read and leave the page cache as it was.
+
+    The session logs are gigabytes — four of them on the machine this was
+    measured on — and every byte read lands in the kernel's page cache,
+    charged to whoever read it. The daemon reads each file once and then
+    remembers what it found in its own cache, so those pages are of no use to
+    anyone afterwards; left alone they showed up as hundreds of megabytes
+    against the service, which is what a system monitor reports as the daemon
+    eating memory.
+
+    Only the pages this read brought in are dropped, and only clean ones:
+    anything another process has dirty or mapped stays. POSIX_FADV_DONTNEED
+    is advisory, so a platform without it simply keeps the old behaviour.
+    """
+    import contextlib
+    import os
+
+    @contextlib.contextmanager
+    def opened():
+        handle = open(path, encoding=encoding, errors=errors)
+        try:
+            yield handle
+        finally:
+            try:
+                handle.flush()
+                os.posix_fadvise(handle.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
+            except (OSError, AttributeError):
+                pass
+            handle.close()
+
+    return opened()
+
+
 # Parsing ceiling — 100,000x real-world usage (billions), so it never truncates a
 # genuine total. Ports LocalUsageReader.maxParsedTokenValue.
 #
