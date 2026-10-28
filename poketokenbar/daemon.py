@@ -353,6 +353,12 @@ class Daemon:
                         self.companion_store.apply_plan(detected_plan)
                 except Exception as exc:
                     errors.append(f"{name}: {exc}")
+            elif name == "load_pokemon_details" and self.companion_store is not None:
+                try:
+                    self.companion_store.state.language = self._language()
+                    self.companion_store.load_pokemon_details(int((command.get("args") or {})["species_id"]))
+                except (KeyError, ValueError, TypeError):
+                    errors.append("pokemon details: invalid species")
             elif name == "represent" and self.companion_store is not None:
                 args = command.get("args") or {}
                 raw = args.get("species_id")
@@ -370,7 +376,8 @@ class Daemon:
                 try:
                     if name == "buy":
                         message = self.companion_store.buy(key, **(
-                            {"confirmed": args["confirmed"] is True} if "confirmed" in args else {}))
+                            {**({"confirmed": args["confirmed"] is True} if "confirmed" in args else {}),
+                             **({"count": args["count"]} if "count" in args else {})}))
                     else:
                         message = self.companion_store.use_item(key, **(
                             {"count": args["count"]} if "count" in args else {}))
@@ -410,6 +417,10 @@ class Daemon:
             except Exception as exc:
                 errors.append(f"{provider.id} periods: {exc}")
                 continue
+            if provider.id not in daily_by_provider and any(
+                    result.get(period, {}).get("tokens", 0) > 0 for period in ("week", "month")):
+                from datetime import date
+                daily_by_provider[provider.id] = DailyUsage(date=date.today().isoformat())
             for key in ("week", "month"):
                 bucket = periods.setdefault(key, {"tokens": 0, "cost": 0.0,
                                                    "cost_coverage": CostCoverage()})
@@ -569,6 +580,8 @@ class Daemon:
              "error": self.limits_source.account_errors.get(identity, "")}
             for identity, metadata in getattr(self.limits_source, "account_metadata", {}).items()
         ]
+        payload["limit_alert"] = (getattr(self.notifier, "last_limit_alert", None)
+                                  if self.config_values.get("limit_notifications", True) else None)
         for provider in self.providers:
             if hasattr(provider, "fetch_accounts") and account_roots:
                 try:

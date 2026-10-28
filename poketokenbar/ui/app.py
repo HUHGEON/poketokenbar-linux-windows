@@ -143,6 +143,9 @@ class Window(QWidget):
             "bag": BagPanel(reader),
             "collection": CollectionPanel(reader),
         }
+        self.panels["home"].open_species.connect(self.open_species)
+        self.panels["home"].open_recap.connect(self.show_recap)
+        self.panels["bag"].open_shop.connect(lambda: self.show_tab("shop"))
         self.settings = SettingsPanel(reader)
         self.recap = RecapPanel(reader)
         self._current = "home"
@@ -219,6 +222,13 @@ class Window(QWidget):
         layout.addWidget(footer_bar)
 
     # --- navigation --------------------------------------------------------
+
+    def open_species(self, species_id: int) -> None:
+        self.show_tab("collection")
+        companion = (self.reader.state or {}).get("companion") or {}
+        instance_id = ((companion.get("profile") or {}).get("instance_id")
+                       if companion.get("species_id") == species_id else None)
+        self.panels["collection"].open_species(species_id, instance_id)
 
     def show_tab(self, key: str) -> None:
         self._current = key
@@ -359,6 +369,9 @@ class TrayApp:
         # every poll because a menu is only built once.
         self._menu_actions = {}
         menu = QMenu()
+        self._summary_action = menu.addAction("")
+        self._summary_action.setEnabled(False)
+        menu.addSeparator()
         show = QAction(self.reader.text("open"), menu)
         show.triggered.connect(self.toggle_window)
         self._menu_actions["open"] = show
@@ -368,6 +381,14 @@ class TrayApp:
         refresh.triggered.connect(lambda: refresh_data())
         self._menu_actions["refresh"] = refresh
         menu.addAction(refresh)
+
+        for key, callback in (("pokedex", lambda: self.open_page("collection")),
+                              ("settings", lambda: self.open_page("settings")),
+                              ("floating_pet", self.window.toggle_pet)):
+            action = QAction(self.reader.text(key), menu)
+            action.triggered.connect(callback)
+            self._menu_actions[key] = action
+            menu.addAction(action)
 
         menu.addSeparator()
         # The daemon has handled these all along; without a control they were
@@ -404,6 +425,23 @@ class TrayApp:
         menu.addAction(quit_action)
         return menu
 
+    def open_page(self, page: str) -> None:
+        if page == "settings":
+            self.window.show_settings()
+        else:
+            self.window.show_tab(page)
+        if not self.window.isVisible():
+            self.toggle_window()
+        else:
+            self.window.raise_()
+
+    def _hide_pet(self) -> None:
+        config.set_value(config.default_path(), "floating_pet_enabled", "False")
+        commands.enqueue("reload_config", {})
+        if self.pet:
+            self.pet.close()
+            self.pet = None
+
     def save_path(self):
         """Where a save is written to and read from.
 
@@ -436,8 +474,16 @@ class TrayApp:
         Without this the menu keeps whatever text() returned at construction —
         which, before the first state file has been read, is the key itself.
         """
+        state = self.reader.state or {}
+        today = state.get("today") or {}
+        summary = self.reader.text("todays_tokens") + " " + str(today.get("tokens_compact", "0"))
+        if (state.get("config") or {}).get("show_cost", True) and today.get("cost_text"):
+            summary += " · " + today["cost_text"]
+        self._summary_action.setText(summary)
         for key, action in getattr(self, "_menu_actions", {}).items():
             text = self.reader.text(key)
+            if key == "floating_pet" and (state.get("config") or {}).get("floating_pet_enabled"):
+                text = self.reader.text("floating_pet_hide")
             if action.text() != text:
                 action.setText(text)
 
@@ -544,6 +590,7 @@ class TrayApp:
             self.pet = DesktopPet(
                 on_activate=self.toggle_window,
                 on_moved=self._remember_pet_position,
+                on_hide=self._hide_pet,
             )
             config_values = (state or {}).get("config") or {}
             self.pet.update_state(state)

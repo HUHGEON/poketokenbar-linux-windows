@@ -1,7 +1,6 @@
 """Cursor dashboard allowance, authenticated by its existing local IDE login."""
 from __future__ import annotations
 
-import json
 import math
 import os
 import sqlite3
@@ -9,14 +8,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.request import Request
 
-from . import limits
+from . import limits, cursor_auth
 from .limits_http import request_json
 from .limits_source import LimitsSource
 from .providers.cursor import user_data_dirs
 
 USAGE_URL = "https://api2.cursor.sh/aiserver.v1.DashboardService/GetCurrentPeriodUsage"
-TOKEN_URL = "https://api2.cursor.sh/oauth/token"
-CLIENT_ID = "KbZUR41cY7W6zRSdpSUJ7I7mLYBKOCmB"
+TOKEN_URL = cursor_auth.TOKEN_URL
+CLIENT_ID = cursor_auth.CLIENT_ID
 
 
 def _number(value):
@@ -67,7 +66,7 @@ def read_auth(home: Path | None = None, env=None) -> dict:
                     ("cursorAuth/accessToken", "cursorAuth/refreshToken"))
                 auth = {key.rsplit("/", 1)[-1]: value.strip() for key, value in rows if isinstance(value, str) and value.strip()}
                 if auth.get("accessToken"):
-                    return auth
+                    return {**auth, "root": str(root.resolve())}
         except (OSError, sqlite3.Error):
             continue
     return {}
@@ -78,8 +77,6 @@ class CursorProvider:
         self.home = home
         self.env = os.environ if env is None else env
         self.http = http
-        self._refreshed = None
-        self._refresh_source = None
 
     def _usage(self, token):
         return parse_status(self.http(Request(USAGE_URL, data=b"{}", headers={
@@ -89,35 +86,17 @@ class CursorProvider:
     def fetch(self):
         if self.env.get("CURSOR_USAGE_API") == "0":
             return None
-        auth = read_auth(self.home, self.env)
-        override = (self.env.get("CURSOR_SESSION_TOKEN") or "").strip()
-        token = override or auth.get("accessToken")
-        if not token:
+        credential = cursor_auth.current(self.home, self.env)
+        if credential is None:
             return None
-        source = (token, auth.get("refreshToken"))
-        if source == self._refresh_source and self._refreshed:
-            token = self._refreshed
         try:
-            return self._usage(token)
+            return self._usage(cursor_auth.bearer(credential.access_token))
         except limits.HTTPStatusError as exc:
             if exc.status not in (401, 403):
                 raise
-            refresh_token = auth.get("refreshToken")
-            if override or not refresh_token:
-                raise limits.AuthExpiredError("Cursor login expired; sign in to Cursor") from exc
-            try:
-                payload = self.http(Request(TOKEN_URL, data=json.dumps({
-                    "grant_type": "refresh_token", "client_id": CLIENT_ID,
-                    "refresh_token": refresh_token}).encode(), headers={"Content-Type": "application/json"}))
-            except limits.HTTPStatusError as refresh_error:
-                if refresh_error.status in (400, 401, 403):
-                    raise limits.AuthExpiredError("Cursor login expired; sign in to Cursor") from refresh_error
-                raise
-            token = payload.get("access_token") if isinstance(payload, dict) else None
-            if not isinstance(token, str) or not token or payload.get("shouldLogout"):
-                raise limits.AuthExpiredError("Cursor login expired; sign in to Cursor") from exc
-            self._refreshed, self._refresh_source = token, source
-            return self._usage(token)
+            refreshed = cursor_auth.refresh(credential, home=self.home, env=self.env, http=self.http)
+            return self._usage(cursor_auth.bearer(refreshed.access_token))
+
 
 
 class CursorLimitsSource(LimitsSource):

@@ -8,6 +8,7 @@ rewinds growth; it only debits the wallet.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from . import balance, companion
 from .balance import Rarity
@@ -72,8 +73,13 @@ def buy(
     key: str,
     shop_difficulty: float = balance.DEFAULT_DIFFICULTY,
     confirmed: bool = False,
+    count: int = 1,
 ) -> str:
-    """Purchase one shop entry. Returns a short description of what happened."""
+    """Purchase up to 99 consumables atomically; eggs and charms stay single."""
+    if type(count) is not int or not 1 <= count <= 99:
+        raise ShopError("quantity must be an integer from 1 to 99")
+    if count != 1 and key not in ("rareCandy", "mint"):
+        raise ShopError("this item can only be bought one at a time")
     entry = next(
         (e for e in entries(state, shop_difficulty) if e.key == key), None
     )
@@ -83,9 +89,9 @@ def buy(
     if entry.kind == "item":
         if entry.key == "shinyCharm" and entry.owned:
             raise ShopError("shiny charm is already held")
-        _debit(state, entry.price)
-        state.inventory[entry.key] = state.inventory.get(entry.key, 0) + 1
-        return f"bought {entry.label}"
+        _debit(state, entry.price * count)
+        state.inventory[entry.key] = state.inventory.get(entry.key, 0) + count
+        return f"bought {entry.label}" + (f" ×{count}" if count > 1 else "")
 
     # Eggs replace the current companion outright.
     if is_high_value(state) and not confirmed:
@@ -216,6 +222,19 @@ def window_key(kind: str) -> str:
     return f"limit:{kind}"
 
 
+def is_new_epoch(previous: str, current: str, *, weekly: bool = False) -> bool:
+    if previous == current:
+        return False
+    try:
+        def parse(raw):
+            moment = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            return moment.replace(tzinfo=timezone.utc) if moment.tzinfo is None else moment
+        delta = (parse(current) - parse(previous)).total_seconds()
+    except (ValueError, TypeError, AttributeError):
+        return True
+    return delta >= (86400 if weekly else 1800)
+
+
 def grant_candy(state: CompanionState, windows: dict[str, float],
                 epochs: dict[str, str] | None = None) -> int:
     """Award candy for maxed limit windows. Edge-triggered.
@@ -231,19 +250,26 @@ def grant_candy(state: CompanionState, windows: dict[str, float],
         epoch = (epochs or {}).get(kind)
         if epoch is not None:
             previous_epoch = state.candy_window_epoch.get(key)
-            if previous_epoch is not None and previous_epoch != epoch:
+            weekly = kind.rsplit(":", 1)[-1] == "weekly" or kind.rsplit(".", 1)[-1] == "weekly"
+            if previous_epoch is None:
+                state.candy_window_epoch[key] = epoch
+            elif is_new_epoch(previous_epoch, epoch, weekly=weekly):
                 state.candy_grant_tier.pop(key, None)
-            state.candy_window_epoch[key] = epoch
+                state.candy_window_epoch[key] = epoch
         tier = 2 if utilization >= 100 else 0
         previous = state.candy_grant_tier.get(key, 0)
 
         if tier == 0:
             # Any dip below full rearms the next full crossing.
             state.candy_grant_tier.pop(key, None)
+            if epoch is not None:
+                state.candy_window_epoch[key] = epoch
             continue
         if tier <= previous:
             continue
         state.candy_grant_tier[key] = tier
+        if epoch is not None:
+            state.candy_window_epoch[key] = epoch
         if tier < 2:
             continue  # only a full window pays out
 

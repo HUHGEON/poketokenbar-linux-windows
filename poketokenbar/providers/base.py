@@ -181,6 +181,7 @@ class ScanningProvider:
     # Files worth opening under a root. Overridden by sources that also keep
     # legacy .json sessions, or that read a database instead.
     file_glob: str = "*.jsonl"
+    extra_cache_namespaces: tuple[str, ...] = ()
 
     def __init__(
         self,
@@ -296,14 +297,18 @@ class ScanningProvider:
                         self.id, path, mtime, size, self.PARSER_VERSION
                     )
                 if entries is None:
+                    # A parser may return its prior entries after a transient read failure.
+                    # Do not pin that fallback to the new signature; retry next scan.
+                    self._cacheable_parse = True
                     entries = self.parse_file(path)
-                    if self._cache is not None:
+                    if self._cache is not None and self._cacheable_parse:
                         self._cache.put(
                             self.id, path, mtime, size, self.PARSER_VERSION, entries
                         )
                 all_entries.extend(entries)
         if self._cache is not None:
-            self._cache.prune(self.id, live)
+            for namespace in (self.id, *self.extra_cache_namespaces):
+                self._cache.prune(namespace, live)
         return self.dedup(all_entries)
 
     def usage_cost(self, entry: Entry) -> tuple[float, CostCoverage]:

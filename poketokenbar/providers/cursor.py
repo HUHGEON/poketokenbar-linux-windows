@@ -134,14 +134,26 @@ class CursorProvider(SQLiteProvider):
         super().__init__(*args, **kwargs)
         cache_path = platform_paths.cache_base(home=self._home) / "poketokenbar" / "cursor-usage-api.json"
         self._api = api or CursorUsageAPI(cache_path=cache_path)
+        self._uses_local_auth = token_provider is None
+        self._credential = None
         self._token_provider = token_provider or self._session_token
         self._api_snapshot = None
 
     def _session_token(self):
-        from ..cursor_limits import read_auth
-        if os.environ.get("CURSOR_USAGE_API") == "0":
+        from .. import cursor_auth
+        self._credential = cursor_auth.current(self._home)
+        return self._credential.access_token if self._credential else None
+
+    def _refresh_session(self, rejected_token):
+        from .. import cursor_auth
+        if self._credential is None:
             return None
-        return (os.environ.get("CURSOR_SESSION_TOKEN") or "").strip() or read_auth(self._home).get("accessToken")
+        try:
+            self._credential = cursor_auth.refresh(self._credential, home=self._home)
+            return self._credential.access_token
+        except Exception:
+            # Quota requests surface authentication errors; usage keeps local fallback.
+            return None
 
     def scan_entries(self) -> list[Entry]:
         token = self._token_provider()
@@ -154,7 +166,8 @@ class CursorProvider(SQLiteProvider):
             # paginated dashboard requests during the same daemon scan.
             key = (token, since.date())
             if self._api_snapshot is None or self._api_snapshot[0] != key or time.monotonic() - self._api_snapshot[1] >= 60:
-                self._api_snapshot = (key, time.monotonic(), self._api.fetch(token, since))
+                self._api_snapshot = (key, time.monotonic(), self._api.fetch(token, since, **(
+                    {"on_rejected": self._refresh_session} if self._uses_local_auth else {})))
             result = self._api_snapshot[2]
             if result.is_authoritative:
                 return result.entries

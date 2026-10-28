@@ -97,7 +97,8 @@ def computed_stats(details: dict, profile: PokemonProfile,
             continue
         base, iv = int(base_stats[name]), profile.ivs[name]
         if name == "hp":
-            value = ((2 * base + iv) * profile.level) // 100 + profile.level + 10
+            value = (1 if details.get("species_id") == 292 else
+                     ((2 * base + iv) * profile.level) // 100 + profile.level + 10)
         else:
             value = ((2 * base + iv) * profile.level) // 100 + 5
             value = int(value * (1.1 if name == raised else 0.9 if name == lowered else 1.0))

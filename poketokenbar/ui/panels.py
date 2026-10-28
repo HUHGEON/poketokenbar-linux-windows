@@ -21,19 +21,19 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal, QEvent
 from PySide6.QtWidgets import (
     QCheckBox, QComboBox, QGridLayout, QHBoxLayout, QLineEdit, QMessageBox,
     QScrollArea, QSlider, QSpinBox,
     QVBoxLayout, QWidget,
 )
 
-from .. import balance, commands, config, l10n
+from .. import balance, commands, config, l10n, forms
 from . import theme
 from .widgets import (
     MonthlyChart, Segmented, Sprite, badge, big, button, card, chip, clear_layout, column,
     heading, icon_button, label, level_colour, meter, rarity_badge, row,
-    separator, spread, stat_line,
+    separator, spread, stat_line, type_badges,
 )
 
 # Detail opens from the name, leaving room for four readable columns within
@@ -181,7 +181,7 @@ class Panel(QWidget):
         self._fingerprint = current
 
         bar = self.scroll.verticalScrollBar()
-        position = bar.value()
+        position = self.__dict__.pop("_next_scroll_position", bar.value())
         self.update(state)
         # Restored after the layout has settled, or the bar has no range yet
         # and the value is clamped straight back to zero.
@@ -189,6 +189,9 @@ class Panel(QWidget):
 
 
 class HomePanel(Panel):
+    open_species = Signal(int)
+    open_recap = Signal()
+
     def __init__(self, reader) -> None:
         super().__init__(reader)
         self._selected_provider = "all"
@@ -222,12 +225,17 @@ class HomePanel(Panel):
         # make its progress unreachable.
         self.sprite.set_path(companion.get("sprite_path") or None)
         self.sprite.setParent(None)
+        species_id = companion.get("species_id")
+        self.sprite.set_link((lambda: self.open_species.emit(int(species_id))) if species_id else None,
+                             self.t("pokemon_details_open"))
         portrait = card(self.sprite, padding=6)
 
         if companion.get("stage") == "egg":
+            progress = meter(companion.get("egg_progress", 0), None)
+            progress.setToolTip(f'{companion.get("egg_usage", 0):,} / {companion.get("egg_threshold", 0):,}')
             details = column(
                 label(self.t("egg"), bold=True, size=16),
-                meter(companion.get("egg_progress", 0), None),
+                progress,
                 label(companion.get("label", ""), dim=True, wrap=True),
                 spacing=6,
             )
@@ -246,6 +254,7 @@ class HomePanel(Panel):
             form = self.t("final_form") if companion.get("is_final_form") \
                 else self.t("next_evolution")
             progress = meter(companion.get("stage_progress", 0))
+            progress.setToolTip(f'{companion.get("used_at_stage", 0):,} / {companion.get("stage_threshold", 0):,}')
             # The companion's own bar is never a limit warning, so it keeps one
             # colour instead of turning red as it fills.
             progress.setStyleSheet(
@@ -262,6 +271,7 @@ class HomePanel(Panel):
             ) if part)
             details = column(
                 title,
+                *([type_badges(profile['types'], self.t)] if profile.get('types') else []),
                 label(f"{form} · {profile_line}", dim=True),
                 progress,
                 label(self.fill(remaining_key, companion.get("remaining_text", "")),
@@ -275,6 +285,10 @@ class HomePanel(Panel):
             self.add(label(self.t("hatch_delayed"), dim=True, wrap=True))
             self.add(button(self.t("retry_hatch"),
                             lambda: commands.enqueue("retry_hatch", {})))
+        sid = companion.get("species_id")
+        form = companion.get("unown_form")
+        if sid and forms.resolved(sid, form) != forms.resolved(sid):
+            self.add(label(self.t("default_form_data_note"), dim=True, size=11, wrap=True))
         if companion.get("evo_line"):
             self.add(self._evolution_line(companion))
 
@@ -294,6 +308,9 @@ class HomePanel(Panel):
             size = 46 if index == current else 34
             sprite = Sprite(size)
             sprite.set_path(stage.get("sprite_path") or None)
+            if stage.get("reached") and stage.get("species_id"):
+                sprite.set_link(lambda sid=stage["species_id"]: self.open_species.emit(int(sid)),
+                                self.t("pokemon_details_open"))
             if not stage.get("reached"):
                 # Forms it has not reached are dimmed rather than hidden, so the
                 # line still shows where the companion is heading.
@@ -333,6 +350,9 @@ class HomePanel(Panel):
             parts.append(label("   "))
         if parts:
             self.add(row(*parts[:-1], spacing=5, stretch=True))
+            recap = button(self.t("recap_details"), self.open_recap.emit)
+            recap.setObjectName("home_open_recap")
+            self.add(row(recap, stretch=True))
 
         providers = (state or {}).get("providers") or {}
         if self._selected_provider != "all" and self._selected_provider not in providers:
@@ -377,7 +397,7 @@ class HomePanel(Panel):
             (daily.get("providers") or {}).get(self._selected_provider)
         if series:
             self.add(heading(self.t("daily_trend")))
-            self.add(MonthlyChart(series))
+            self.add(MonthlyChart(series, calendar_month=True))
 
     def _cost_label(self, usage: dict, size: int = 13) -> QWidget:
         widget = label(usage.get("cost_text", ""), dim=True, size=size)
@@ -638,6 +658,14 @@ class ShopPanel(Panel):
 
     def _buy(self, item: dict) -> None:
         args = {"key": item["key"]}
+        maximum = item.get("max_buy_count", 1)
+        if maximum > 1:
+            from PySide6.QtWidgets import QInputDialog
+            count, accepted = QInputDialog.getInt(self, self.t("buy"), item.get("label", ""),
+                                                 1, 1, maximum)
+            if not accepted:
+                return
+            args["count"] = count
         if item.get("requires_confirmation"):
             if QMessageBox.question(self, self.t("buy"), self.t("confirm_release"),
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
@@ -647,11 +675,14 @@ class ShopPanel(Panel):
 
 
 class BagPanel(Panel):
+    open_shop = Signal()
+
     def update(self, state: dict | None) -> None:
         self.clear()
         items = (state or {}).get("bag") or []
         if not items:
             self.add(label(self.t("bag_empty"), dim=True))
+            self.add(button(self.t("shop"), self.open_shop.emit))
             return
         for item in items:
             sprite = Sprite(34)
@@ -706,11 +737,16 @@ class BagPanel(Panel):
 class CollectionPanel(Panel):
     def __init__(self, reader) -> None:
         super().__init__(reader)
+        self._return_scroll = 0
+        self._wheel_delta = 0
+        self._wheel_locked = False
+        self.scroll.viewport().installEventFilter(self)
         self._showing_log = False
         self._page = 0
         self._rarity: str | None = None
         self._state: dict | None = None
         self._detail_species: int | None = None
+        self._requested_detail_language = None
         self._profile_index = 0
         self._appearance_index = 0
         self._query = ""
@@ -730,6 +766,45 @@ class CollectionPanel(Panel):
         self.sort_picker.currentIndexChanged.connect(self._sort_changed)
         self.filters = column(self.search, row(self.shiny_filter, self.sort_picker))
         self.layout().insertWidget(0, self.filters)
+
+    def eventFilter(self, watched, event):
+        if (watched is self.scroll.viewport() and event.type() == QEvent.Wheel
+                and self._detail_species is None and not self._showing_log):
+            shown = self._keep((self._state or {}).get("dex") or [])
+            if len(shown) > DEX_PER_PAGE:
+                if not self._wheel_locked:
+                    delta = event.angleDelta().y() or event.pixelDelta().y() * 3
+                    self._wheel_delta += delta
+                    if abs(self._wheel_delta) >= 120:
+                        self._turn(1 if self._wheel_delta < 0 else -1)
+                        self._wheel_delta = 0
+                        self._wheel_locked = True
+                        QTimer.singleShot(250, lambda: setattr(self, "_wheel_locked", False))
+                return True
+        return super().eventFilter(watched, event)
+
+    def open_species(self, species_id: int, instance_id: str | None = None) -> None:
+        entry = next((x for x in (self.reader.state or {}).get("dex", [])
+                      if x.get("species_id") == species_id), None)
+        if entry:
+            self._state = self.reader.state
+            self._open_detail(entry)
+            if instance_id:
+                appearances = entry.get("appearances") or [entry]
+                for appearance_index, appearance in enumerate(appearances):
+                    profiles = appearance.get("profiles") or []
+                    for profile_index, profile in enumerate(profiles):
+                        if profile.get("instance_id") == instance_id:
+                            self._appearance_index = appearance_index
+                            self._profile_index = profile_index
+                            self.refresh(self._state, force=True)
+                            self.scroll.verticalScrollBar().setValue(0)
+                            return
+
+    def _request_details(self) -> None:
+        if self._detail_species is not None:
+            self._requested_detail_language = ((self._state or {}).get("config") or {}).get("language", "en")
+            commands.enqueue("load_pokemon_details", {"species_id": self._detail_species})
 
     def fingerprint(self, state: dict | None) -> str:
         # The view, the page and the filter are this panel's own state; without
@@ -885,6 +960,7 @@ class CollectionPanel(Panel):
         sprite = Sprite(60)
         sprite.set_path(entry.get("sprite_path") or None)
         species = entry.get("species_id")
+        sprite.set_link(lambda: self._open_detail(entry), self.t("pokemon_details_open"))
         pinned = str(species) == str(self._pinned())
 
         number = badge(
@@ -897,6 +973,8 @@ class CollectionPanel(Panel):
             "★" if pinned else "☆",
             lambda _=False, sid=species, on=pinned: self._pin(sid, on),
             self.t("representative"), size=13)
+        star.setFixedSize(22, 22)
+        number.setStyleSheet(number.styleSheet().replace("1px 6px", "1px 3px"))
         if pinned:
             star.setStyleSheet(star.styleSheet().replace(
                 f"color: {theme.SECONDARY}", f"color: {theme.ORANGE}"))
@@ -929,17 +1007,26 @@ class CollectionPanel(Panel):
         return card(column(*parts, spacing=3), horizontal=False, padding=6)
 
     def _open_detail(self, entry: dict) -> None:
+        self._return_scroll = self.scroll.verticalScrollBar().value()
         self._detail_species = int(entry.get("species_id"))
         self._profile_index = 0
         self._appearance_index = 0
+        self._request_details()
+        self._next_scroll_position = 0
         self.refresh(self._state, force=True)
+        self.scroll.verticalScrollBar().setValue(0)
 
     def _close_detail(self) -> None:
         self._detail_species = None
         self._profile_index = 0
+        self._next_scroll_position = self._return_scroll
         self.refresh(self._state, force=True)
+        self.scroll.verticalScrollBar().setValue(self._return_scroll)
 
     def _build_detail(self, state: dict | None) -> None:
+        language = ((state or {}).get("config") or {}).get("language", "en")
+        if self._requested_detail_language != language:
+            self._request_details()
         entry = next((item for item in (state or {}).get("dex") or []
                       if int(item.get("species_id", -1)) == self._detail_species), None)
         if entry is None:
@@ -968,38 +1055,78 @@ class CollectionPanel(Panel):
                                 "represent", {"species_id": sid, "is_shiny": variant.get("is_shiny", False),
                                               "unown_form": variant.get("unown_form")})))
         sprite.set_path(appearance.get("sprite_path") or None)
+        reference_profiles = appearance.get('profiles') or entry.get('profiles') or []
+        if not entry.get('types') and reference_profiles:
+            entry = {**entry, 'types': reference_profiles[0].get('types') or []}
         self.add(row(
             sprite,
             column(
                 label(appearance.get("name") or entry.get("name") or f"#{entry.get('species_id')}", bold=True, size=20),
                 rarity_badge(entry.get("rarity"), self.t(entry.get("rarity", "common"))),
+                *([type_badges(entry['types'], self.t)] if entry.get('types') else []),
                 spacing=5,
             ), spacing=12,
         ))
         if entry.get("forms"):
-            self.add(label(f'{entry.get("unown_forms", 0)} / 28', dim=True))
-            forms = QWidget()
-            grid = QGridLayout(forms)
+            self.add(label(f'{entry.get("form_count", entry.get("unown_forms", 0))} / {len(entry["forms"])}', dim=True))
+            form_grid = QWidget()
+            grid = QGridLayout(form_grid)
             grid.setContentsMargins(0, 0, 0, 0)
             for index, form in enumerate(entry["forms"]):
                 choice = next((i for i, variant in enumerate(appearances)
                                if variant.get("unown_form") == form.get("unown_form")), None)
                 grid.addWidget(button(form.get("symbol", "?"),
-                    lambda _=False, i=choice: self._choose_appearance(i), choice is not None), index // 7, index % 7)
-            self.add(forms)
+                    lambda _=False, i=choice: self._choose_appearance(i), choice is not None), index // (7 if entry.get("species_id") == 201 else 3), index % (7 if entry.get("species_id") == 201 else 3))
+            self.add(form_grid)
         profiles = appearance.get("profiles", entry.get("profiles")) or []
-        if not profiles:
-            self.add(label(self.t("unknown"), dim=True))
-            return
-        self._profile_index = min(self._profile_index, len(profiles) - 1)
-        if len(profiles) > 1:
-            picker = _combo()
-            for index, profile in enumerate(profiles):
-                picker.addItem(f"#{index + 1} · Lv. {profile.get('level', 5)}", index)
-            picker.setCurrentIndex(self._profile_index)
-            picker.currentIndexChanged.connect(self._choose_profile)
-            self.add(picker)
-        profile = profiles[self._profile_index]
+        details = entry.get("details") or {}
+        if forms.resolved(entry["species_id"], appearance.get("unown_form")) != forms.resolved(entry["species_id"]):
+            self.add(label(self.t("default_form_data_note"), dim=True, size=11, wrap=True))
+        if profiles:
+            self._profile_index = min(self._profile_index, len(profiles) - 1)
+            if len(profiles) > 1:
+                picker = _combo()
+                for index, profile in enumerate(profiles):
+                    picker.addItem(f"#{index + 1} · Lv. {profile.get('level', 5)}", index)
+                picker.setCurrentIndex(self._profile_index)
+                picker.currentIndexChanged.connect(self._choose_profile)
+                self.add(picker)
+            self._add_individual(profiles[self._profile_index])
+        elif details:
+            self.add(heading(self.t("base_stats")))
+            self._add_stats([{"name": key, "value": value} for key, value in details.get("base_stats", {}).items()])
+        status = entry.get("details_status", "idle")
+        if status != "ready":
+            self.add(label(self.t("pokemon_details_unavailable" if status in ("error", "stale")
+                                  else "pokemon_details_loading"), dim=True, wrap=True))
+            self.add(button(self.t("pokemon_details_retry"), self._request_details))
+        if details:
+            self.add(heading(self.t("species_data")))
+            for key, unit in (("height", "m"), ("weight", "kg")):
+                value = details.get(key)
+                self.add(stat_line(self.t(key), f"{value / 10:.1f} {unit}" if value is not None else "—"))
+            self.add(stat_line(self.t("base_stat_total"), str(details.get("base_stat_total", "—"))))
+            if not profiles and details.get("description"):
+                self.add(label(details["description"], dim=True, wrap=True))
+            self.add(heading(self.t("possible_abilities")))
+            for ability in details.get("abilities") or []:
+                name = ability.get("display_name") or str(ability.get("name", "")).replace("-", " ").title()
+                self.add(label(name + (" · " + self.t("hidden_ability") if ability.get("is_hidden") else ""), wrap=True))
+            moves = details.get("moves") or []
+            self.add(heading(self.fill("complete_moves", len(moves))))
+            for move in moves:
+                methods = []
+                for method in move.get("learn_methods") or []:
+                    key = {"level-up": "move_level_up", "machine": "move_machine", "egg": "move_egg", "tutor": "move_tutor"}.get(method.get("method"), "move_other")
+                    text = self.t(key)
+                    if method.get("method") == "level-up":
+                        text += f" Lv. {method.get('level', 0)}"
+                    if text not in methods:
+                        methods.append(text)
+                self.add(spread(label(move.get("display_name") or move.get("name", ""), wrap=True),
+                                label(" · ".join(methods), dim=True, size=11, wrap=True)))
+
+    def _add_individual(self, profile: dict) -> None:
         gender = profile.get("gender")
         ability = profile.get("ability") or self.t("unknown")
         if profile.get("ability_is_hidden"):
@@ -1014,26 +1141,32 @@ class CollectionPanel(Panel):
         if profile.get("description"):
             self.add(label(profile["description"], dim=True, size=12, wrap=True))
 
-        ivs = profile.get("ivs") or {}
-        stats = {item.get("name"): item for item in profile.get("stats") or []}
         self.add(heading(f"{self.t('stats')} · {self.t('individual_values')}"))
-        for key in ("hp", "attack", "defense", "special-attack", "special-defense", "speed"):
-            stat = stats.get(key) or {}
-            value = str(stat.get("value", "—"))
-            self.add(stat_line(self.t(f"stat_{key.replace('-', '_')}"),
-                               f"{value}  ·  IV {ivs.get(key, 0)}"))
-
+        self._add_stats(profile.get("stats") or [], profile.get("ivs") or {})
         self.add(heading(self.t("known_moves")))
         moves = profile.get("moves") or []
         if not moves:
             self.add(label(self.t("no_moves"), dim=True, size=12))
         for move in moves:
             learned = int(move.get("learned_at", 0))
-            display_name = move.get("display_name")
-            if not display_name:
-                display_name = str(move.get("name", "")).replace("-", " ").title()
-            self.add(stat_line(str(display_name),
-                               f"Lv. {learned}" if learned else ""))
+            name = move.get("display_name") or str(move.get("name", "")).replace("-", " ").title()
+            self.add(stat_line(name, f"Lv. {learned}" if learned else ""))
+
+    def _add_stats(self, stats: list, ivs=None) -> None:
+        by_name = {s.get("name"): s for s in stats}
+        peak = max(300, max((s.get("value", 0) for s in stats), default=0))
+        scale = ((peak + 99) // 100) * 100
+        for key in ("hp", "attack", "defense", "special-attack", "special-defense", "speed"):
+            stat = by_name.get(key) or {}
+            value = stat.get("value")
+            text = str(value) if value is not None else "—"
+            if ivs is not None:
+                text += f" · IV {ivs.get(key, 0)}"
+            self.add(stat_line(self.t(f"stat_{key.replace('-', '_')}"), text))
+            if value is not None:
+                bar = meter(value / scale, colour=theme.ACCENT)
+                bar.setToolTip(f"{value} / {scale}")
+                self.add(bar)
 
     def _choose_profile(self, index: int) -> None:
         self._profile_index = max(0, int(index))
@@ -1099,6 +1232,9 @@ class CollectionPanel(Panel):
                 chain_layout.addWidget(label("→", faint=True))
             sprite = Sprite(48)
             sprite.set_path(stage.get("sprite_path") or None)
+            if stage.get("species_id"):
+                sprite.set_link(lambda sid=stage["species_id"]: self.open_species(int(sid)),
+                                self.t("pokemon_details_open"))
             caption = label(stage.get("name") or f"#{stage.get('species_id', '')}",
                             dim=True, size=11)
             caption.setAlignment(Qt.AlignCenter)
@@ -1273,6 +1409,12 @@ class SettingsPanel(Panel):
     def _add_snapshots(self, state: dict | None) -> None:
         self.add(heading(self.t("local_snapshots")))
         self.add(button(self.t("create_snapshot"), lambda: commands.enqueue("create_snapshot", {})))
+        if not hasattr(self, "_show_snapshots"):
+            self._show_snapshots = False
+        self.add(button(("▾ " if self._show_snapshots else "▸ ") + self.t("local_snapshots"),
+                        self._toggle_snapshots))
+        if not self._show_snapshots:
+            return
         for snapshot in (state or {}).get("snapshots") or []:
             taken = snapshot.get("taken_at")
             try:
@@ -1282,6 +1424,10 @@ class SettingsPanel(Panel):
             self.add(row(label(f"{when} · {snapshot.get('dex_count', 0)}", dim=True, size=12),
                          button(self.t("restore_snapshot"),
                                 lambda _=False, sid=snapshot["id"]: self._restore_snapshot(sid))))
+
+    def _toggle_snapshots(self):
+        self._show_snapshots = not self._show_snapshots
+        self.refresh(self.reader.state, force=True)
 
     def _restore_snapshot(self, identity: str) -> None:
         if QMessageBox.question(self, self.t("restore_snapshot"), self.t("restore_snapshot_confirm"),

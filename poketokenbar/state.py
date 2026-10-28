@@ -156,12 +156,13 @@ def _daily_rows(series_by_provider: dict | None, strings: dict | None = None) ->
     }
     combined: dict[str, dict] = {}
     coverage_by_day = {}
-    for series in (series_by_provider or {}).values():
+    for provider_id, series in (series_by_provider or {}).items():
         for day in series:
             bucket = combined.setdefault(day.date, {
-                "date": day.date, "total_tokens": 0, "total_cost": 0.0,
+                "date": day.date, "total_tokens": 0, "total_cost": 0.0, "provider_tokens": {},
             })
             bucket["total_tokens"] += day.total_tokens
+            bucket["provider_tokens"][provider_id] = day.total_tokens
             bucket["total_cost"] += day.total_cost
             coverage_by_day.setdefault(day.date, CostCoverage()).merge(day.cost_coverage)
     combined_rows = []

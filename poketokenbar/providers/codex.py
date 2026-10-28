@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+import os
 from pathlib import Path
 
 from ..models import Entry
@@ -221,13 +222,20 @@ class CodexProvider(ScanningProvider):
         live = set()
         for root in self.roots():
             for path in sorted(self.files(root)):
-                key = str(path.resolve())
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                # File identity deduplicates symlinks/hardlinks without Windows
+                # realpath calls, which can stall on WSL/UNC rollout paths.
+                # Some network filesystems report no inode; use the lexical
+                # path there, as the shared scanner does.
+                key = ((stat.st_dev, stat.st_ino) if stat.st_ino else
+                       os.path.normcase(os.path.abspath(path)))
                 if key in live:
                     continue
                 live.add(key)
-                signature = self.file_signature(path)
-                if signature is None:
-                    continue
+                signature = (stat.st_mtime, stat.st_size)
                 raw = self._cache.get_document('codex-rollout', path, *signature, self.PARSER_VERSION) if self._cache else None
                 if raw is not None:
                     entries = _decode(raw['entries'])

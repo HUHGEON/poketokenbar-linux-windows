@@ -15,6 +15,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 from .processes import background_options
@@ -92,7 +93,10 @@ def latest_revision(timeout: float = 15.0) -> str:
     """The head commit of the branch this is installed from."""
     raw = _get(f"{API}/commits/{BRANCH}", timeout)
     try:
-        return str(json.loads(raw)["sha"])
+        revision = json.loads(raw)["sha"]
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError("invalid commit revision")
+        return revision
     except (ValueError, KeyError, TypeError) as exc:
         raise UpdateError(f"unexpected response from GitHub: {exc}") from exc
 
@@ -124,12 +128,12 @@ class Updater:
         if not force and self._checked_at is not None:
             if now - self._checked_at < MIN_CHECK_INTERVAL:
                 return self.available
-        self._checked_at = now
         try:
             latest = latest_revision()
         except (UpdateError, urllib.error.URLError, OSError, TimeoutError) as exc:
             self.last_error = str(exc)
             return self.available
+        self._checked_at = now
         self.last_error = ""
         installed = self.installed
         # No recorded revision means an install from before this existed. It is

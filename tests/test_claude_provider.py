@@ -72,6 +72,8 @@ def test_unchanged_file_is_not_reparsed(home, tmp_path):
     root = home / ".claude" / "projects" / "proj"
     path = root / "a.jsonl"
     _write(root, "a.jsonl", when=datetime.now().astimezone())
+    # Normalize before caching: some mounted filesystems round restored timestamps.
+    os.utime(path, (int(path.stat().st_atime), int(path.stat().st_mtime)))
     original = path.stat()
 
     cache = ScanCache(tmp_path / "cache" / "scan.db")
@@ -79,7 +81,7 @@ def test_unchanged_file_is_not_reparsed(home, tmp_path):
     assert provider.fetch_daily().total_tokens == 40_930
 
     path.write_bytes(b"x" * original.st_size)  # same size, different bytes
-    os.utime(path, (original.st_atime, original.st_mtime))
+    os.utime(path, ns=(original.st_atime_ns, original.st_mtime_ns))
     assert provider.fetch_daily().total_tokens == 40_930
     cache.close()
 

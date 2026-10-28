@@ -76,7 +76,7 @@ def test_pokeapi_details_are_normalized_and_cached(tmp_path, monkeypatch):
                            "ability": {"name": "overgrow"}}],
             "moves": [{"move": {"name": "tackle"}, "version_group_details": [{
                 "level_learned_at": 1,
-                "version_group": {"name": "black-white"},
+                "version_group": {"name": "black-2-white-2"},
                 "move_learn_method": {"name": "level-up"},
             }]}],
         }

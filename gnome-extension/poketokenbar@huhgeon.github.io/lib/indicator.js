@@ -53,6 +53,7 @@ class Indicator extends PanelMenu.Button {
             collection: new CollectionSection(reader),
             settings: new SettingsSection(reader),
         };
+        this._sections.bag.connect('open-shop', () => this._selectTab('shop'));
         this._currentTab = 'home';
 
         const item = new PopupMenu.PopupBaseMenuItem({

@@ -12,7 +12,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-from . import platform_paths, unown
+from . import platform_paths, forms
 
 SPRITE_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon"
 ITEM_BASE = "https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items"
@@ -22,8 +22,7 @@ MAX_ANIMATED_ID = 649
 
 
 def _asset_name(species_id: int, unown_form: str | None) -> str:
-    form = unown.resolved(species_id, unown_form)
-    return f"{species_id}-{form}" if form and form != "a" else str(species_id)
+    return forms.asset_name(species_id, unown_form)
 
 
 def cache_key(species_id: int, animated: bool, shiny: bool, unown_form: str | None = None) -> str:
@@ -38,6 +37,7 @@ def sprite_url(species_id: int, animated: bool, shiny: bool, unown_form: str | N
             f"{SPRITE_BASE}/versions/generation-v/black-white/animated/"
             f"{shiny_part}{name}.gif"
         )
+    name = forms.asset_name(species_id, unown_form, static=True)
     return f"{SPRITE_BASE}/{'shiny/' if shiny else ''}{name}.png"
 
 

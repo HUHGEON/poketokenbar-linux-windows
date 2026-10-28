@@ -68,7 +68,7 @@ def test_pricing_exact_aliases_and_request_tiers():
     assert pricing.cost('claude-opus-5-5', 1000000, 0, 0, 1000000) == pytest.approx(4.2)
     assert pricing.cost('claude-fable-5-1', 0, 0, 0, 1000000) == pytest.approx(.25)
     assert pricing.cost('gpt-5.5', 272001, 1000, 0, 0) == pytest.approx(2.76501)
-    assert pricing.cost('gpt-6.1-sol', 1000000, 100000, 0, 2000000) == pytest.approx(3.2)
+    assert pricing.cost('gpt-6.1-sol', 1000000, 100000, 0, 2000000) == pytest.approx(5.9)
     assert pricing.rate('claude-opus-unreleased') == pricing.ZERO
     assert pricing.rate('gemini-3-future-pro') == pricing.ZERO
 

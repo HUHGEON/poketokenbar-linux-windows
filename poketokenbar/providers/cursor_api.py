@@ -92,9 +92,10 @@ class CursorUsageAPI:
         self.cache_path = cache_path
         self._cache = None
 
-    def _network(self, token: str, since: datetime) -> list[Entry] | None:
+    def _network(self, token: str, since: datetime, on_rejected=None) -> list[Entry] | None:
         entries = []
         bearer = False
+        refreshed = False
         index = 0
         deadline = time.monotonic() + 120
         page = 1
@@ -104,10 +105,11 @@ class CursorUsageAPI:
             headers = {'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0',
                        'Origin': 'https://cursor.com', 'Referer': 'https://cursor.com/dashboard/usage'}
             if bearer:
-                headers['Authorization'] = f'Bearer {token}'
+                headers['Authorization'] = 'Bearer ' + unquote(token).split('::', 1)[-1]
             else:
-                subject = _subject(token)
-                cookie = f'{subject}::{token}' if subject and '::' not in unquote(token) else token
+                decoded = unquote(token)
+                subject = _subject(decoded)
+                cookie = f'{subject}::{decoded}' if subject and '::' not in decoded else token
                 headers['Cookie'] = f'WorkosCursorSessionToken={cookie}'
             try:
                 payload, status = self.transport(Request(URL, data=json.dumps(body).encode(), headers=headers))
@@ -116,6 +118,13 @@ class CursorUsageAPI:
             if status in (401, 403) and not bearer:
                 bearer = True
                 continue
+            if status in (401, 403) and not refreshed and on_rejected:
+                refreshed = True
+                replacement = on_rejected(token)
+                if replacement:
+                    token = replacement
+                    bearer = False
+                    continue
             if not 200 <= status < 300 or not isinstance(payload, dict):
                 return None
             events = next((payload[key] for key in ('usageEventsDisplay', 'usageEvents', 'events')
@@ -144,9 +153,9 @@ class CursorUsageAPI:
             page += 1
         return None
 
-    def fetch(self, token: str, since: datetime) -> UsageResult:
+    def fetch(self, token: str, since: datetime, *, on_rejected=None) -> UsageResult:
         identity = account_identifier(token)
-        entries = self._network(token, since)
+        entries = self._network(token, since, on_rejected)
         if entries is not None:
             self._cache = {'account': identity, 'fetched_at': time.time(),
                            'since': since.timestamp(), 'entries': _encode(entries)}

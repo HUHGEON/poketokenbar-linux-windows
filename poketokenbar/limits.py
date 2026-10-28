@@ -270,7 +270,8 @@ def display_percent(utilization: float, mode: str = "used") -> float:
 
 
 def format_percent(value: float) -> str:
-    return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
+    from .format import percent
+    return percent(value)
 
 
 def _format(window: LimitWindow | None, label: str, percent_mode: str = "used") -> str:

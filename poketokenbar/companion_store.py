@@ -12,7 +12,7 @@ import random
 from datetime import date as _date
 from pathlib import Path
 
-from . import balance, companion, l10n, pokeapi, save, shop, sprites, unown
+from . import balance, companion, l10n, pokeapi, save, shop, sprites, forms, pokemon_types
 from .companion import CompanionState
 from .format import compact as _compact
 from .plan import MULTIPLIERS
@@ -59,6 +59,8 @@ class CompanionStore:
         self.celebration: dict | None = None
         self.last_events: companion.GrowthEvents | None = None
         self.hatch_error: str | None = None
+        self._detail_payloads: dict[int, dict] = {}
+        self._detail_status: dict[int, str] = {}
         self._ensure_profiles()
 
     def _ensure_profiles(self) -> None:
@@ -291,10 +293,58 @@ class CompanionStore:
             "moves": moves,
             "stats": computed_stats(details, profile, nature) if details else [],
             "types": list((details or {}).get("types") or []),
+            "type_badges": pokemon_types.badges((details or {}).get("types"), language),
             "height": (details or {}).get("height"),
             "weight": (details or {}).get("weight"),
             "description": description,
         }
+
+    def load_pokemon_details(self, species_id: int) -> None:
+        """Resolve one owned species on demand, including reference-only stages."""
+        owned = {sid for entry in self.state.dex for sid in entry.chain_order}
+        owned.update(self.state.reached_species())
+        if species_id not in owned:
+            raise ValueError("Pokemon is not collected")
+        try:
+            reset_retry = getattr(self.api, "reset_details_retry", None)
+            if callable(reset_retry):
+                reset_retry(species_id)
+            details = self.api.details(species_id)
+            moves = [dict(move) for move in details.get("all_moves") or []]
+            abilities = [dict(ability) for ability in details.get("abilities") or []]
+            localize = getattr(self.api, "localized_battle_names", None)
+            names = {}
+            if callable(localize):
+                for index, ability in enumerate(abilities or [{"name": None}]):
+                    display, translated = localize(ability.get("name"),
+                        [m["name"] for m in moves] if index == 0 else [], self.state.language)
+                    if ability.get("name"):
+                        ability["display_name"] = display
+                    names.update(translated)
+            for move in moves:
+                move["display_name"] = names.get(move["name"]) or move["name"].replace("-", " ").title()
+            descriptions = details.get("descriptions") or {}
+            self._detail_payloads[species_id] = {
+                "language": self.state.language,
+                "height": details.get("height"), "weight": details.get("weight"),
+                "base_stats": details.get("base_stats") or {},
+                "base_stat_total": sum((details.get("base_stats") or {}).values()),
+                "abilities": abilities, "moves": moves,
+                "version_group": details.get("version_group"),
+                "description": descriptions.get(self.state.language) or descriptions.get("en", ""),
+            }
+            self._detail_status[species_id] = ("ready" if
+                details.get("version_group") == pokeapi.PREFERRED_VERSION_GROUP else "stale")
+            # Refresh only moves/derived metadata. Rolled identity and earned progress stay intact.
+            individuals = [e for e in self.state.dex if e.final_id == species_id]
+            if self.state.active and self.state.active.current_id == species_id:
+                individuals.append(self.state.active)
+            for individual in individuals:
+                if individual.profile:
+                    individual.profile.enrich(details)
+            self._persist()
+        except (pokeapi.PokeAPIError, OSError, ValueError, TypeError, AttributeError):
+            self._detail_status[species_id] = "error"
 
     def _note_celebration(self, events) -> None:
         """Build the banner the popup shows once, in the user's language.
@@ -371,8 +421,11 @@ class CompanionStore:
                 species_id = self.api.roll_base_species(self.rng, self.state.egg_tier)
                 self.state.pending_hatch_id = species_id
                 self.state.pending_unown_form = (
-                    unown.roll_form(self.rng.getrandbits(64), self.state.collected_unown_forms())
-                    if species_id == unown.SPECIES_ID else None)
+                    forms.roll_form(self.rng.getrandbits(64), {
+                        form for species in forms.CATALOG
+                        if forms.LINE_BASE_IDS.get(species, species) == species_id
+                        for _, form in self.state.appearances(species)
+                    }, forms.line_forms(species_id)) if forms.line_forms(species_id) else None)
                 self._persist()
             line = self.api.line(species_id)
             self.hatch_error = None
@@ -432,12 +485,18 @@ class CompanionStore:
                 form: str | None = None) -> str:
         if self.sprites is None:
             return ""
-        kwargs = {"unown_form": form} if species_id == unown.SPECIES_ID else {}
+        kwargs = {"unown_form": form} if forms.forms(species_id) else {}
         path = self.sprites.path(species_id, animated=animated, shiny=shiny, **kwargs)
         return str(path) if path else ""
 
     def _display_name(self, species_id: int, form: str | None = None) -> str:
-        return unown.display_name(self.species_name(species_id, self.state.language), species_id, form)
+        resolved = forms.resolved(species_id, form)
+        label = None
+        if resolved and species_id != forms.SPECIES_ID and resolved != forms.forms(species_id)[0]:
+            lookup = getattr(self.api, "form_label", None)
+            if lookup:
+                label = lookup(species_id, resolved, self.state.language)
+        return forms.display_name(self.species_name(species_id, self.state.language), species_id, form, label)
 
     def panel_species(self) -> tuple[int | None, bool]:
         """What the panel and the desktop pet show: the pin, else the companion.
@@ -458,7 +517,7 @@ class CompanionStore:
         if self.state.representative_species_id is not None:
             return self.state.representative_unown_form
         mon = self.state.active
-        return unown.resolved(mon.current_id, mon.unown_form) if mon else None
+        return forms.resolved(mon.current_id, mon.unown_form) if mon else None
 
     def panel_sprite_path(self) -> str:
         species_id, shiny = self.panel_species()
@@ -479,7 +538,7 @@ class CompanionStore:
         """
         if species_id is not None and not self.state.owns_species(species_id):
             raise ValueError(f"species {species_id} is not in your Pokedex")
-        form = unown.resolved(species_id, unown_form)
+        form = forms.resolved(species_id, unown_form)
         if species_id is not None:
             candidates = {
                 (shiny, letter) for shiny, letter in self.state.appearances(species_id)
@@ -493,7 +552,7 @@ class CompanionStore:
                 is_shiny, form = previous
             else:
                 is_shiny, form = min(candidates, key=lambda appearance: (
-                    not appearance[0], unown.FORMS.index(appearance[1]) if appearance[1] else 0))
+                    not appearance[0], forms.sort_order(species_id, appearance[1])))
         self.state.representative_species_id = species_id
         self.state.representative_is_shiny = is_shiny if species_id is not None else None
         self.state.representative_unown_form = form
@@ -554,6 +613,7 @@ class CompanionStore:
                 "stage": "egg",
                 "label": f"\N{EGG}{round(progress * 100)}%",
                 "egg_usage": self.state.egg_usage,
+                "egg_threshold": threshold,
                 "egg_progress": round(progress, 4),
                 "egg_tier": str(self.state.egg_tier) if self.state.egg_tier else None,
                 "hatch_status": ("delayed" if self.hatch_error else "ready") if progress >= 1 else "incubating",
@@ -584,7 +644,7 @@ class CompanionStore:
                         "species_id": species_id,
                         "name": self._display_name(species_id, mon.unown_form),
                         "sprite_path": self._sprite(species_id, False, mon.visible_shiny, mon.unown_form),
-                        "unown_form": unown.resolved(species_id, mon.unown_form),
+                        "unown_form": forms.resolved(species_id, mon.unown_form),
                         "current": index == mon.stage_index,
                         "reached": index <= mon.stage_index,
                     }
@@ -594,7 +654,7 @@ class CompanionStore:
             "label": "",
             "species_id": mon.current_id,
             "name": self._display_name(mon.current_id, mon.unown_form),
-            "unown_form": unown.resolved(mon.current_id, mon.unown_form),
+            "unown_form": forms.resolved(mon.current_id, mon.unown_form),
             "is_high_value": shop.is_high_value(self.state),
             "can_retry_hatch": False,
             "is_final_form": mon.is_final_form,
@@ -630,8 +690,8 @@ class CompanionStore:
         self._persist()
         return granted
 
-    def buy(self, key: str, confirmed: bool = False) -> str:
-        message = shop.buy(self.state, key, self.shop_difficulty, confirmed=confirmed)
+    def buy(self, key: str, confirmed: bool = False, count: int = 1) -> str:
+        message = shop.buy(self.state, key, self.shop_difficulty, confirmed=confirmed, count=count)
         self.hatch_error = None
         self._persist()
         return message
@@ -713,6 +773,8 @@ class CompanionStore:
                     "kind": e.kind,
                     "price": e.price,
                     "price_text": _compact(e.price),
+                    "max_buy_count": (min(99, self.state.spendable_tokens // max(1, e.price))
+                                      if e.key in ("rareCandy", "mint") else int(not e.owned and self.state.spendable_tokens >= e.price)),
                     "label": label,
                     "description": description,
                     "badge": badge,
@@ -804,7 +866,7 @@ class CompanionStore:
                     continue
                 profiles.append(profile)
                 color = individual.visible_shiny if individual is mon else individual.is_shiny
-                appearance_key = (color, unown.resolved(species_id, individual.unown_form))
+                appearance_key = (color, forms.resolved(species_id, individual.unown_form))
                 profiles_by_appearance.setdefault(appearance_key, []).append(profile)
             appearances = [
                 {"is_shiny": shiny, "unown_form": form,
@@ -812,25 +874,36 @@ class CompanionStore:
                  "sprite_path": self._sprite(species_id, False, shiny, form),
                  "profiles": profiles_by_appearance.get((shiny, form), [])}
                 for shiny, form in sorted(self.state.appearances(species_id),
-                    key=lambda value: ((unown.FORMS.index(value[1]) if value[1] else 0), value[0]))
+                    key=lambda value: (forms.sort_order(species_id, value[1]), value[0]))
             ]
             preferred = next((a for a in appearances if a["is_shiny"]), appearances[0])
+            cached_details = getattr(self.api, 'cached_details', None)
+            details = cached_details(species_id) if callable(cached_details) else None
+            types = (details or {}).get('types') or (profiles[0].get('types', []) if profiles else [])
             out.append(
                 {
                     "final_id": species_id,
                     "species_id": species_id,
                     "name": self.species_name(species_id, self.state.language),
+                    "types": list(types),
+                    "details": (self._detail_payloads.get(species_id)
+                                if self._detail_payloads.get(species_id, {}).get("language") == self.state.language else None),
+                    "details_status": (self._detail_status.get(species_id, "idle")
+                                       if self._detail_payloads.get(species_id, {}).get("language", self.state.language) == self.state.language else "idle"),
+                    "type_badges": pokemon_types.badges(types, self.state.language),
                     "rarity": slot["rarity"],
                     "is_shiny": slot["is_shiny"],
                     "is_raising": not slot["graduated"],
-                    "sprite_path": preferred["sprite_path"],
+                    "sprite_path": (self._sprite(species_id, False, slot["is_shiny"])
+                                    if species_id == 201 else preferred["sprite_path"]),
                     "unown_form": preferred["unown_form"],
                     "appearances": appearances,
+                    "form_count": len({a["unown_form"] for a in appearances}) if forms.forms(species_id) else 0,
                     "unown_forms": len({a["unown_form"] for a in appearances}) if species_id == 201 else 0,
-                    "forms": [{"unown_form": form, "symbol": unown.symbol(form),
+                    "forms": [{"unown_form": form, "symbol": forms.symbol(form) if species_id == 201 else form.replace("-", " ").title(),
                                "owned": any(a["unown_form"] == form for a in appearances),
                                "appearances": [a for a in appearances if a["unown_form"] == form]}
-                              for form in unown.FORMS] if species_id == 201 else [],
+                              for form in forms.forms(species_id)],
                     "profiles": profiles,
                 }
             )
@@ -844,7 +917,7 @@ class CompanionStore:
                     "species_id": species_id,
                     "name": self._display_name(species_id, form),
                     "sprite_path": self._sprite(species_id, False, shiny, form),
-                    "unown_form": unown.resolved(species_id, form),
+                    "unown_form": forms.resolved(species_id, form),
                 }
             )
         return out
@@ -861,7 +934,7 @@ class CompanionStore:
                 "nature": e.nature,
                 "is_shiny": e.is_shiny,
                 "chain": self._chain(e.chain_order, e.is_shiny, e.unown_form),
-                "unown_form": unown.resolved(e.final_id, e.unown_form),
+                "unown_form": forms.resolved(e.final_id, e.unown_form),
                 "is_released": e.is_released,
                 "caught_at": e.caught_at,
                 "raised_text": _duration(e.raised_seconds),
@@ -881,7 +954,7 @@ class CompanionStore:
                     "nature": mon.nature,
                     "is_shiny": mon.visible_shiny,
                     "chain": self._chain(self.state.reached_species(), mon.visible_shiny, mon.unown_form),
-                    "unown_form": unown.resolved(mon.current_id, mon.unown_form),
+                    "unown_form": forms.resolved(mon.current_id, mon.unown_form),
                     "is_released": False,
                     "caught_at": mon.hatched_at,
                     "raised_text": "",

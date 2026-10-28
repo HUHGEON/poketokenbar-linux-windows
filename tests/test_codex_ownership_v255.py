@@ -92,13 +92,15 @@ def test_rollout_cache_keeps_parent_metadata_across_instances(tmp_path):
     events = [('2026-09-25T12:00:01Z', vector(10), vector(10))]
     parent = write(root, 'parent.jsonl', 'parent', events)
     write(root, 'child.jsonl', 'child', events + [('2026-09-25T12:01:00Z', vector(30), vector(20))], parent='parent')
+    # Normalize before caching: some mounted filesystems round restored timestamps.
+    os.utime(parent, (int(parent.stat().st_atime), int(parent.stat().st_mtime)))
     cache_path = tmp_path / 'cache.db'
     cache = ScanCache(cache_path)
     assert CodexProvider(cache=cache, home=tmp_path).fetch_daily('2026-09-25').total_tokens == 30
     cache.close()
     stat = parent.stat()
     parent.write_bytes(b'x' * stat.st_size)
-    os.utime(parent, (stat.st_atime, stat.st_mtime))
+    os.utime(parent, ns=(stat.st_atime_ns, stat.st_mtime_ns))
     cache = ScanCache(cache_path)
     assert CodexProvider(cache=cache, home=tmp_path).fetch_daily('2026-09-25').total_tokens == 30
     cache.close()

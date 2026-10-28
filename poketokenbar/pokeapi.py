@@ -23,11 +23,12 @@ REST_BASE = "https://pokeapi.co/api/v2"
 GRAPHQL_URL = "https://graphql.pokeapi.co/v1beta2"
 # Gen I-V. The animated Black/White sprites the panel uses stop here.
 MAX_SPECIES_ID = 649
+PREFERRED_VERSION_GROUP = "black-2-white-2"
 # Lockstep with l10n.LANGUAGES, so a Pokemon's name is available in whatever
 # language the UI is set to. "pt" collects nothing today — PokeAPI has no such
 # language — but is listed so it is picked up the moment one appears; omitting
 # it would pin Portuguese users to English names forever.
-LANG_CODES = ("ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt", "de")
+LANG_CODES = ("ko", "en", "ja-Hrkt", "ja", "es", "fr", "pt", "de", "ru")
 # PokéAPI's GraphQL endpoint answers 403 to urllib's default User-Agent.
 USER_AGENT = "poketokenbar/0.1 (+https://github.com/chattymin/PokeTokenBar)"
 
@@ -71,6 +72,7 @@ class PokeAPI:
         self._species: dict[int, dict] = {}
         self._lines: dict[int, EvoLine] = {}
         self._details: dict[int, dict] = {}
+        self._details_retry_after: dict[int, float] = {}
         self._battle_names: dict[str, dict[str, dict[str, str]]] | None = None
         self._battle_names_retry_after = 0.0
 
@@ -156,6 +158,40 @@ class PokeAPI:
             name: resolve("move", name) for name in wanted["move"]
         }
 
+    def form_label(self, species_id: int, form: str, language: str) -> str:
+        """Localized appearance names; identifiers remain usable while offline."""
+        from . import forms
+        entry = next((entry for entry in forms.CATALOG.get(species_id, ()) if entry[0] == form), None)
+        if entry is None:
+            return form.replace("-", " ").title()
+        form_id = entry[1]
+        cache = getattr(self, "_form_names", {})
+        self._form_names = cache
+        if form_id not in cache:
+            path = self.cache_dir / "form-names" / f"{form_id}.json"
+            try:
+                names = json.loads(path.read_text(encoding="utf-8"))
+                if isinstance(names, dict):
+                    cache[form_id] = names
+            except (OSError, ValueError):
+                pass
+            if form_id not in cache and time.time() >= getattr(self, "_form_names_retry_after", 0):
+                try:
+                    raw = _get_json(f"{REST_BASE}/pokemon-form/{form_id}")
+                    names = {(row.get("language") or {}).get("name"): row.get("name")
+                             for row in raw.get("form_names", []) if row.get("name")}
+                    cache[form_id] = names
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = path.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(names, ensure_ascii=False), encoding="utf-8")
+                    tmp.replace(path)
+                except (PokeAPIError, OSError, ValueError, TypeError):
+                    self._form_names_retry_after = time.time() + 300
+        names = cache.get(form_id, {})
+        codes = ["ja-Hrkt", "ja"] if language == "ja" else [language]
+        return next((names[code] for code in codes + ["en"] if names.get(code)),
+                    form.replace("-", " ").title())
+
     # --- individual details -----------------------------------------------
 
     def _details_file(self, species_id: int) -> Path:
@@ -175,32 +211,40 @@ class PokeAPI:
             pass
         return None
 
+    def reset_details_retry(self, species_id: int) -> None:
+        self._details_retry_after.pop(species_id, None)
+
     def details(self, species_id: int) -> dict:
         """Default-form battle data, cached for 30 days with stale fallback."""
-        if species_id in self._details:
-            return self._details[species_id]
         path = self._details_file(species_id)
         cached = self.cached_details(species_id)
+        if time.time() < self._details_retry_after.get(species_id, 0):
+            if cached is not None:
+                return cached
+            raise PokeAPIError("Pokemon details temporarily unavailable")
         try:
             snapshot = json.loads(path.read_text(encoding="utf-8"))
-            if cached is not None and time.time() - float(snapshot.get("fetched_at", 0)) < 30 * 86400:
+            if (cached is not None and cached.get("version_group") == PREFERRED_VERSION_GROUP
+                    and time.time() - float(snapshot.get("fetched_at", 0)) < 30 * 86400):
                 return cached
         except (OSError, ValueError, TypeError, AttributeError):
             pass
         try:
             pokemon = _get_json(f"{REST_BASE}/pokemon/{species_id}")
             species = self.species(species_id)
-            moves = []
+            moves, all_moves = [], []
             for move in pokemon.get("moves") or []:
-                levels = [
-                    int(row.get("level_learned_at", 0))
-                    for row in move.get("version_group_details") or []
-                    if (row.get("version_group") or {}).get("name") == "black-white"
-                    and (row.get("move_learn_method") or {}).get("name") == "level-up"
-                ]
+                methods = [{"method": (row.get("move_learn_method") or {}).get("name", ""),
+                            "level": int(row.get("level_learned_at", 0))}
+                           for row in move.get("version_group_details") or []
+                           if (row.get("version_group") or {}).get("name") == PREFERRED_VERSION_GROUP]
+                name = (move.get("move") or {}).get("name", "")
+                if not methods or not name:
+                    continue
+                all_moves.append({"name": name, "learn_methods": methods})
+                levels = [m["level"] for m in methods if m["method"] == "level-up"]
                 if levels:
-                    moves.append({"name": (move.get("move") or {}).get("name", ""),
-                                  "learned_at": min(levels)})
+                    moves.append({"name": name, "learned_at": min(levels)})
             descriptions = {}
             for entry in species.get("flavor_text_entries") or []:
                 code = (entry.get("language") or {}).get("name")
@@ -208,6 +252,8 @@ class PokeAPI:
                     descriptions[code] = " ".join(str(entry.get("flavor_text") or "").split())
             details = {
                 "species_id": species_id,
+                "version_group": PREFERRED_VERSION_GROUP,
+                "all_moves": sorted(all_moves, key=lambda move: move["name"]),
                 "height": int(pokemon.get("height") or 0),
                 "weight": int(pokemon.get("weight") or 0),
                 "gender_rate": int(species.get("gender_rate", -1)),
@@ -231,6 +277,7 @@ class PokeAPI:
             tmp.replace(path)
             return details
         except PokeAPIError:
+            self._details_retry_after[species_id] = time.time() + 300
             if cached is not None:
                 return cached
             raise

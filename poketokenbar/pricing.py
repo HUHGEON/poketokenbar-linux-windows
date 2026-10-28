@@ -1,6 +1,6 @@
 """Per-model token rates — ports ModelPricing.swift.
 
-Standard API-equivalent rates ported from upstream v2.5.5. Unknown models
+Standard API-equivalent rates ported from upstream v2.5.6. Unknown models
 have no estimate; the numeric compatibility interface returns zero.
 """
 
@@ -29,6 +29,7 @@ ZERO = ModelRate()
 TABLE: dict[str, ModelRate] = {
     "claude-opus-5": per_million(5, 25, 6.25, 0.5),
     "claude-opus-5-5": per_million(4, 20, 5, 0.2),
+    "claude-sonnet-5-5": per_million(2, 10, 2.5, 0.1),
     "claude-sonnet-5": per_million(2, 10, 2.5, 0.2),
     "claude-opus-4-20250514": per_million(15, 75, 18.75, 1.5),
     "claude-sonnet-4-20250514": per_million(3, 15, 3.75, 0.3),
@@ -39,6 +40,8 @@ TABLE: dict[str, ModelRate] = {
     "claude-haiku-4-5-20251001": per_million(1, 5, 1.25, 0.1),
     "claude-fable-5": per_million(10, 50, 12.5, 1.0),
     "claude-fable-5-1": per_million(10, 50, 12.5, 0.25),
+    "gpt-6-sol": per_million(2, 10, 2.5, 0.2),
+    "gpt-6-luna": per_million(0.1, 0.5, 0.125, 0.01),
     "gpt-6-astra": per_million(10, 50, 12.5, 1),
     "gpt-5.6-sol": per_million(4, 20, 5, 0.4),
     "gpt-5.6-terra": per_million(2, 12, 2.5, 0.2),
@@ -99,7 +102,7 @@ def estimated_cost(model: str, input_: int, output: int, cache_write: int,
         return None
     prompt = input_ + cache_write + cache_read
     long_context = (
-        key in {"gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"}
+        key in {"gpt-6-astra", "gpt-6-sol", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna", "gpt-5.5", "gpt-5.4"}
         and prompt > 272_000
     ) or (key == "gemini-2.5-pro" and prompt > 200_000)
     return ((input_ * r.input + cache_write * r.cache_write + cache_read * r.cache_read)

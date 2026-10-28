@@ -28,6 +28,8 @@ class RecapPanel(Panel):
         self.add(row(button("‹", lambda: self._move(recap["previous"]), recap["can_go_back"]),
                      label(recap["start"], bold=True),
                      button("›", lambda: self._move(recap["next"]), recap["can_go_forward"])))
+        self.add(button(self.t("recap_current"), lambda: self._move(date.today().isoformat()),
+                        enabled=self.anchor != date.today().isoformat()))
         self.add(card(column(big(fmt.compact(recap["total"])),
                              label(fmt.grouped(recap["total"]), dim=True)), horizontal=False))
         series = [{**item, "total_tokens_compact": fmt.compact(item["total_tokens"]),

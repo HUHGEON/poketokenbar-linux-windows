@@ -13,8 +13,12 @@ reboot.
 
 from __future__ import annotations
 
-from PySide6.QtCore import QPoint, Qt
-from PySide6.QtWidgets import QApplication, QVBoxLayout, QWidget
+import time
+
+from PySide6.QtCore import QPoint, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QLabel, QMenu, QVBoxLayout, QWidget
+
+from .. import l10n
 
 from .widgets import Sprite, label
 
@@ -29,10 +33,25 @@ FALLBACK_GLYPH = "\N{EGG}"
 
 
 class DesktopPet(QWidget):
-    def __init__(self, on_activate=None, on_moved=None) -> None:
+    def __init__(self, on_activate=None, on_moved=None, on_hide=None) -> None:
         super().__init__()
         self._on_activate = on_activate or (lambda: None)
         self._on_moved = on_moved or (lambda x, y: None)
+        self._on_hide = on_hide or self.hide
+        self._state = {}
+        self._last_alert_id = None
+        self._bubble = QLabel(self, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.WindowDoesNotAcceptFocus)
+        self._bubble.setObjectName("pet_limit_bubble")
+        self._bubble.setTextFormat(Qt.PlainText)
+        self._bubble.setWordWrap(True)
+        self._bubble.setFixedWidth(220)
+        self._bubble.setContentsMargins(10, 8, 10, 8)
+        self._bubble.setStyleSheet("background: #2c2c2c; color: white; border: 1px solid #666; border-radius: 8px;")
+        self._bubble.setAttribute(Qt.WA_ShowWithoutActivating)
+        self._bubble.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self._bubble_timer = QTimer(self)
+        self._bubble_timer.setSingleShot(True)
+        self._bubble_timer.timeout.connect(self._bubble.hide)
         self._press: QPoint | None = None
         self._dragging = False
         self._tooltip_text = ""
@@ -80,7 +99,8 @@ class DesktopPet(QWidget):
         self.setFixedSize(size, size)
 
     def update_state(self, state: dict | None) -> None:
-        panel = (state or {}).get("panel") or {}
+        self._state = state or {}
+        panel = self._state.get("panel") or {}
         # Follows the panel, so a pinned species shows here too — the daemon has
         # already resolved which one that is. An empty path is a fetch that has
         # not succeeded yet, never a decision to show nothing, so the last one
@@ -110,6 +130,52 @@ class DesktopPet(QWidget):
         if tooltip != self._tooltip_text:
             self._tooltip_text = tooltip
             self.setToolTip(tooltip)
+
+        alert = self._state.get("limit_alert") or {}
+        if alert.get("id") and alert["id"] != self._last_alert_id:
+            self._last_alert_id = alert["id"]
+            age = time.time() - float(alert.get("created_at", 0))
+            if config.get("limit_notifications", True) and 0 <= age < 15:
+                self._bubble.setText(str(alert.get("title", "")) + "\n" + str(alert.get("body", "")))
+                self._bubble.adjustSize()
+                self._place_bubble()
+                self._bubble.show()
+                self._bubble_timer.start(12000)
+        if not config.get("limit_notifications", True):
+            self._bubble.hide()
+
+    def context_menu(self):
+        language = (self._state.get("config") or {}).get("language", "en")
+        menu = QMenu(self)
+        menu.addAction(l10n.t("open", language), self._on_activate)
+        menu.addAction(l10n.t("floating_pet_hide", language), self._on_hide)
+        return menu
+
+    def contextMenuEvent(self, event) -> None:
+        menu = self.context_menu()
+        menu.exec(event.globalPos())
+        menu.deleteLater()
+        event.accept()
+
+    def _place_bubble(self) -> None:
+        screen = self._screen_for(self.x(), self.y())
+        x = self.x() + (self.width() - self._bubble.width()) // 2
+        y = self.y() - self._bubble.height() - 6
+        if screen:
+            area = screen.availableGeometry()
+            x = max(area.left(), min(x, area.right() - self._bubble.width() + 1))
+            if y < area.top():
+                y = min(area.bottom() - self._bubble.height() + 1, self.y() + self.height() + 6)
+        self._bubble.move(x, y)
+
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        if hasattr(self, "_bubble"):
+            self._place_bubble()
+
+    def hideEvent(self, event) -> None:
+        self._bubble.hide()
+        super().hideEvent(event)
 
     def place(self, x: int, y: int) -> None:
         """Move the pet, keeping it reachable on some screen.

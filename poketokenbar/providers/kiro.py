@@ -106,7 +106,20 @@ def text_byte_length(value) -> int:
         return 0
     kind = value.get("kind")
     if isinstance(kind, str):
-        return text_byte_length(value.get("data")) if kind == "text" else 0
+        data = value.get("data")
+        payload = data if isinstance(data, dict) else {}
+        if kind == "text":
+            return text_byte_length(data)
+        if kind == "toolUse":
+            return json_byte_length(payload.get("input"))
+        if kind == "toolResult":
+            return text_byte_length(payload.get("content"))
+        if kind == "thinking":
+            text = payload.get("text")
+            return len(text.encode("utf-8")) if isinstance(text, str) else 0
+        if kind == "json":
+            return json_byte_length(data)
+        return 0
     for key in ("content", "text", "data"):
         if key in value:
             return text_byte_length(value[key])
@@ -450,7 +463,7 @@ class KiroProvider(SQLiteProvider):
     display_name = "Kiro CLI"
     # Tokens here are an estimate, and usage_summary credits are not API dollars.
     reports_cost = False
-    PARSER_VERSION = 1
+    PARSER_VERSION = 2
     database_names = ("data.sqlite3",)
 
     def __init__(self, *args, **kwargs):

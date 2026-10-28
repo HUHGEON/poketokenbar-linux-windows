@@ -1,4 +1,4 @@
-"""UI strings in en / ko / ja / es / fr / pt / de — ports Localization.swift.
+"""UI strings in en / ko / ja / es / fr / pt / de / ru — ports Localization.swift.
 
 Strings are resolved in the daemon and shipped through state.json, so QML holds
 no catalogue of its own. That keeps one source of truth and means changing the
@@ -10,7 +10,7 @@ covers macOS-only surfaces (Keychain, updater, support mail).
 
 from __future__ import annotations
 
-LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de")
+LANGUAGES = ("en", "ko", "ja", "es", "fr", "pt", "de", "ru")
 
 
 def format_text(template: str, *values) -> str:
@@ -30,6 +30,7 @@ def format_text(template: str, *values) -> str:
 
 # key: (en, ko, ja, es)
 STRINGS: dict[str, tuple[str, ...]] = {
+    "recap_current": ("Current period", "현재 기간", "現在の期間", "Periodo actual", "Période actuelle", "Período atual", "Aktueller Zeitraum"),
     "manual_refresh": ("Manual", "수동", "手動", "Manual", "Manuel", "Manual", "Manuell"),
     'candy_evolves': ('Evolves', '진화', '進化', 'Evoluciona', 'Évolue', 'Evolui', 'Entwickelt sich'),
     'candy_graduates': ('Graduates', '졸업', '卒業', 'Se gradúa', 'Termine sa croissance', 'Conclui o crescimento', 'Schließt Wachstum ab'),
@@ -779,6 +780,38 @@ STRINGS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+from .l10n_ru import STRINGS_RU
+
+STRINGS = {key: (*row, STRINGS_RU[key]) for key, row in STRINGS.items()}
+
+from .pokemon_types import NAMES as TYPE_NAMES
+STRINGS.update({f"type_{slug}": names for slug, names in TYPE_NAMES.items()})
+
+# New detail labels: Korean with English fallback in the other UI languages.
+_DETAIL_LABELS = {
+    'floating_pet_hide': ('Hide pet', '펫 숨기기'),
+    'recap_details': ('View recap', '사용량 돌아보기'),
+    'species_data': ('Species data', '종 정보'),
+    'height': ('Height', '키'),
+    'weight': ('Weight', '몸무게'),
+    'base_stat_total': ('Base stat total', '종족값 합계'),
+    'base_stats': ('Base stats', '종족값'),
+    'possible_abilities': ('Possible abilities', '가능한 특성'),
+    'complete_moves': ('Complete move list (%1)', '전체 기술 (%1개)'),
+    'move_level_up': ('Level up', '레벨업'),
+    'move_machine': ('Machine', '기술머신'),
+    'move_egg': ('Egg', '교배'),
+    'move_tutor': ('Tutor', '가르침'),
+    'move_other': ('Other', '기타'),
+    'pokemon_details_loading': ('Loading Pokémon details…', '포켓몬 상세 정보를 불러오는 중…'),
+    'pokemon_details_unavailable': ('Could not load current Pokémon details.', '포켓몬 상세 정보를 불러오지 못했어요.'),
+    'pokemon_details_retry': ('Retry details', '상세 정보 다시 불러오기'),
+    'default_form_data_note': ('Types, stats, abilities and moves use default-form data.', '타입·능력치·특성·기술은 기본형 기준입니다.'),
+    'pokemon_details_open': ('Open Pokédex entry', '도감 상세 열기'),
+}
+STRINGS.update({key: tuple(ko if code == "ko" else en for code in LANGUAGES)
+                for key, (en, ko) in _DETAIL_LABELS.items()})
+
 _INDEX = {code: i for i, code in enumerate(LANGUAGES)}
 
 
@@ -867,15 +900,5 @@ LANGUAGE_NAMES = {
     "fr": "Français",
     "pt": "Português",
     "de": "Deutsch",
-}
-
-
-LANGUAGE_NAMES = {
-    "en": "English",
-    "ko": "한국어",
-    "ja": "日本語",
-    "es": "Español",
-    "fr": "Français",
-    "pt": "Português",
-    "de": "Deutsch",
+    "ru": "Русский",
 }

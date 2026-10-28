@@ -257,6 +257,17 @@ def test_fields_read_out_of_each_block_exist(block, expression, payload, compani
 
 
 ROW_ACCESSORS = {
+    "knownMove": "known_move",
+    "speciesData": "species_details",
+    "possibleAbility": "possible_ability",
+    "fullMove": "full_move",
+    "learnMethod": "learn_method",
+    "a": "dex",
+    "b": "dex",
+    "appearance": "appearance",
+    "pokemonProfile": "pokemon_profile",
+    "stage": "catch_chain",
+    "record": "catch_log",
     "shopItem": "shop",
     "bagItem": "bag",
     "dexEntry": "dex",
@@ -279,6 +290,36 @@ ROW_ACCESSORS = {
 
 def row_keys(name: str, payload: dict) -> set[str]:
     """The keys a row of that kind actually carries, taken from a real payload."""
+    if name in {"known_move", "species_details", "possible_ability", "full_move", "learn_method"}:
+        from types import SimpleNamespace
+        from poketokenbar import pokeapi
+        from poketokenbar.profile import PokemonProfile
+        if name == "known_move":
+            profile = PokemonProfile.generate(seed=1)
+            profile.moves = [{"name": "tackle", "learned_at": 1}]
+            return set(CompanionStore(api=None, sprite_store=None)._profile_payload(profile, 1, "hardy")["moves"][0]) | {"display_name"}
+        api = SimpleNamespace(details=lambda sid: {
+            "version_group": pokeapi.PREFERRED_VERSION_GROUP,
+            "abilities": [{"name": "overgrow", "slot": 1, "is_hidden": False}],
+            "all_moves": [{"name": "tackle", "learn_methods": [{"method": "level-up", "level": 1}]}]},
+            localized_battle_names=lambda ability, moves, language: (ability, {m: m for m in moves}))
+        store = CompanionStore(api=api, sprite_store=None)
+        store.state = CompanionState(dex=[DexEntry(base_id=1, final_id=1, chain_order=[1], rarity=Rarity.COMMON)])
+        store.load_pokemon_details(1)
+        details = store._detail_payloads[1]
+        if name == "species_details":
+            return set(details)
+        if name == "possible_ability":
+            return set(details["abilities"][0])
+        if name == "full_move":
+            return set(details["moves"][0])
+        return set(details["moves"][0]["learn_methods"][0])
+    if name == "pokemon_profile":
+        from poketokenbar.profile import PokemonProfile
+        store = CompanionStore(api=None, sprite_store=None)
+        return set(store._profile_payload(PokemonProfile.generate(seed=1), 1, 'hardy'))
+    if name == "appearance":
+        return set(payload["dex"][0]["appearances"][0])
     if name == "today_models":
         return set(payload["today"]["models"][0])
     if name == "limit_window":
@@ -339,11 +380,11 @@ def test_row_fields_read_in_the_extension_exist(variable, block, payload):
 LIST_ROW_FIELDS = {
     "shop": {"key", "kind", "price", "price_text", "label", "description", "badge",
              "rarity",
-             "sprite_path", "emoji", "owned", "owned_count", "affordable", "requires_confirmation"},
+             "sprite_path", "emoji", "owned", "owned_count", "affordable", "requires_confirmation", "max_buy_count"},
     "bag": {"key", "label", "description", "effect", "sprite_path", "emoji", "count",
             "usable", "passive", "max_use_count", "per_candy_xp", "preview", "previews"},
     "dex": {"final_id", "species_id", "name", "rarity", "is_shiny", "is_raising",
-            "sprite_path", "profiles", "unown_form", "appearances", "unown_forms", "forms"},
+            "sprite_path", "profiles", "unown_form", "appearances", "unown_forms", "forms", "form_count", "types", "type_badges", "details", "details_status"},
 }
 
 

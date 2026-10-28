@@ -70,8 +70,8 @@ def test_catalogue_resolves_every_key_for_every_language(language):
     assert all(value for value in catalogue.values())
 
 
-def test_the_seven_languages_are_the_upstream_set():
-    assert set(l10n.LANGUAGES) == {"en", "ko", "ja", "es", "fr", "pt", "de"}
+def test_the_eight_languages_are_the_upstream_set():
+    assert set(l10n.LANGUAGES) == {"en", "ko", "ja", "es", "fr", "pt", "de", "ru"}
 
 
 def test_pokemon_name_languages_track_the_ui_languages():

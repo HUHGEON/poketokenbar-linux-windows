@@ -46,8 +46,19 @@ DEFAULT_QUALITY = "saver"
 class MonthlyChart(QWidget):
     """Compact month-to-date bars with an exact-value hover tooltip."""
 
-    def __init__(self, series: list[dict], parent: QWidget | None = None) -> None:
+    def __init__(self, series: list[dict], parent: QWidget | None = None, *, calendar_month=False) -> None:
         super().__init__(parent)
+        if calendar_month and series:
+            from calendar import monthrange
+            try:
+                first = datetime.strptime(series[0]["date"], "%Y-%m-%d")
+                by_day = {item["date"]: item for item in series}
+                series = [by_day.get(first.replace(day=day).strftime("%Y-%m-%d"),
+                          {"date": first.replace(day=day).strftime("%Y-%m-%d"),
+                           "total_tokens": 0, "has_data": False})
+                          for day in range(1, monthrange(first.year, first.month)[1] + 1)]
+            except (ValueError, KeyError, TypeError):
+                pass
         self.series = series
         self.setMinimumHeight(82)
         self.setMouseTracking(True)
@@ -63,11 +74,13 @@ class MonthlyChart(QWidget):
         if index is None:
             return
         day = self.series[index]
-        tokens = day.get("total_tokens_compact", "0") if day.get("has_data", True) else "—"
+        tokens = f'{int(day.get("total_tokens", 0)):,}' if day.get("has_data", True) else "—"
         cost = day.get("cost_text", "")
+        breakdown = "".join(f"\n{provider}: {value:,}" for provider, value in
+                            sorted((day.get("provider_tokens") or {}).items()) if value)
         QToolTip.showText(
             event.globalPosition().toPoint(),
-            f"{day.get('date', '')}\n{tokens}" + (f" · {cost}" if cost else ""),
+            f"{day.get('date', '')}\n{tokens}" + (f" · {cost}" if cost else "") + breakdown,
             self,
         )
 
@@ -98,6 +111,20 @@ class MonthlyChart(QWidget):
             except ValueError:
                 weekday = 0
             colour = theme.SECONDARY if weekday >= 5 else theme.ACCENT
+            segments = [(provider, value) for provider, value in
+                        sorted((day.get("provider_tokens") or {}).items()) if value > 0]
+            if segments and tokens:
+                palette = [theme.ACCENT, theme.GREEN, theme.ORANGE, "#b89afa", "#e88fac", "#72c8d5"]
+                identities = sorted({provider for item in self.series
+                                     for provider in item.get("provider_tokens", {})})
+                consumed = 0
+                for provider, value in segments:
+                    bottom = round(height * consumed / tokens)
+                    consumed += value
+                    top = round(height * consumed / tokens)
+                    painter.setBrush(QColor(palette[identities.index(provider) % len(palette)]))
+                    painter.drawRect(round(index * slot + 1), track - top, round(bar_width), top - bottom)
+                continue
             painter.setBrush(QColor(colour))
             painter.drawRoundedRect(
                 round(index * slot + 1), track - height,
@@ -165,6 +192,19 @@ class Sprite(QLabel):
     would restart the animation from frame one every two seconds, so the
     companion would visibly stutter rather than loop.
     """
+
+    def set_link(self, callback=None, hint="") -> None:
+        self._link = callback
+        self.setCursor(Qt.PointingHandCursor if callback else Qt.ArrowCursor)
+        self.setToolTip(hint if callback else "")
+
+    def mouseReleaseEvent(self, event) -> None:
+        callback = getattr(self, "_link", None)
+        if callback and event.button() == Qt.LeftButton and self.rect().contains(event.position().toPoint()):
+            callback()
+            event.accept()
+        else:
+            super().mouseReleaseEvent(event)
 
     def __init__(self, size: int = 64, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -393,6 +433,21 @@ def badge(text: str, background: str, foreground: str, size: int = 10) -> QLabel
     )
     widget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Maximum)
     return widget
+
+
+def type_badges(types, text) -> QWidget:
+    from ..pokemon_types import badges
+    widgets = []
+    for item in badges(types):
+        title = text(f"type_{item['type']}")
+        if title == f"type_{item['type']}":
+            title = item['name']
+        widget = badge(title, item['color'], item['foreground'])
+        widget.setTextFormat(Qt.PlainText)
+        widget.setObjectName(f"pokemon_type_{item['type']}")
+        widget.setProperty("pokemonType", item['type'])
+        widgets.append(widget)
+    return row(*widgets, spacing=5, stretch=True)
 
 
 def rarity_badge(rarity: str | None, text: str) -> QLabel:

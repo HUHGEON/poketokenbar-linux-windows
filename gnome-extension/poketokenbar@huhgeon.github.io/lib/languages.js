@@ -5,4 +5,4 @@
  * back to English, with the settings row still showing it as selected.
  */
 
-export const LANGUAGES = ['en', 'ko', 'ja', 'es', 'fr', 'pt', 'de'];
+export const LANGUAGES = ['en', 'ko', 'ja', 'es', 'fr', 'pt', 'de', 'ru'];

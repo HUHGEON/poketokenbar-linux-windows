@@ -15,7 +15,7 @@ import json
 import os
 from pathlib import Path
 
-from . import platform_paths, unown
+from . import platform_paths, forms
 
 from .balance import Rarity
 from .companion import CompanionState, DexEntry, MonState
@@ -108,6 +108,10 @@ def _decode_mon(raw) -> MonState | None:
 
     stage = _lenient(raw, "stage_index", int, 0)
     stage = min(max(0, stage), len(path_ids) - 1)
+    current = path_ids[stage]
+    path_ids = list(dict.fromkeys(path_ids))
+    stage = path_ids.index(current)
+    planned = list(dict.fromkeys(value for value in planned if isinstance(value, int))) or list(path_ids)
 
     return MonState(
         base_id=_lenient(raw, "base_id", int, path_ids[0]),
@@ -126,7 +130,7 @@ def _decode_mon(raw) -> MonState | None:
         else None,
         ditto_revealed=_lenient(raw, "ditto_revealed", bool, False),
         hatched_at=raw.get("hatched_at") if isinstance(raw.get("hatched_at"), (int, float)) else None,
-        unown_form=unown.resolved(path_ids[stage], raw.get("unown_form")),
+        unown_form=forms.resolved_line(path_ids[0], raw.get("form", raw.get("unown_form"))),
     )
 
 
@@ -143,7 +147,7 @@ def _decode_dex_entry(raw) -> DexEntry | None:
     return DexEntry(
         base_id=base_id,
         final_id=final_id,
-        chain_order=list(chain),
+        chain_order=list(dict.fromkeys(chain)),
         rarity=_rarity(raw.get("rarity")),
         is_shiny=_lenient(raw, "is_shiny", bool, False),
         nature=raw.get("nature") if isinstance(raw.get("nature"), str) else None,
@@ -152,7 +156,7 @@ def _decode_dex_entry(raw) -> DexEntry | None:
         raised_seconds=raw.get("raised_seconds")
         if isinstance(raw.get("raised_seconds"), (int, float))
         else None,
-        unown_form=unown.resolved(final_id, raw.get("unown_form")),
+        unown_form=forms.resolved_line(base_id, raw.get("form", raw.get("unown_form"))),
         released_at=raw.get("released_at") if isinstance(raw.get("released_at"), (int, float)) else None,
     )
 
@@ -171,11 +175,11 @@ def decode(raw: dict) -> CompanionState:
     representative = raw.get("representative_species_id")
     state.representative_species_id = representative if isinstance(representative, int) else None
     state.representative_is_shiny = _lenient(raw, "representative_is_shiny", bool, None)
-    state.representative_unown_form = unown.resolved(representative, raw.get("representative_unown_form"))
+    state.representative_unown_form = forms.resolved(representative, raw.get("representative_form", raw.get("representative_unown_form")))
     state.pending_hatch_id = (
         raw.get("pending_hatch_id") if isinstance(raw.get("pending_hatch_id"), int) else None
     )
-    state.pending_unown_form = unown.resolved(state.pending_hatch_id, raw.get("pending_unown_form"))
+    state.pending_unown_form = forms.resolved_line(state.pending_hatch_id, raw.get("pending_form", raw.get("pending_unown_form")))
     # None means a save that predates per-provider tracking: seed from the next
     # snapshot rather than retroactively granting past usage. An empty dict is
     # the distinct "seeded, nobody reported today" state.
@@ -313,7 +317,8 @@ def encode(state: CompanionState) -> dict:
             "ditto_disguise": m.ditto_disguise,
             "ditto_revealed": m.ditto_revealed,
             "hatched_at": m.hatched_at,
-            "unown_form": unown.resolved(m.current_id, m.unown_form),
+            "form": forms.resolved_line(m.base_id, m.unown_form),
+            "unown_form": forms.resolved_line(m.base_id, m.unown_form),
         }
 
     return {
@@ -325,12 +330,14 @@ def encode(state: CompanionState) -> dict:
         "egg_usage": state.egg_usage,
         "egg_tier": str(state.egg_tier) if state.egg_tier else None,
         "pending_hatch_id": state.pending_hatch_id,
+        "pending_form": state.pending_unown_form,
         "pending_unown_form": state.pending_unown_form,
         "claimed_today_tokens_by_provider": state.claimed_today_tokens_by_provider,
         "last_date": state.last_date,
         "active": mon(state.active),
         "representative_species_id": state.representative_species_id,
         "representative_is_shiny": state.representative_is_shiny,
+        "representative_form": state.representative_unown_form,
         "representative_unown_form": state.representative_unown_form,
         "dex": [
             {
@@ -343,7 +350,8 @@ def encode(state: CompanionState) -> dict:
                 "profile": _encode_profile(d.profile),
                 "caught_at": d.caught_at,
                 "raised_seconds": d.raised_seconds,
-                "unown_form": unown.resolved(d.final_id, d.unown_form),
+                "form": forms.resolved_line(d.base_id, d.unown_form),
+                "unown_form": forms.resolved_line(d.base_id, d.unown_form),
                 "released_at": d.released_at,
             }
             for d in state.dex

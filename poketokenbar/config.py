@@ -8,6 +8,7 @@ disableKeychainAccess (no Keychain on Linux) and updateNotificationsEnabled
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 
@@ -80,7 +81,21 @@ def load(path: Path) -> dict:
 
     for key in ("growth_difficulty", "shop_difficulty"):
         values[key] = balance.clamp_difficulty(values[key])
+    normalize_thresholds(values)
     return values
+
+
+def normalize_thresholds(values: dict, changed: str | None = None) -> None:
+    for key, low, high in (("warn_threshold", 50, 95), ("crit_threshold", 60, 100)):
+        value = values.get(key, DEFAULTS[key])
+        if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
+            value = DEFAULTS[key]
+        values[key] = max(low, min(high, value))
+    if values["warn_threshold"] >= values["crit_threshold"]:
+        if changed == "crit_threshold":
+            values["warn_threshold"] = values["crit_threshold"] - 5
+        else:
+            values["crit_threshold"] = values["warn_threshold"] + 5
 
 
 def save(path: Path, values: dict) -> None:
@@ -113,6 +128,7 @@ def set_value(path: Path, key: str, raw: str) -> None:
         raise KeyError(f"unknown setting: {key}")
     values = load(path)
     values[key] = _coerce(key, raw)
+    normalize_thresholds(values, key)
     save(path, values)
 
 

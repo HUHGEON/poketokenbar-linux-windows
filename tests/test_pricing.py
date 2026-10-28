@@ -16,8 +16,8 @@ def test_unknown_version_is_not_priced_from_a_family_guess():
 def test_sol_61_uses_its_rates_instead_of_the_older_gpt_fallback():
     # A Codex turn includes cached input; charging that at the old GPT rate
     # substantially overstates its estimated cost.
-    assert pricing.cost("gpt-6.1-sol", 1_000_000, 100_000, 0, 2_000_000) == pytest.approx(3.2)
-    assert pricing.cost("gpt-6.1-sol", 0, 0, 1_000_000, 0) == pytest.approx(2.5)
+    assert pricing.cost("gpt-6.1-sol", 1_000_000, 100_000, 0, 2_000_000) == pytest.approx(5.9)
+    assert pricing.cost("gpt-6.1-sol", 0, 0, 1_000_000, 0) == pytest.approx(5.0)
 
 
 def test_grok_is_zero_before_any_family_fallback():

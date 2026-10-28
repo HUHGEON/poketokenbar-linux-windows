@@ -72,6 +72,10 @@ function writeAll(values) {
 export function set(key, value) {
     const values = readAll();
     values[key] = value;
+    if (key === 'warn_threshold' && value >= (values.crit_threshold ?? 95))
+        values.crit_threshold = Math.min(100, value + 5);
+    if (key === 'crit_threshold' && value <= (values.warn_threshold ?? 80))
+        values.warn_threshold = Math.max(50, value - 5);
     if (!writeAll(values))
         return false;
     Commands.reloadConfig();

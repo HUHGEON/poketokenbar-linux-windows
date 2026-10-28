@@ -10,7 +10,7 @@ from __future__ import annotations
 import random
 from dataclasses import dataclass, field
 
-from . import balance, unown
+from . import balance, forms
 from .balance import Rarity
 from .profile import PokemonProfile
 
@@ -244,16 +244,16 @@ class CompanionState:
     def appearances(self, species_id: int) -> set[tuple[bool, str | None]]:
         """Owned (shiny, form) pairs; unreached stages and disguises stay hidden."""
         owned = {
-            (entry.is_shiny, unown.resolved(species_id, entry.unown_form))
+            (entry.is_shiny, forms.resolved(species_id, entry.unown_form))
             for entry in self.dex if species_id in entry.chain_order
         }
         if self.active is not None and species_id in self.reached_species():
             owned.add((self.active.visible_shiny,
-                       unown.resolved(species_id, self.active.unown_form)))
+                       forms.resolved(species_id, self.active.unown_form)))
         return owned
 
     def collected_unown_forms(self) -> set[str]:
-        return {form for _shiny, form in self.appearances(unown.SPECIES_ID)
+        return {form for _shiny, form in self.appearances(forms.SPECIES_ID)
                 if form is not None}
 
     def owns_species(self, species_id: int) -> bool:
@@ -292,7 +292,7 @@ class CompanionState:
             self.representative_unown_form = None
             return
         species_id = self.representative_species_id
-        form = unown.resolved(species_id, self.representative_unown_form)
+        form = forms.resolved(species_id, self.representative_unown_form)
         owned = self.appearances(species_id)
         colors = {shiny for shiny, letter in owned if letter == form}
         if not colors:
@@ -402,10 +402,14 @@ def hatch(state: CompanionState, line: EvoLine, rng: random.Random) -> MonState:
         ),
         hatched_at=__import__("time").time(),
         unown_form=(
-            unown.resolved(line.base_id, state.pending_unown_form)
+            forms.resolved_line(line.base_id, state.pending_unown_form)
             if state.pending_hatch_id == line.base_id and state.pending_unown_form
-            else unown.roll_form(rng.getrandbits(64), state.collected_unown_forms())
-            if line.base_id == unown.SPECIES_ID else None
+            else forms.roll_form(rng.getrandbits(64), {
+                form for species in forms.CATALOG
+                if forms.LINE_BASE_IDS.get(species, species) == line.base_id
+                for _, form in state.appearances(species)
+            }, forms.line_forms(line.base_id))
+            if forms.line_forms(line.base_id) else None
         ),
         # The disguise stores the species being impersonated; the reveal swaps
         # the display to Ditto while keeping this for the "it was Ditto!" moment.
@@ -437,7 +441,7 @@ def graduate(state: CompanionState, mon: MonState, now: float | None = None) -> 
         profile=mon.profile,
         caught_at=now,
         raised_seconds=(now - mon.hatched_at) if mon.hatched_at else None,
-        unown_form=unown.resolved(mon.current_id, mon.unown_form),
+        unown_form=forms.resolved_line(mon.base_id, mon.unown_form),
     )
     state.dex.append(entry)
     state.collected_finals.add(f"{mon.base_id}:{mon.current_id}")
@@ -460,7 +464,7 @@ def release(state: CompanionState, now: float | None = None) -> DexEntry | None:
         rarity=mon.rarity, is_shiny=mon.visible_shiny, nature=mon.nature,
         profile=mon.profile, caught_at=now, released_at=now,
         raised_seconds=now - mon.hatched_at if mon.hatched_at else None,
-        unown_form=unown.resolved(mon.current_id, mon.unown_form),
+        unown_form=forms.resolved_line(mon.base_id, mon.unown_form),
     )
     state.dex.append(entry)
     state.active = None
@@ -541,6 +545,7 @@ def apply_usage(
         if mon.ditto_disguise is not None and not mon.ditto_revealed:
             was_showing = mon.current_id
             mon.ditto_revealed = True
+            mon.has_growth_boost = any(key.endswith(":132") for key in state.collected_finals)
             events.ditto_revealed = True
             # A pin on the disguise follows the reveal. The form it was
             # pretending to grow into is one nobody owns, and the form it was

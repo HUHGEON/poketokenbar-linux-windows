@@ -36,13 +36,13 @@ the full panel as an anchored popover instead of a separate taskbar window.
 
 | | |
 |---|---|
-| Usage daemon (12 providers) | ✅ done |
+| Usage daemon (14 providers) | ✅ done |
 | GNOME Shell extension | ✅ **run on a real desktop** |
 | Qt tray application (Windows, other Linux) | ✅ written |
-| Test suite | ✅ 1,015 Python + 19 JavaScript, green on CI |
+| Test suite | Python and JavaScript regression tests ([sync validation](docs/UPSTREAM_SYNC.md)) |
 | Install verified from a clean checkout | ✅ in CI |
 | Daemon verified on real Windows | ✅ on CI's windows-latest runner |
-| **Verified on a real Windows desktop** | ❌ **not yet** ([#7](../../issues/7)) |
+| Windows UI validation | Native Qt interaction/render tests and local install/restart checks; manual desktop coverage in [#7](../../issues/7) |
 
 The extension has been run by [@UHeeJoon](https://github.com/UHeeJoon) on Rocky
 Linux 10 with GNOME Shell 47–48, and the defects that turned up there were
@@ -51,15 +51,14 @@ a destroyed actor was reused, a closed popup re-decoding every sprite every two
 seconds, and a sprite decoded as two copies of its first frame. None of those
 were visible from a container.
 
-The blank left is the **Windows tray UI**. The daemon reads real logs and writes
-a real `state.json` on a windows-latest runner on every push, and the tray
-application is constructed and clicked through on the same runner — but nobody
-has *looked* at the pet or the tray icon on a Windows screen. If you run
-Windows, [#7](../../issues/7) is exactly that.
+Native Windows Qt construction, interaction, rendering and local installation/restart
+have been checked. Manual notification-area, multi-monitor and DPI coverage is
+tracked in [#7](../../issues/7). The current feature comparison and platform
+boundaries are recorded in the [Korean feature audit](docs/MAC_FEATURE_AUDIT.ko.md).
 
 ## Supported tools
 
-All thirteen of the upstream sources are read:
+All fourteen upstream sources are read:
 
 | Tool | Read from |
 |---|---|
@@ -76,12 +75,15 @@ All thirteen of the upstream sources are read:
 | **Pi Agent** | `~/.pi/agent/sessions` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 | **Aside** | `~/.aside/u/*/state.db` |
+| **Kimi Code** | `~/.kimi-code/sessions/**/wire.jsonl` (`KIMI_CODE_HOME` supported) |
 
 Official limits are read for Claude accounts, Codex, Antigravity and Cursor.
-The Windows branch follows upstream **v2.5.5** while retaining its existing
-Windows tray, installer and plan balance. It includes collection search and
-appearance selection, bulk candy previews, local save snapshots and calendar
-usage recaps. See [the sync record](docs/UPSTREAM_SYNC.md) for coverage and validation.
+Compared against macOS upstream **v2.5.6 + d82867b** on 2026-10-24: Kimi Code,
+Gen I–V alternate forms, Russian UI, bulk consumable purchases and reset-jitter
+candy protection are incorporated. GNOME collection now has search, filters,
+sorting, 4×4 pages and appearance details. The Windows tray, installer and plan
+balance remain in place. See [the sync record](docs/UPSTREAM_SYNC.md) for frontend
+coverage and validation limits.
 
 The Windows/Qt interface also includes persistent individual Pokémon profiles
 (level, gender, nature, ability, IVs, calculated stats and moves), a 2× repeat-line
@@ -207,14 +209,14 @@ line by line.
   those alone stayed English however the language was set.
 
 **Features the Plasma port left out:** per-provider extra scan folders, the
-per-model breakdown of a day, French, Portuguese and German, pinning a caught
+per-model breakdown of a day, French, Portuguese, German and Russian, pinning a caught
 species to the panel, animation quality, in-app updates, launch at login, and
 the model-scoped weekly limit and rolling 5-hour block.
 
 ## Development
 
 ```bash
-python -m pytest -q       # no network, and none of the thirteen tools installed
+python -m pytest -q       # no network, and none of the fourteen tools installed
 node --test tests/js/*.test.mjs   # the tests that execute extension code
 ```
 

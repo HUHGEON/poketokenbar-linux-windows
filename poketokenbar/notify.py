@@ -20,6 +20,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import sys
+import time
 
 from . import l10n
 from .processes import background_options
@@ -163,6 +164,7 @@ class Notifier:
         self._send = send_fn
         # kind -> highest tier already announced (1 = warn, 2 = crit).
         self._limit_tier: dict[str, int] = {}
+        self.last_limit_alert: dict | None = None
 
     def transfer(self, key: str, language: str = "en", subject: str = "") -> None:
         """Announce the result of an export, an import, or an undone import.
@@ -245,4 +247,6 @@ class Notifier:
             body = (l10n.t("notif_limit_body", language)
                     .replace("%1", window)
                     .replace("%2", f"{utilization:.0f}%"))
+            self.last_limit_alert = {"id": str(time.time_ns()), "created_at": time.time(),
+                                     "title": title, "body": body, "critical": tier == 2}
             self._send(title, body, urgency="critical" if tier == 2 else "normal")

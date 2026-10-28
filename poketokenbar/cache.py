@@ -118,6 +118,20 @@ class ScanCache:
         ).fetchone()
         return None if row is None else json.loads(row[0])
 
+    def latest_document(self, provider: str, path: Path, parser_version: int) -> dict | None:
+        """Previous parser state, including the safe offset of an append-only log."""
+        row = self._db.execute(
+            "SELECT entries FROM blobs WHERE provider=? AND path=? AND parser_version=?",
+            (provider, str(path), parser_version),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            document = json.loads(row[0])
+            return document if isinstance(document, dict) else None
+        except (ValueError, TypeError):
+            return None
+
     def put_document(self, provider: str, path: Path, mtime: float, size: int,
                      parser_version: int, document: dict) -> None:
         self._db.execute(

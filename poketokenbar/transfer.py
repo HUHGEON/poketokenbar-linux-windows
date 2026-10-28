@@ -26,7 +26,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from . import save
+from . import forms, save
 from .companion import CompanionState
 
 FORMAT = "poketokenbar.save"
@@ -75,6 +75,7 @@ def summary(state: CompanionState) -> dict:
         "dex_count": len(state.dex),
         "used_since_install": state.used_since_install,
         "active_species": active.current_id if active else None,
+        "active_form": forms.resolved(active.current_id, active.unown_form) if active else None,
         "items": sum(state.inventory.values()),
     }
 

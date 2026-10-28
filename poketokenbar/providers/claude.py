@@ -8,13 +8,15 @@ with the LARGEST total, and bucket by local date from `timestamp`.
 from __future__ import annotations
 
 import os
+import hashlib
+from dataclasses import replace
 from collections.abc import Iterator, Mapping
 from datetime import date as _date
 from datetime import datetime
 from pathlib import Path
 
 from .. import pricing
-from ..cache import ScanCache
+from ..cache import ScanCache, _encode, _decode
 from ..models import DailyUsage, Entry, ProviderEnrichment
 
 from .base import ScanningProvider, dedup_keep_max, loads as _loads, number, parse_iso, to_int as _int
@@ -53,42 +55,8 @@ def parse_line(line: str) -> Entry | None:
     )
 
 
-def parse_file(path: Path) -> list[Entry]:
-    out: list[Entry] = []
-    ledger: dict[str, float] = {}
-    session = path.parent.parent.name if path.parent.name == "subagents" else path.stem
-    try:
-        with open(path, encoding="utf-8", errors="replace") as fh:
-            for line in fh:
-                if '"cost-state"' in line:
-                    try:
-                        obj = _loads(line)
-                    except Exception:
-                        continue
-                    if not isinstance(obj, dict) or obj.get("type") != "cost-state":
-                        continue
-                    usage = obj.get("modelUsage")
-                    if isinstance(usage, dict):
-                        costs: dict[str, float] = {}
-                        for model, fields in usage.items():
-                            cost = number(fields.get("costUSD")) if isinstance(fields, dict) else None
-                            if cost is not None and cost >= 0:
-                                key = model.split("[", 1)[0]
-                                costs[key] = costs.get(key, 0.0) + cost
-                        if costs:
-                            ledger = costs
-                    continue
-                # Substring prefilter before JSON decode — the cold scan reads
-                # hundreds of MB and most lines are not assistant turns.
-                if '"usage"' not in line or '"assistant"' not in line:
-                    continue
-                entry = parse_line(line)
-                if entry is not None:
-                    entry.session_id = session
-                    out.append(entry)
-    except OSError:
-        return []
-    out = dedup_keep_max(out)
+def _apply_ledger(entries: list[Entry], ledger: dict[str, float]) -> list[Entry]:
+    out = [replace(entry, explicit_cost=None) for entry in dedup_keep_max(entries)]
     for model, cost in ledger.items():
         matching = [e for e in out if e.total > 0 and e.model.split("[", 1)[0] == model]
         total = sum(e.total for e in matching)
@@ -98,6 +66,77 @@ def parse_file(path: Path) -> list[Entry]:
             entry.explicit_cost = max(0.0, share)
             remaining -= share
     return out
+
+
+def _anchor(stream, offset: int) -> str:
+    stream.seek(max(0, offset - 64))
+    return hashlib.sha256(stream.read(min(64, offset))).hexdigest()
+
+
+def _parse_document(path: Path, previous: dict | None = None) -> dict:
+    """Keep raw usage and the latest cumulative ledger separate for tail merges."""
+    session = path.parent.parent.name if path.parent.name == "subagents" else path.stem
+    with path.open("rb") as stream:
+        stat = os.fstat(stream.fileno())
+        identity = [stat.st_dev, stat.st_ino]
+        offset = 0
+        entries, ledger = [], {}
+        if (previous and previous.get("identity") == identity and stat.st_size > previous.get("size", stat.st_size)
+                and 0 < previous.get("offset", 0) <= previous.get("size", 0)):
+            candidate = previous["offset"]
+            stream.seek(0)
+            head = hashlib.sha256(stream.read(previous["head_length"])).hexdigest()
+            if head == previous["head"] and _anchor(stream, candidate) == previous["anchor"]:
+                offset = candidate
+                entries = _decode(previous["entries"])
+                ledger = dict(previous.get("ledger") or {})
+        stream.seek(offset)
+        committed = offset
+        for raw in stream:
+            if raw.endswith(b"\n"):
+                committed = stream.tell()
+            if b'"cost-state"' in raw:
+                try:
+                    obj = _loads(raw.decode("utf-8", errors="replace"))
+                except Exception:
+                    continue
+                if not isinstance(obj, dict) or obj.get("type") != "cost-state":
+                    continue
+                usage = obj.get("modelUsage")
+                if isinstance(usage, dict):
+                    costs = {}
+                    for model, fields in usage.items():
+                        cost = number(fields.get("costUSD")) if isinstance(fields, dict) else None
+                        if cost is not None and cost >= 0:
+                            key = model.split("[", 1)[0]
+                            costs[key] = costs.get(key, 0.0) + cost
+                    if costs:
+                        ledger = costs
+                continue
+            if b'"usage"' not in raw or b'"assistant"' not in raw:
+                continue
+            entry = parse_line(raw.decode("utf-8", errors="replace"))
+            if entry is not None:
+                entry.session_id = session
+                entries.append(entry)
+        final = os.fstat(stream.fileno())
+        if final.st_size < committed:
+            raise OSError("log truncated during read")
+        anchor = _anchor(stream, committed)
+        stream.seek(0)
+        head_length = min(64, final.st_size)
+        head = hashlib.sha256(stream.read(head_length)).hexdigest()
+        return {"size": final.st_size, "offset": committed, "identity": identity,
+                "anchor": anchor, "head": head, "head_length": head_length,
+                "entries": _encode(dedup_keep_max(entries)), "ledger": ledger}
+
+
+def parse_file(path: Path) -> list[Entry]:
+    try:
+        document = _parse_document(path)
+        return _apply_ledger(_decode(document["entries"]), document["ledger"])
+    except OSError:
+        return []
 
 
 def project_roots(
@@ -146,7 +185,8 @@ class ClaudeProvider(ScanningProvider):
     display_name = "Claude Code"
     reports_cost = True
     # Bump when parse_line changes shape, to invalidate cached blobs.
-    PARSER_VERSION = 2
+    PARSER_VERSION = 3
+    extra_cache_namespaces = ("claude_code:tail",)
 
     def configure_account_roots(self, roots) -> None:
         """Accept a mapping or a callback so config reloads take effect immediately."""
@@ -165,7 +205,21 @@ class ClaudeProvider(ScanningProvider):
                 for account, turns in groups.items()}
 
     def parse_file(self, path: Path) -> list[Entry]:
-        return parse_file(path)
+        if self._cache is None:
+            return parse_file(path)
+        namespace = self.id + ":tail"
+        previous = self._cache.latest_document(namespace, path, self.PARSER_VERSION)
+        try:
+            document = _parse_document(path, previous)
+            stat = path.stat()
+            self._cache.put_document(namespace, path, stat.st_mtime, document["size"],
+                                     self.PARSER_VERSION, document)
+        except OSError:
+            self._cacheable_parse = False
+            document = previous
+        if document is None:
+            return []
+        return _apply_ledger(_decode(document["entries"]), document["ledger"])
 
 
 def prompt_history(config_root: Path) -> dict[str, list[datetime]]:

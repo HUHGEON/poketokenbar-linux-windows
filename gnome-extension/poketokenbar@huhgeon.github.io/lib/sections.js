@@ -50,6 +50,16 @@ class Section extends St.BoxLayout {
     }
 });
 
+/** Shared type row; names and game colors come from the daemon. */
+function typeBadgeRow(items) {
+    return row(items.map(item => {
+        const pill = label(item.name);
+        pill.set_style(`background-color: ${item.color}; color: ${item.foreground}; ` +
+            'border-radius: 5px; padding: 1px 6px; font-size: 10px; font-weight: bold;');
+        return pill;
+    }));
+}
+
 // MARK: Home
 
 export const HomeSection = GObject.registerClass(
@@ -132,6 +142,9 @@ class HomeSection extends Section {
                     `${t(companion.rarity ?? 'common')} · ${nature(t, companion.nature)}`,
                     'poketokenbar-subtle'));
 
+                const pokemonProfile = companion.profile ?? {};
+                if (pokemonProfile.type_badges?.length)
+                    this.add_child(typeBadgeRow(pokemonProfile.type_badges));
                 const meter = new Meter();
                 meter.setFraction(companion.stage_progress ?? 0);
                 this.add_child(meter);
@@ -353,9 +366,12 @@ class ShopSection extends Section {
     _init(reader) {
         super._init();
         this._reader = reader;
+        this._quantities = {};
+        this._confirmKey = null;
     }
 
     update(state) {
+        this._state = state;
         this.clear();
         const t = key => this._reader.text(key);
 
@@ -375,7 +391,11 @@ class ShopSection extends Section {
                 paragraph(shopItem.description ?? '', 'poketokenbar-subtle'),
             ]);
             left.x_expand = true;
-            const price = label(shopItem.price_text ?? '', 'poketokenbar-value');
+            const maximum = Math.max(1, shopItem.max_buy_count ?? 1);
+            const count = Math.min(this._quantities[shopItem.key] ?? 1, maximum);
+            this._quantities[shopItem.key] = count;
+            const price = label(count > 1 ? (shopItem.price * count).toLocaleString() :
+                (shopItem.price_text ?? ''), 'poketokenbar-value');
             const children = [icon, left];
             if (shopItem.owned_count > 0)
                 children.push(badge(t('owned_count').replace('%1', String(shopItem.owned_count))));
@@ -385,7 +405,29 @@ class ShopSection extends Section {
                 // would offer a purchase the daemon refuses.
                 children.push(label(t('owned'), 'poketokenbar-value'));
             } else {
-                const buy = button(t('buy'), () => Commands.buy(shopItem.key));
+                if (maximum > 1) {
+                    children.push(button('−', () => {
+                        this._quantities[shopItem.key] = Math.max(1, count - 1);
+                        this.update(this._state);
+                    }));
+                    children.push(label(String(count)));
+                    children.push(button('+', () => {
+                        this._quantities[shopItem.key] = Math.min(maximum, count + 1);
+                        this.update(this._state);
+                    }));
+                }
+                const confirming = this._confirmKey === shopItem.key;
+                const buy = button(confirming ? `✓ ${t('buy')}` : t('buy'), () => {
+                    if (shopItem.requires_confirmation && !confirming) {
+                        this._confirmKey = shopItem.key;
+                        this.update(this._state);
+                        return;
+                    }
+                    Commands.enqueue('buy', {key: shopItem.key, count, confirmed: confirming});
+                    this._confirmKey = null;
+                });
+                if (confirming)
+                    this.add_child(paragraph(t('confirm_release')));
                 // Disabled rather than hidden while unaffordable: a card that
                 // vanishes reads as a bug, and the price is the point of the row.
                 buy.reactive = Boolean(shopItem.affordable);
@@ -397,19 +439,22 @@ class ShopSection extends Section {
     }
 });
 
-export const BagSection = GObject.registerClass(
+export const BagSection = GObject.registerClass({Signals: {'open-shop': {}}},
 class BagSection extends Section {
     _init(reader) {
         super._init();
         this._reader = reader;
+        this._quantities = {};
     }
 
     update(state) {
+        this._state = state;
         this.clear();
         const t = key => this._reader.text(key);
         const items = state?.bag ?? [];
         if (items.length === 0) {
             this.add_child(placeholder(t('bag_empty')));
+            this.add_child(button(t('shop'), () => this.emit('open-shop')));
             return;
         }
         for (const bagItem of items) {
@@ -422,8 +467,32 @@ class BagSection extends Section {
             ]);
             left.x_expand = true;
             const children = [icon, left];
-            if (bagItem.usable)
-                children.push(button(t('use'), () => Commands.use(bagItem.key)));
+            if (bagItem.usable) {
+                const maximum = Math.max(1, bagItem.max_use_count ?? 1);
+                const count = Math.min(this._quantities[bagItem.key] ?? 1, maximum);
+                this._quantities[bagItem.key] = count;
+                if (maximum > 1) {
+                    children.push(button('−', () => {
+                        this._quantities[bagItem.key] = Math.max(1, count - 1);
+                        this.update(this._state);
+                    }));
+                    children.push(label(String(count)));
+                    children.push(button('+', () => {
+                        this._quantities[bagItem.key] = Math.min(maximum, count + 1);
+                        this.update(this._state);
+                    }));
+                }
+                const preview = (bagItem.previews ?? []).find(item => item?.count === count);
+                if (preview) {
+                    const parts = [t('growth_preview').replace('%1', Number(preview.xp).toLocaleString())];
+                    if (preview.evolves)
+                        parts.push(t('candy_evolves'));
+                    if (preview.graduates)
+                        parts.push(t('candy_graduates'));
+                    left.add_child(paragraph(parts.join(' · ')));
+                }
+                children.push(button(t('use'), () => Commands.enqueue('use', {key: bagItem.key, count})));
+            }
             else if (bagItem.passive)
                 children.push(label(t('active'), 'poketokenbar-value'));
             this.add_child(row(children, 'poketokenbar-card'));
@@ -440,22 +509,61 @@ class CollectionSection extends Section {
         this._reader = reader;
         this._showingCatchLog = false;
         this._page = 0;
-        this._perPage = 24;
+        this._perPage = 16;
+        this._detailSpecies = null;
+        this._appearance = 0;
+        this._query = '';
+        this._rarity = '';
+        this._shinyOnly = false;
+        this._sort = 'number';
+        this._search = new St.Entry({can_focus: true, x_expand: true});
+        this._search.clutter_text.connect('text-changed', () => {
+            this._query = this._search.get_text();
+            this._page = 0;
+            this.update(this._state);
+        });
+        this.connect('destroy', () => {
+            if (!this._search.get_parent())
+                this._search.destroy();
+        });
+        this.connect('scroll-event', (_actor, event) => {
+            if (this._detailSpecies !== null || this._showingCatchLog)
+                return Clutter.EVENT_PROPAGATE;
+            const direction = event.get_scroll_direction();
+            if (![Clutter.ScrollDirection.UP, Clutter.ScrollDirection.DOWN].includes(direction))
+                return Clutter.EVENT_PROPAGATE;
+            this._page = Math.max(0, this._page + (direction === Clutter.ScrollDirection.DOWN ? 1 : -1));
+            this.update(this._state);
+            return Clutter.EVENT_STOP;
+        });
         this._state = null;
     }
 
+    clear() {
+        if (this._search?.get_parent())
+            this._search.get_parent().remove_child(this._search);
+        super.clear();
+    }
+
     update(state) {
+        const focused = this._search.clutter_text.has_key_focus();
         this._state = state;
         this.clear();
         const t = key => this._reader.text(key);
+        if (this._detailSpecies !== null) {
+            this._buildDetail(state);
+            return;
+        }
 
         const toggle = row([
             button(t('pokedex'), () => {
                 this._showingCatchLog = false;
+                this._page = 0;
                 this.update(this._state);
             }),
             button(t('catch_log'), () => {
                 this._showingCatchLog = true;
+                this._page = 0;
                 this.update(this._state);
             }),
         ]);
@@ -465,13 +573,53 @@ class CollectionSection extends Section {
             this._buildCatchLog(state);
         else
             this._buildPokedex(state);
+        if (focused && this._search.get_parent())
+            this._search.clutter_text.grab_key_focus();
     }
 
     _buildPokedex(state) {
         const t = key => this._reader.text(key);
-        const entries = state?.dex ?? [];
+        this._search.hint_text = t('collection_search');
+        this.add_child(this._search);
+        const rarities = ['', 'common', 'uncommon', 'rare', 'legendary'];
+        const sorts = ['number', 'name', 'newest', 'oldest', 'rarity'];
+        this.add_child(row([
+            button(this._rarity ? t(this._rarity) : t('all_providers'), () => {
+                this._rarity = rarities[(rarities.indexOf(this._rarity) + 1) % rarities.length];
+                this._page = 0;
+                this.update(this._state);
+            }),
+            button(`${this._shinyOnly ? '✓ ' : ''}${t('shiny_only')}`, () => {
+                this._shinyOnly = !this._shinyOnly;
+                this._page = 0;
+                this.update(this._state);
+            }),
+            button(t(`sort_${this._sort}`), () => {
+                this._sort = sorts[(sorts.indexOf(this._sort) + 1) % sorts.length];
+                this._page = 0;
+                this.update(this._state);
+            }),
+        ]));
+        const query = this._query.trim().toLocaleLowerCase();
+        const entries = (state?.dex ?? []).filter(entry =>
+            (!this._rarity || entry.rarity === this._rarity) &&
+            (!this._shinyOnly || entry.is_shiny) &&
+            (!query || String(entry.species_id).includes(query.replace(/^#/, '')) ||
+             (entry.name ?? '').toLocaleLowerCase().includes(query)));
+        const caughtAt = entry => Math.max(0, ...(state?.catch_log ?? [])
+            .filter(record => (record.chain ?? []).some(stage => stage.species_id === entry.species_id))
+            .map(record => record.caught_at ?? 0));
+        entries.sort((a, b) => {
+            if (this._sort === 'name')
+                return (a.name ?? '').localeCompare(b.name ?? '');
+            if (this._sort === 'newest' || this._sort === 'oldest')
+                return (caughtAt(a) - caughtAt(b)) * (this._sort === 'newest' ? -1 : 1);
+            if (this._sort === 'rarity')
+                return rarities.indexOf(b.rarity) - rarities.indexOf(a.rarity) || a.species_id - b.species_id;
+            return a.species_id - b.species_id;
+        });
         if (entries.length === 0) {
-            this.add_child(placeholder(t('no_pokemon_yet')));
+            this.add_child(placeholder(t('no_matches')));
             return;
         }
 
@@ -493,7 +641,7 @@ class CollectionSection extends Section {
         // available space would only ever change how ragged the last row is.
         let currentRow = null;
         page.forEach((dexEntry, index) => {
-            if (index % 6 === 0) {
+            if (index % 4 === 0) {
                 currentRow = row([], 'poketokenbar-dexrow');
                 this.add_child(currentRow);
             }
@@ -543,9 +691,12 @@ class CollectionSection extends Section {
         star.connect('clicked',
             () => Commands.represent(pinned ? '' : dexEntry.species_id));
 
+        const spriteButton = new St.Button({can_focus: true, child: sprite});
+        spriteButton.connect('clicked', () => this._openDetail(dexEntry.species_id));
         const parts = [
+            spriteButton,
             row([caption, new St.Widget({x_expand: true}), star]),
-            sprite,
+            button(dexEntry.name || `#${dexEntry.species_id}`, () => this._openDetail(dexEntry.species_id)),
         ];
         // The one being raised right now appears in the Pokedex before it
         // graduates, and without the badge it is indistinguishable from a
@@ -553,6 +704,99 @@ class CollectionSection extends Section {
         if (dexEntry.is_raising)
             parts.push(badge(t('raising'), 'poketokenbar-badge-small'));
         return column(parts, 'poketokenbar-dexcell');
+    }
+
+    _openDetail(speciesId) {
+        Commands.enqueue('load_pokemon_details', {species_id: speciesId});
+        this._detailSpecies = speciesId;
+        this._appearance = 0;
+        this.update(this._state);
+    }
+
+    _buildDetail(state) {
+        const t = key => this._reader.text(key);
+        const entry = (state?.dex ?? []).find(item => item.species_id === this._detailSpecies);
+        if (!entry) {
+            this._detailSpecies = null;
+            this.update(state);
+            return;
+        }
+        this.add_child(button(`‹ ${t('back')}`, () => {
+            this._detailSpecies = null;
+            this.update(this._state);
+        }));
+        const appearances = entry.appearances ?? [];
+        this._appearance = Math.min(this._appearance, Math.max(0, appearances.length - 1));
+        const appearance = appearances[this._appearance] ?? entry;
+        this.add_child(heading(appearance.name || entry.name));
+        if (entry.type_badges?.length)
+            this.add_child(typeBadgeRow(entry.type_badges));
+        const sprite = new Sprite({size: 80});
+        sprite.setPath(appearance.sprite_path || null);
+        this.add_child(sprite);
+        if (appearances.length > 1) {
+            this.add_child(row([
+                button('‹', () => {
+                    this._appearance = (this._appearance + appearances.length - 1) % appearances.length;
+                    this.update(this._state);
+                }),
+                label(`${this._appearance + 1} / ${appearances.length}`),
+                button('›', () => {
+                    this._appearance = (this._appearance + 1) % appearances.length;
+                    this.update(this._state);
+                }),
+            ]));
+        }
+        if (entry.form_count)
+            this.add_child(label(`${entry.form_count} / ${(entry.forms ?? []).length}`));
+        this.add_child(button(t('representative'), () => Commands.enqueue('represent', {
+            species_id: entry.species_id,
+            is_shiny: Boolean(appearance.is_shiny),
+            unown_form: appearance.unown_form,
+        })));
+        const profiles = appearance.profiles ?? entry.profiles ?? [];
+        for (const profile of profiles) {
+            this.add_child(statLine(t('level'), String(profile.level ?? 5)));
+            this.add_child(statLine(t('nature'), nature(t, profile.nature)));
+            this.add_child(statLine(t('ability'), profile.ability || t('unknown')));
+            for (const stat of profile.stats ?? [])
+                this.add_child(statLine(t(`stat_${stat.name.replaceAll('-', '_')}`), `${stat.value} · IV ${stat.iv}`));
+            if (profile.description)
+                this.add_child(paragraph(profile.description));
+            this.add_child(heading(t('known_moves')));
+            for (const knownMove of profile.moves ?? [])
+                this.add_child(statLine(knownMove.display_name || knownMove.name, `Lv. ${knownMove.learned_at}`));
+        }
+        const speciesData = entry.details;
+        if (entry.details_status !== 'ready') {
+            this.add_child(paragraph(t(entry.details_status === 'error' || entry.details_status === 'stale'
+                ? 'pokemon_details_unavailable' : 'pokemon_details_loading')));
+            this.add_child(button(t('pokemon_details_retry'), () =>
+                Commands.enqueue('load_pokemon_details', {species_id: entry.species_id})));
+        }
+        if (speciesData) {
+            this.add_child(heading(t('species_data')));
+            this.add_child(statLine(t('height'), `${speciesData.height / 10} m`));
+            this.add_child(statLine(t('weight'), `${speciesData.weight / 10} kg`));
+            this.add_child(statLine(t('base_stat_total'), String(speciesData.base_stat_total)));
+            if (!profiles.length) {
+                for (const baseKey of ['hp', 'attack', 'defense', 'special-attack', 'special-defense', 'speed'])
+                    this.add_child(statLine(t(`stat_${baseKey.replaceAll('-', '_')}`), String(speciesData.base_stats[baseKey] ?? '—')));
+            }
+            this.add_child(heading(t('possible_abilities')));
+            for (const possibleAbility of speciesData.abilities ?? [])
+                this.add_child(paragraph((possibleAbility.display_name || possibleAbility.name) +
+                    (possibleAbility.is_hidden ? ` · ${t('hidden_ability')}` : '')));
+            this.add_child(heading(t('complete_moves').replace('%1', String(speciesData.moves.length))));
+            for (const fullMove of speciesData.moves ?? []) {
+                const methodLabels = (fullMove.learn_methods ?? []).map(learnMethod => {
+                    const methodKey = {'level-up': 'move_level_up', machine: 'move_machine',
+                        egg: 'move_egg', tutor: 'move_tutor'}[learnMethod.method] || 'move_other';
+                    return t(methodKey) + (learnMethod.method === 'level-up' ? ` Lv. ${learnMethod.level}` : '');
+                });
+                this.add_child(statLine(fullMove.display_name || fullMove.name, [...new Set(methodLabels)].join(' · ')));
+            }
+        }
     }
 
     _buildCatchLog(state) {
@@ -571,7 +815,14 @@ class CollectionSection extends Section {
         if (catchSummary)
             this.add_child(label(catchSummary, 'poketokenbar-subtle'));
 
-        for (const catchRecord of log.slice(0, 40)) {
+        const pages = Math.max(1, Math.ceil(log.length / this._perPage));
+        this._page = Math.min(this._page, pages - 1);
+        this.add_child(row([
+            button('‹', () => { this._page = Math.max(0, this._page - 1); this.update(this._state); }),
+            label(`${this._page + 1} / ${pages}`),
+            button('›', () => { this._page = Math.min(pages - 1, this._page + 1); this.update(this._state); }),
+        ]));
+        for (const catchRecord of log.slice(this._page * this._perPage, (this._page + 1) * this._perPage)) {
             const chain = row([], 'poketokenbar-chain');
             // The chain's last stage is what it graduated as; catch_log rows
             // carry no name of their own.
@@ -579,7 +830,9 @@ class CollectionSection extends Section {
             for (const chainStage of stages) {
                 const sprite = new Sprite({size: 24});
                 sprite.setPath(chainStage.sprite_path || null);
-                chain.add_child(sprite);
+                const target = new St.Button({child: sprite, can_focus: true});
+                target.connect('clicked', () => this._openDetail(chainStage.species_id));
+                chain.add_child(target);
             }
             const finalName = stages.length > 0
                 ? (stages[stages.length - 1].name || `#${stages[stages.length - 1].species_id}`)

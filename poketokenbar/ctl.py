@@ -72,10 +72,19 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if action in ("buy", "use"):
-        if len(rest) != 1:
-            print(f"usage: poketokenctl {action} <key>", file=sys.stderr)
+        if len(rest) not in (1, 2):
+            print(f"usage: poketokenctl {action} <key> [count]", file=sys.stderr)
             return 2
-        commands.enqueue(action, {"key": rest[0]})
+        args = {"key": rest[0]}
+        if len(rest) == 2:
+            try:
+                args["count"] = int(rest[1])
+            except ValueError:
+                print("count must be a positive integer", file=sys.stderr)
+                return 2
+            if args["count"] < 1:
+                return 2
+        commands.enqueue(action, args)
         return 0
 
     print(f"unknown command: {action}", file=sys.stderr)

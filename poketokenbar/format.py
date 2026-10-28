@@ -17,9 +17,9 @@ def compact(value: int) -> str:
     sign = "-" if value < 0 else ""
     if v < 1_000:
         return str(value)
-    if v < 1_000_000:
+    if v < 999_950:
         return sign + _trim(v / 1_000, 1) + "K"
-    if v < 1_000_000_000:
+    if v < 999_950_000:
         return sign + _trim(v / 1_000_000, 1) + "M"
     return sign + _trim(v / 1_000_000_000, 2) + "B"
 
@@ -35,12 +35,12 @@ def cost(usd: float) -> str:
 
 def cost_compact(usd: float) -> str:
     """Panel cost: $9.5 / $311 / $12.0K."""
-    if usd < 100:
+    if float(f"{usd:.1f}") < 100:
         return f"${usd:.1f}"
-    if usd < 10_000:
+    if float(f"{usd:.0f}") < 10_000:
         return f"${usd:.0f}"
     return f"${usd / 1_000:.1f}K"
 
 
 def percent(value: float) -> str:
-    return f"{value:.0f}%" if value == round(value) else f"{value:.1f}%"
+    return f"{value:.1f}".removesuffix(".0") + "%"

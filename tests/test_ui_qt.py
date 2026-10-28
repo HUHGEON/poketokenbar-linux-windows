@@ -286,7 +286,9 @@ def test_the_tray_menu_offers_open_refresh_and_quit(qt_app, payload):
     tray = keep(TrayApp(qt_app, subject))
     tray._relabel_menu()
     labels = [action.text() for action in tray.tray.contextMenu().actions()]
-    assert labels[0] == payload["strings"]["open"]
+    assert labels[0].startswith(payload["strings"]["todays_tokens"])
+    assert not tray.tray.contextMenu().actions()[0].isEnabled()
+    assert payload["strings"]["open"] in labels
     assert payload["strings"]["refresh"] in labels
     assert payload["strings"]["restart"] in labels
     assert payload["strings"]["quit"] in labels
