@@ -398,3 +398,25 @@ def test_a_save_that_says_nothing_new_is_not_written(tmp_path):
     store.state.spent_tokens += 1
     store._persist()
     assert path.stat().st_mtime_ns != stamp
+
+
+def test_a_species_names_are_read_once(tmp_path):
+    """Every row of the grid and the catch log asks for them, and they do not
+    change while the daemon runs."""
+    reads = []
+
+    class Api:
+        def species(self, species_id):
+            reads.append(species_id)
+            return {"names": [{"language": {"name": "en"}, "name": "Bulbasaur"},
+                              {"language": {"name": "ko"}, "name": "이상해씨"}]}
+
+        def cached_details(self, species_id):
+            return None
+
+    store = CompanionStore(save_path=tmp_path / "companion.json", api=Api(),
+                           sprite_store=None)
+    assert store.species_name(1, "ko") == "이상해씨"
+    assert store.species_names(1)["en"] == "Bulbasaur"
+    assert store.species_name(1, "en") == "Bulbasaur"
+    assert reads == [1], "the names file was read again"

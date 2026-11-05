@@ -69,6 +69,8 @@ class CompanionStore:
         self._revision = 0
         self._dex_rows: tuple | None = None
         self._catch_rows: tuple | None = None
+        # A species' names, once each. They never change while this runs.
+        self._species_names: dict[int, dict[str, str]] = {}
         # Restore points, described once and kept until this process changes
         # them; the popup asks for them on every poll.
         self._snapshot_rows: list[dict] | None = None
@@ -557,25 +559,30 @@ class CompanionStore:
         """
         if self.api is None:
             return ""
-        try:
-            entry = self.api.species(species_id)
-        except Exception:
-            return ""
-        return l10n.resolve_name(l10n.names_from_api(entry.get("names")), language) or ""
+        return l10n.resolve_name(self.species_names(species_id), language) or ""
 
     def species_names(self, species_id: int) -> dict[str, str]:
         """Every name PokéAPI knows for a species, by language code.
 
         The search box matches any of them, so "flabebe" finds Flabébé and a
         Korean name is found by someone typing English.
+
+        Held for the life of the process: a species' names do not change, and
+        rebuilding them for every row of the grid and the catch log was most
+        of a poll's string work.
         """
+        held = self._species_names.get(species_id)
+        if held is not None:
+            return held
         if self.api is None:
             return {}
         try:
             entry = self.api.species(species_id)
         except Exception:
             return {}
-        return l10n.names_from_api(entry.get("names")) or {}
+        names = l10n.names_from_api(entry.get("names")) or {}
+        self._species_names[species_id] = names
+        return names
 
     def _search_text(self, species_ids) -> str:
         """What a row matches a search against: its numbers and all its names.

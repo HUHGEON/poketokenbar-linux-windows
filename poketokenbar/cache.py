@@ -40,6 +40,9 @@ _COLUMNS = (
     ("offset", "INTEGER"),
     ("extra", "TEXT"),
     ("tail", "TEXT"),
+    # The newest day in the blob, so a file entirely older than the window a
+    # poll reads is skipped without decoding it at all.
+    ("last_day", "TEXT"),
 )
 
 
@@ -113,7 +116,11 @@ def _decode(raw: str, since: str | None = None) -> list[Entry]:
 
 
 def _row(row, since: str | None = None) -> Blob:
-    entries, size, offset, extra, tail = row
+    entries, size, offset, extra, tail, last_day = row
+    if since is not None and last_day is not None and last_day < since:
+        # Every day in it is older than anything the caller reads. Decoding it
+        # to throw all of it away is most of a poll on a year of history.
+        entries = "[]"
     return Blob(
         entries=_decode(entries, since),
         size=size,
@@ -129,12 +136,35 @@ class ScanCache:
         self._db = sqlite3.connect(db_path)
         self._db.execute("PRAGMA journal_mode=WAL")
         self._db.executescript(_SCHEMA)
+        added = []
         for name, kind in _COLUMNS:
             try:
                 self._db.execute(f"ALTER TABLE blobs ADD COLUMN {name} {kind}")
+                added.append(name)
             except sqlite3.OperationalError:
                 pass  # already there
+        if "last_day" in added:
+            self._backfill_last_day()
         self._db.commit()
+
+    def _backfill_last_day(self) -> None:
+        """Fill in the newest day of rows written before the column existed.
+
+        Without it those rows would be decoded on every poll for ever: a file
+        from last spring never changes, so it would never be rewritten with
+        the column filled in. Done in SQL, once, when the column is added.
+        """
+        try:
+            self._db.execute(
+                "UPDATE blobs SET last_day = ("
+                "  SELECT max(json_extract(value, '$.local_day'))"
+                "  FROM json_each(blobs.entries)"
+                ") WHERE last_day IS NULL"
+            )
+        except sqlite3.Error:
+            # No JSON1 in this build: the rows keep being decoded, which is
+            # what they did before, and a rewrite fills them in.
+            pass
 
     def get(
         self, provider: str, path: Path, mtime: float, size: int, parser_version: int,
@@ -146,7 +176,7 @@ class ScanCache:
         is the point of reading it: nothing asks this cache about last spring.
         """
         row = self._db.execute(
-            "SELECT entries, size, offset, extra, tail FROM blobs"
+            "SELECT entries, size, offset, extra, tail, last_day FROM blobs"
             " WHERE provider=? AND path=? AND mtime=? AND size=? AND parser_version=?",
             (provider, str(path), mtime, size, parser_version),
         ).fetchone()
@@ -160,7 +190,7 @@ class ScanCache:
         parse stopped.
         """
         row = self._db.execute(
-            "SELECT entries, size, offset, extra, tail FROM blobs"
+            "SELECT entries, size, offset, extra, tail, last_day FROM blobs"
             " WHERE provider=? AND path=? AND parser_version=?",
             (provider, str(path), parser_version),
         ).fetchone()
@@ -180,10 +210,12 @@ class ScanCache:
     ) -> None:
         self._db.execute(
             "INSERT OR REPLACE INTO blobs"
-            " (provider, path, mtime, size, parser_version, entries, offset, extra, tail)"
-            " VALUES (?,?,?,?,?,?,?,?,?)",
+            " (provider, path, mtime, size, parser_version, entries, offset, extra,"
+            "  tail, last_day)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?)",
             (provider, str(path), mtime, size, parser_version, _encode(entries),
-             offset, None if extra is None else json.dumps(extra), tail),
+             offset, None if extra is None else json.dumps(extra), tail,
+             max((e.local_day for e in entries), default=None)),
         )
         self._db.commit()
 

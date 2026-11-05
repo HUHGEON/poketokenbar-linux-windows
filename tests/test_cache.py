@@ -109,3 +109,55 @@ def test_only_the_days_asked_for_are_brought_back(cache, tmp_path):
 
     # The row itself still holds everything: the window moves on.
     assert len(cache.previous("claude_code", p, 1).entries) == 2
+
+
+def test_a_file_entirely_older_than_the_window_is_not_even_decoded(cache, tmp_path, monkeypatch):
+    """A year of sessions sit in these rows; decoding them to throw all of it
+    away was most of a poll."""
+    from poketokenbar import cache as cache_module
+
+    p = tmp_path / "old.jsonl"
+    old = _entry()
+    old.local_day = "2026-01-02"
+    cache.put("claude_code", p, 1.0, 10, 1, [old])
+
+    decoded = []
+    real = cache_module._decode
+    monkeypatch.setattr(cache_module, "_decode",
+                        lambda raw, since=None: (decoded.append(raw), real(raw, since))[1])
+
+    blob = cache.get("claude_code", p, 1.0, 10, 1, since="2026-11-01")
+    assert blob.entries == []
+    assert decoded == ["[]"], "the stored entries were decoded anyway"
+
+    # Asked for without a window, the row still reads in full.
+    blob = cache.get("claude_code", p, 1.0, 10, 1)
+    assert len(blob.entries) == 1
+
+
+def test_rows_written_before_the_column_existed_are_filled_in(tmp_path):
+    """An old file never changes, so it would never be rewritten — and would
+    be decoded on every poll for ever."""
+    import sqlite3
+
+    from poketokenbar.cache import ScanCache
+
+    path = tmp_path / "scan.db"
+    db = sqlite3.connect(path)
+    db.executescript(
+        "CREATE TABLE blobs (provider TEXT NOT NULL, path TEXT NOT NULL, mtime REAL"
+        " NOT NULL, size INTEGER NOT NULL, parser_version INTEGER NOT NULL, entries"
+        " TEXT NOT NULL, PRIMARY KEY (provider, path));"
+    )
+    db.execute(
+        "INSERT INTO blobs VALUES ('claude_code', '/x.jsonl', 1.0, 10, 1, ?)",
+        ('[{"id": "a", "date": "2026-01-02T00:00:00+00:00", "local_day": "2026-01-02",'
+         ' "model": "m", "input": 1, "output": 0, "cache_write": 0, "cache_read": 0,'
+         ' "explicit_cost": null, "cost_is_estimate": false, "cost_unavailable": false}]',),
+    )
+    db.commit()
+    db.close()
+
+    cache = ScanCache(path)
+    assert cache._db.execute(
+        "SELECT last_day FROM blobs").fetchone()[0] == "2026-01-02"
