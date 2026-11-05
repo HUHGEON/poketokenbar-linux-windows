@@ -236,6 +236,26 @@ def omp_session_roots(
     )
 
 
+def omo_session_roots(
+    home: Path | None = None, env: Mapping[str, str] | None = None
+) -> list[Path]:
+    """omo and senpi, which write Pi's session format in their own folders.
+
+    The binary resolves `OMO_CODING_AGENT_DIR` before `SENPI_CODING_AGENT_DIR`
+    before `PI_CODING_AGENT_DIR` before `~/.omo/agent`; both documented
+    defaults are read, and Pi's own directory deliberately is not — omo
+    falling back to it would count those sessions twice (upstream 964269c).
+    """
+    home = home or Path.home()
+    env = os.environ if env is None else env
+    roots = [home / ".omo/agent/sessions", home / ".senpi/agent/sessions"]
+    for variable in ("OMO_CODING_AGENT_DIR", "SENPI_CODING_AGENT_DIR"):
+        configured = (env.get(variable) or "").strip()
+        if configured:
+            roots.append(Path(configured).expanduser() / "sessions")
+    return roots
+
+
 def is_omp_usage_file(path: Path) -> bool:
     """Anything under `bridge/` is a conversion copy of another session source.
 
@@ -266,6 +286,32 @@ class PiProvider(ScanningProvider):
             scope_id_by_file=False,
             require_assistant_role=False,
             envelope_model_wins=True,
+        )
+
+
+class OmoProvider(ScanningProvider):
+    """omo and senpi local usage — the same session format as Pi's."""
+
+    id = "omo"
+    display_name = "omo"
+    reports_cost = True
+    PARSER_VERSION = 1
+
+    def curated_roots(self) -> list[Path]:
+        return omo_session_roots(self._home)
+
+    def files(self, path: Path):
+        for candidate in super().files(path):
+            if is_omp_usage_file(candidate):
+                yield candidate
+
+    def parse_file(self, path: Path) -> list[Entry]:
+        return _parse(
+            path,
+            default_model="omo",
+            scope_id_by_file=True,
+            require_assistant_role=True,
+            envelope_model_wins=False,
         )
 
 

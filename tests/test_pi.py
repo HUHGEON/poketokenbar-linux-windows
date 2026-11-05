@@ -252,3 +252,49 @@ def test_provider_identity():
     provider = pi.PiProvider()
     assert provider.id == "pi"
     assert provider.display_name == "Pi Agent"
+
+
+# MARK: omo and senpi, which write Pi's format elsewhere (upstream 964269c)
+
+
+def test_omo_reads_both_documented_defaults(tmp_path):
+    from poketokenbar.providers.pi import omo_session_roots
+
+    found = omo_session_roots(home=tmp_path, env={})
+    assert found == [tmp_path / ".omo/agent/sessions", tmp_path / ".senpi/agent/sessions"]
+
+
+def test_omo_honours_either_agent_directory(tmp_path):
+    from poketokenbar.providers.pi import omo_session_roots
+
+    found = omo_session_roots(home=tmp_path, env={
+        "OMO_CODING_AGENT_DIR": str(tmp_path / "o"),
+        "SENPI_CODING_AGENT_DIR": str(tmp_path / "s"),
+    })
+    assert found[-2:] == [tmp_path / "o" / "sessions", tmp_path / "s" / "sessions"]
+
+
+def test_omo_never_reads_pi_s_own_directory(tmp_path):
+    """The binary falls back to it, and Pi already counts what is there."""
+    from poketokenbar.providers.pi import omo_session_roots
+
+    found = omo_session_roots(home=tmp_path, env={"PI_CODING_AGENT_DIR": str(tmp_path / "p")})
+    assert all("pi" not in str(root).split("/")[-3:] for root in found), found
+
+
+def test_omo_reads_a_pi_format_session(tmp_path):
+    from poketokenbar.providers.pi import OmoProvider
+
+    root = tmp_path / ".omo" / "agent" / "sessions"
+    root.mkdir(parents=True)
+    (root / "a.jsonl").write_text(
+        json.dumps(message("m1", usage=usage(input=10, output=5))), encoding="utf-8")
+
+    entries = OmoProvider(home=tmp_path).scan_entries()
+    assert [e.total for e in entries] == [15]
+    # A bridge copy is another source's session converted; Pi's rule holds here.
+    bridge = root / "bridge"
+    bridge.mkdir()
+    (bridge / "b.jsonl").write_text(
+        json.dumps(message("m2", usage=usage(input=99))), encoding="utf-8")
+    assert [e.total for e in OmoProvider(home=tmp_path).scan_entries()] == [15]

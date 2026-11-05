@@ -114,6 +114,8 @@ windows-latest 러너에서 실제 로그를 읽어 실제 `state.json`을 쓰�
 | **Kiro CLI** | `~/.local/share/kiro-cli`, `~/.kiro`, `~/.kiro/sessions` |
 | **Kimi Code** | `~/.kimi-code/sessions/**/wire.jsonl` |
 | **Pi Agent** | `~/.pi/agent/sessions` |
+| **omo** / **senpi** | `~/.omo/agent/sessions`, `~/.senpi/agent/sessions` |
+| **Devin CLI** | `~/.local/share/devin/cli/sessions.db` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 
 Claude 계정은 공식 5시간·주간 한도까지 읽습니다.

@@ -20,12 +20,13 @@ from .codex import CodexProvider
 from .gemini import GeminiProvider
 from .copilot import CopilotProvider
 from .cursor import CursorProvider
+from .devin import DevinProvider
 from .grok import GrokProvider
 from .hermes import HermesProvider
 from .kimi import KimiCodeProvider
 from .kiro import KiroProvider
 from .opencode import OpenCodeProvider
-from .pi import OmpProvider, PiProvider
+from .pi import OmoProvider, OmpProvider, PiProvider
 
 REGISTRY: list[type] = [
     ClaudeProvider,
@@ -33,6 +34,7 @@ REGISTRY: list[type] = [
     GeminiProvider,
     PiProvider,
     OmpProvider,
+    OmoProvider,
     GrokProvider,
     OpenCodeProvider,
     HermesProvider,
@@ -40,6 +42,7 @@ REGISTRY: list[type] = [
     CursorProvider,
     KiroProvider,
     KimiCodeProvider,
+    DevinProvider,
     AntigravityProvider,
 ]
 
@@ -70,6 +73,7 @@ __all__ = [
     "GeminiProvider",
     "PiProvider",
     "OmpProvider",
+    "OmoProvider",
     "GrokProvider",
     "OpenCodeProvider",
     "HermesProvider",
@@ -77,5 +81,6 @@ __all__ = [
     "CursorProvider",
     "KiroProvider",
     "KimiCodeProvider",
+    "DevinProvider",
     "AntigravityProvider",
 ]

@@ -126,6 +126,8 @@ All 12 sources from the original.
 | **Kiro CLI** | `~/.local/share/kiro-cli`, `~/.kiro`, `~/.kiro/sessions` |
 | **Kimi Code** | `~/.kimi-code/sessions/**/wire.jsonl` |
 | **Pi Agent** | `~/.pi/agent/sessions` |
+| **omo** / **senpi** | `~/.omo/agent/sessions`, `~/.senpi/agent/sessions` |
+| **Devin CLI** | `~/.local/share/devin/cli/sessions.db` |
 | **omp** (oh-my-pi) | `~/.omp/agent/sessions` |
 
 A Claude account also gets the official 5-hour and weekly limits.
