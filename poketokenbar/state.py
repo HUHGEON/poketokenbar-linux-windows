@@ -461,6 +461,7 @@ def build(
     config_values: dict,
     errors: list[str],
     streak: int = 0,
+    activity: dict | None = None,
     scanning: bool = False,
     limit_status=None,
     limit_accounts=None,
@@ -568,6 +569,9 @@ def build(
         # Days in a row with usage, for the badge beside them. 0 means the run
         # has ended, or there has not been one.
         "streak": int(streak or 0),
+        # The last sixteen weeks as a grid, for the view that shows habits
+        # rather than this month's numbers (upstream d4ff501).
+        "activity": activity or {},
         "month_trend": _month_trend(periods, language, time.strftime("%Y-%m-%d"),
                                     provider_names or {}),
         "strings": l10n.catalogue(config_values.get("language", "en")),

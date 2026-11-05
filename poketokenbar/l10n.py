@@ -159,6 +159,16 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "weekday_sat": ("Sat", "토", "土", "sáb", "sam.", "sáb", "Sa."),
     "weekday_sun": ("Sun", "일", "日", "dom", "dim.", "dom", "So."),
     # This month's day-by-day bars (upstream 0912c68).
+    # The activity row's two views (upstream d4ff501).
+    "activity_weeks": ("%1 weeks", "최근 %1주", "%1週間", "%1 semanas", "%1 semaines",
+        "%1 semanas", "%1 Wochen",
+    ),
+    "activity_grid": ("Grid", "그리드", "グリッド", "Cuadrícula", "Grille", "Grade",
+        "Raster",
+    ),
+    "activity_bars": ("Bars", "막대", "棒グラフ", "Barras", "Barres", "Barras",
+        "Balken",
+    ),
     "daily_trend": ("Daily this month", "이번 달 일별", "今月の日別", "Diario de este mes",
         "Par jour ce mois-ci", "Diário deste mês", "Täglich",
     ),

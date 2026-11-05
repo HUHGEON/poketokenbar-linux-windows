@@ -12,8 +12,8 @@ from datetime import date as _date
 from datetime import datetime
 from datetime import time as dtime
 
-from . import (commands, config, l10n, ledger, platform_paths, recap, save, state,
-               transfer)
+from . import (commands, config, heatmap, l10n, ledger, platform_paths, recap,
+               save, state, transfer)
 from .companion_store import CompanionStore
 from . import autostart
 from . import updater as updater_module
@@ -761,6 +761,9 @@ class Daemon:
             # the ledger so it survives the 1st of the month (upstream
             # 1870acf).
             streak=recap.current_streak(self.ledger, _date.today()),
+            # The last sixteen weeks, one square a day, from the same history
+            # the recap reads (upstream d4ff501).
+            activity=heatmap.grid(self.ledger, _date.today()),
             provider_names={p.id: p.display_name for p in self.tracked_providers},
         )
         state.write(self.state_path, payload)

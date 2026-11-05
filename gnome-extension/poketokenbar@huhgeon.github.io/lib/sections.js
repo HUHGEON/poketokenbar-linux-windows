@@ -147,6 +147,9 @@ class HomeSection extends Section {
         // Which recap period this page has open, or null for the ordinary
         // Home. The daemon computes it; this is what was asked for.
         this._recapScope = null;
+        // Whether the activity row shows the 16-week grid instead of this
+        // month's bars (upstream d4ff501).
+        this._activityGrid = false;
         // Which Claude login's limits are on screen, when there is more than
         // one; the default account until something else is picked.
         this._limitAccount = null;
@@ -545,8 +548,69 @@ class HomeSection extends Section {
                 line.add_child(this._period(t('this_month'), periods.month, 'month'));
             this.add_child(line);
         }
-        this._addMonthTrend(state?.month_trend, t);
+        if (this._activityGrid)
+            this._addActivityGrid(state?.activity, t);
+        else
+            this._addMonthTrend(state?.month_trend, t);
         this._addProviders(state, t);
+    }
+
+    /**
+     * Sixteen weeks, one square a day, weeks as columns (upstream d4ff501).
+     *
+     * The bars above say what this month looks like; this says what the habit
+     * looks like. Built from the same day-by-day history the recap reads, so
+     * it costs a poll nothing.
+     */
+    _addActivityGrid(activity, t) {
+        const columns = activity?.columns ?? [];
+        if (columns.length === 0)
+            return;
+        const readout = label('', 'poketokenbar-caption poketokenbar-secondary');
+        const heading = row([
+            caption(t('activity_weeks').replace('%1', String(activity.weeks ?? columns.length)),
+                'tertiary'),
+            readout,
+            spacer(),
+            this._activityToggle(t),
+        ]);
+        this.add_child(heading);
+
+        const grid = row([], 'poketokenbar-heatmap');
+        for (const week of columns) {
+            const stack = column([], 'poketokenbar-heatweek');
+            for (const cell of week) {
+                const classes = ['poketokenbar-heatcell'];
+                if (!cell.known)
+                    classes.push('poketokenbar-heatcell-unknown');
+                else
+                    classes.push(`poketokenbar-heatcell-${cell.level}`);
+                if (cell.is_today)
+                    classes.push('poketokenbar-heatcell-today');
+                const square = new St.Widget({
+                    style_class: classes.join(' '),
+                    reactive: true,
+                    track_hover: true,
+                });
+                square.connect('notify::hover', () => {
+                    if (square.hover)
+                        readout.text = `${cell.date} · ${compact(cell.tokens)}`;
+                });
+                stack.add_child(square);
+            }
+            grid.add_child(stack);
+        }
+        this.add_child(grid);
+    }
+
+    /** Switches the row between the daily bars and the 16-week grid. */
+    _activityToggle(t) {
+        const toggle = button(this._activityGrid ? t('activity_bars') : t('activity_grid'),
+            () => {
+                this._activityGrid = !this._activityGrid;
+                this.update(this._state);
+            }, 'poketokenbar-link');
+        return toggle;
     }
 
     /** One bar per day, or per month in the year view. */
@@ -617,6 +681,7 @@ class HomeSection extends Section {
         const todayRow = days.find(trendDay => trendDay.is_today) ?? days[days.length - 1];
         const readout = label(todayRow.readout, 'poketokenbar-caption poketokenbar-secondary');
         const heading = row([caption(t('daily_trend'), 'tertiary'), readout, spacer()]);
+        heading.add_child(this._activityToggle(t));
         // With one day's usage the peak is the readout's own number (0269dad).
         if (monthTrend.peak_text) {
             heading.add_child(caption(t('peak_day'), 'tertiary'));

@@ -767,3 +767,29 @@
   spacing: 4px;
   padding: 2px 0;
 }
+
+/* Sixteen weeks of squares, weeks as columns (upstream d4ff501). */
+.poketokenbar-heatmap {
+  spacing: 3px;
+  padding: 2px 0;
+}
+
+.poketokenbar-heatweek {
+  spacing: 3px;
+}
+
+.poketokenbar-heatcell {
+  width: 15px;
+  height: 15px;
+  border-radius: 3px;
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+/* Nothing recorded for that day — not the same as a quiet one. */
+.poketokenbar-heatcell-unknown { background-color: rgba(255, 255, 255, 0.03); }
+.poketokenbar-heatcell-0 { background-color: rgba(255, 255, 255, 0.08); }
+.poketokenbar-heatcell-1 { background-color: rgba(48, 209, 88, 0.30); }
+.poketokenbar-heatcell-2 { background-color: rgba(48, 209, 88, 0.52); }
+.poketokenbar-heatcell-3 { background-color: rgba(48, 209, 88, 0.74); }
+.poketokenbar-heatcell-4 { background-color: #30d158; }
+.poketokenbar-heatcell-today { border: 1px solid rgba(255, 255, 255, 0.85); }

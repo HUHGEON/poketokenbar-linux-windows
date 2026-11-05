@@ -320,3 +320,47 @@ def test_the_streak_crosses_the_first_of_the_month():
 
     days = {"2026-10-30": 5, "2026-10-31": 5, "2026-11-01": 5, "2026-11-02": 5}
     assert current_streak(Ledger(days=days), date(2026, 11, 2)) == 4
+
+
+# MARK: the sixteen-week grid (upstream d4ff501)
+
+
+def test_the_grid_is_whole_weeks_ending_on_this_one():
+    from datetime import date
+
+    from poketokenbar import heatmap
+    from poketokenbar.ledger import Ledger
+
+    today = date(2026, 11, 5)          # a Thursday
+    found = heatmap.grid(Ledger(days={}), today)
+    assert len(found["columns"]) == 16
+    assert all(len(week) == 7 for week in found["columns"])
+    # Every row is one weekday: the first column starts on a Monday and the
+    # last ends on the Sunday of this week.
+    assert found["columns"][0][0]["date"] == "2026-07-20"
+    assert found["columns"][-1][-1]["date"] == "2026-11-08"
+    assert [cell["is_today"] for week in found["columns"] for cell in week].count(True) == 1
+
+
+def test_a_day_with_no_history_is_not_a_quiet_day():
+    from datetime import date
+
+    from poketokenbar import heatmap
+    from poketokenbar.ledger import Ledger
+
+    today = date(2026, 11, 5)
+    ledger = Ledger(days={"2026-11-02": 10}, covered_since="2026-11-01")
+    cells = {cell["date"]: cell for week in heatmap.grid(ledger, today)["columns"]
+             for cell in week}
+    assert cells["2026-11-02"]["known"] and cells["2026-11-02"]["level"] == 4
+    assert cells["2026-11-03"]["known"], "covered, and really empty"
+    assert not cells["2026-10-01"]["known"], "before the ledger was recording"
+    assert not cells["2026-11-06"]["known"], "tomorrow"
+
+
+def test_the_shades_split_unused_days_from_the_rest():
+    from poketokenbar import heatmap
+
+    assert [heatmap.level(t, 100) for t in (0, 1, 25, 26, 50, 51, 75, 76, 100)] == \
+        [0, 1, 1, 2, 2, 3, 3, 4, 4]
+    assert heatmap.level(5, 0) == 0, "no peak, nothing to shade against"
