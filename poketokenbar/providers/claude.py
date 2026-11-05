@@ -127,33 +127,72 @@ def apply_reported_cost(entries: list[Entry], by_model: dict[str, float]) -> lis
     return entries
 
 
-def parse_file(path: Path) -> list[Entry]:
+# Read in blocks rather than a line at a time: a session log runs to hundreds
+# of megabytes, and this bounds what is held however long one line turns out
+# to be.
+_BLOCK = 1 << 22
+
+
+def parse_from(path: Path, offset: int = 0) -> tuple[list[Entry], int, dict[str, float] | None]:
+    """The entries from `offset` on, the byte it stopped at, and the ledger.
+
+    The byte it stopped at is the end of the last *complete* line. A session
+    being written to right now ends mid-line as often as not, and consuming a
+    half-written record would lose it: the next poll starts again from there
+    and reads the whole line once it has a newline after it.
+
+    Lines are matched as bytes before anything is decoded. Most of a session
+    log is user turns, file contents and tool output, and decoding all of that
+    to find the assistant turns was most of the cold scan (upstream 8f74054).
+    """
     out: list[Entry] = []
     cost_state: dict[str, float] | None = None
+    consumed = offset
+
+    def _read(raw: bytes) -> None:
+        nonlocal cost_state
+        # The ledger is cumulative, so the last record in the file wins.
+        # Checked before the assistant prefilter: a cost-state line carries
+        # "modelUsage", not "usage".
+        if b'"cost-state"' in raw:
+            cost_state = parse_cost_state_line(raw.decode("utf-8", "replace")) or cost_state
+            return
+        if b'"usage"' not in raw or b'"assistant"' not in raw:
+            return
+        entry = parse_line(raw.decode("utf-8", "replace"))
+        if entry is not None:
+            out.append(entry)
+
     try:
-        # Streamed, and the pages handed back afterwards: this is the file
-        # that makes a four-gigabyte history (see base.streamed).
-        with streamed(path) as fh:
-            for line in fh:
-                # The ledger is cumulative, so the last record in the file
-                # wins. Checked before the assistant prefilter: a cost-state
-                # line carries "modelUsage", not "usage".
-                if '"cost-state"' in line:
-                    cost_state = parse_cost_state_line(line) or cost_state
-                    continue
-                # Substring prefilter before JSON decode — the cold scan reads
-                # hundreds of MB and most lines are not assistant turns.
-                if '"usage"' not in line or '"assistant"' not in line:
-                    continue
-                entry = parse_line(line)
-                if entry is not None:
-                    out.append(entry)
+        with streamed(path, binary=True) as fh:
+            fh.seek(offset)
+            rest = b""
+            while True:
+                block = fh.read(_BLOCK)
+                if not block:
+                    break
+                lines = (rest + block).split(b"\n")
+                rest = lines.pop()
+                for raw in lines:
+                    consumed += len(raw) + 1
+                    _read(raw)
+            # A file that simply ends without a newline is still a record, and
+            # a session mid-write looks exactly the same. It is read either
+            # way but never counted as consumed: once the rest of it lands,
+            # the whole line is read again and the repeat deduplicates away.
+            if rest:
+                _read(rest)
     except OSError:
-        return []
-    deduped = dedup_keep_max(out)
+        return [], offset, None
+    return dedup_keep_max(out), consumed, cost_state
+
+
+def parse_file(path: Path) -> list[Entry]:
+    """Every entry in the file, with the session's reported costs applied."""
+    entries, _offset, cost_state = parse_from(path, 0)
     if cost_state is None:
-        return deduped
-    return apply_reported_cost(deduped, cost_state)
+        return entries
+    return apply_reported_cost(entries, cost_state)
 
 
 def project_roots(
@@ -207,3 +246,20 @@ class ClaudeProvider(ScanningProvider):
 
     def parse_file(self, path: Path) -> list[Entry]:
         return parse_file(path)
+
+    def parse_from(self, path: Path, offset: int):
+        """The tail of an append-only session log (upstream 8f74054).
+
+        The entries are handed back raw, with the ledger beside them: it is a
+        running total for the whole session, so it has to be applied over
+        every entry in the file rather than over the tail alone.
+        """
+        entries, consumed, cost_state = parse_from(path, offset)
+        return entries, consumed, (None if cost_state is None else dict(cost_state))
+
+    def attributed(self, entries: list[Entry], extra: dict | None) -> list[Entry]:
+        if not extra:
+            # Nothing reported, or a row written before the ledger was kept
+            # beside the entries — those were stored with it already applied.
+            return entries
+        return apply_reported_cost(entries, extra)

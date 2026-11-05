@@ -35,10 +35,10 @@ def test_hit_roundtrips_entries(cache, tmp_path):
     cache.put("claude_code", p, 1.0, 10, 1, [_entry()])
     got = cache.get("claude_code", p, 1.0, 10, 1)
     assert got is not None
-    assert len(got) == 1
-    assert got[0].total == 40_930
-    assert got[0].local_day == "2026-08-18"
-    assert got[0].date == datetime(2026, 8, 18, 20, 50, 59, tzinfo=timezone.utc)
+    assert len(got.entries) == 1
+    assert got.entries[0].total == 40_930
+    assert got.entries[0].local_day == "2026-08-18"
+    assert got.entries[0].date == datetime(2026, 8, 18, 20, 50, 59, tzinfo=timezone.utc)
 
 
 def test_changed_mtime_misses(cache, tmp_path):
@@ -64,7 +64,7 @@ def test_empty_result_is_cached_not_treated_as_miss(cache, tmp_path):
     # nothing would re-parse it on every single refresh forever.
     p = tmp_path / "s.jsonl"
     cache.put("claude_code", p, 1.0, 10, 1, [])
-    assert cache.get("claude_code", p, 1.0, 10, 1) == []
+    assert cache.get("claude_code", p, 1.0, 10, 1).entries == []
 
 
 def test_providers_do_not_collide(cache, tmp_path):

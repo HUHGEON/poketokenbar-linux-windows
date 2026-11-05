@@ -57,7 +57,27 @@ class UsageProvider(Protocol):
 # MARK: shared parsing helpers
 
 
-def streamed(path: Path, encoding: str = "utf-8", errors: str = "replace"):
+# How much of the parsed region is remembered to recognise it again. One line
+# of a session log is usually far longer than this, so it is a cheap check
+# that the file really is the same one, grown.
+TAIL_BYTES = 64
+
+
+def _tail_of(path: Path, offset: int) -> str | None:
+    """The bytes just before `offset`, as hex, or None when unreadable."""
+    if offset <= 0:
+        return None
+    start = max(0, offset - TAIL_BYTES)
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(start)
+            return handle.read(offset - start).hex()
+    except OSError:
+        return None
+
+
+def streamed(path: Path, encoding: str = "utf-8", errors: str = "replace",
+             binary: bool = False):
     """Open a log for one sequential read and leave the page cache as it was.
 
     The session logs are gigabytes — four of them on the machine this was
@@ -77,7 +97,8 @@ def streamed(path: Path, encoding: str = "utf-8", errors: str = "replace"):
 
     @contextlib.contextmanager
     def opened():
-        handle = open(path, encoding=encoding, errors=errors)
+        handle = (open(path, "rb") if binary
+                  else open(path, encoding=encoding, errors=errors))
         try:
             yield handle
         finally:
@@ -347,6 +368,27 @@ class ScanningProvider:
                     out.append((str(path), signature))
         return tuple(out)
 
+    # --- resuming a file where the last parse stopped ----------------------
+
+    def parse_from(self, path: Path, offset: int) -> tuple[list[Entry], int | None, dict | None]:
+        """Entries from `offset` on, how far the parse got, and any state.
+
+        The default reads the whole file however `parse_file` does and reports
+        no offset, so nothing is ever resumed. A source whose files are
+        append-only overrides this: the session being written to right now is
+        re-read from byte zero on every poll otherwise (upstream 8f74054).
+        """
+        return self.parse_file(path), None, None
+
+    def attributed(self, entries: list[Entry], extra: dict | None) -> list[Entry]:
+        """The entries as they should be counted, given the state beside them.
+
+        Kept apart from parsing because the state can be cumulative: Claude's
+        ledger gives a total for the whole file, which cannot be applied to a
+        tail on its own.
+        """
+        return entries
+
     def _scan_uncached(self) -> list[Entry]:
         all_entries: list[Entry] = []
         live: set[str] = set()
@@ -364,21 +406,42 @@ class ScanningProvider:
                     continue
                 mtime, size = signature
                 live.add(key)
-                entries = None
-                if self._cache is not None:
-                    entries = self._cache.get(
-                        self.id, path, mtime, size, self.PARSER_VERSION
-                    )
-                if entries is None:
-                    entries = self.parse_file(path)
-                    if self._cache is not None:
-                        self._cache.put(
-                            self.id, path, mtime, size, self.PARSER_VERSION, entries
-                        )
-                all_entries.extend(entries)
+                all_entries.extend(self._entries_for(path, mtime, size))
         if self._cache is not None:
             self._cache.prune(self.id, live)
         return self.dedup(all_entries)
+
+    def _entries_for(self, path: Path, mtime: float, size: int) -> list[Entry]:
+        """One file's entries, from the cache, its tail, or the whole file."""
+        if self._cache is None:
+            return self.parse_file(path)
+
+        cached = self._cache.get(self.id, path, mtime, size, self.PARSER_VERSION)
+        if cached is not None:
+            return self.attributed(cached.entries, cached.extra)
+
+        # Only a file that strictly grew can be resumed, and only when the
+        # bytes right before where the last parse stopped are still the same:
+        # a log being appended to and one rewritten longer look alike from
+        # the size.
+        previous = self._cache.previous(self.id, path, self.PARSER_VERSION)
+        resume = 0
+        if (previous is not None and previous.offset and size > previous.size
+                and previous.tail is not None
+                and previous.tail == _tail_of(path, previous.offset)):
+            resume = previous.offset
+
+        entries, offset, extra = self.parse_from(path, resume)
+        if resume:
+            entries = self.dedup(previous.entries + entries)
+            # A tail with no state of its own leaves the file's last known
+            # state standing — Claude writes its ledger once in a while, not
+            # on every line.
+            extra = extra if extra is not None else previous.extra
+        self._cache.put(self.id, path, mtime, size, self.PARSER_VERSION,
+                        entries, offset=offset, extra=extra,
+                        tail=None if offset is None else _tail_of(path, offset))
+        return self.attributed(entries, extra)
 
     def cost_of(self, entry: Entry) -> tuple[float, CostCoverage]:
         """One entry's cost and where it came from. Ports upstream's Bucket.add.
