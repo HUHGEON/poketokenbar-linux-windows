@@ -119,7 +119,7 @@ class _Provider:
     def __init__(self, entries):
         self._entries = entries
 
-    scan_entries = property(lambda self: lambda: self._entries)
+    scan_entries = property(lambda self: lambda since=None: self._entries)
     # (amount, coverage), as ScanningProvider.cost_of answers here.
     cost_of = staticmethod(lambda entry: (0.0, CostCoverage()))
 

@@ -91,3 +91,21 @@ def test_survives_reopen(tmp_path):
     second = ScanCache(db)
     assert second.get("claude_code", p, 1.0, 10, 1) is not None
     second.close()
+
+
+def test_only_the_days_asked_for_are_brought_back(cache, tmp_path):
+    """A year of history sits in these blobs and a poll reads the last few
+    weeks of it; the rest was rebuilt into objects to be looked past."""
+    p = tmp_path / "s.jsonl"
+    old = _entry()
+    old.local_day = "2026-01-02"
+    recent = _entry()
+    recent.local_day = "2026-11-03"
+    cache.put("claude_code", p, 1.0, 10, 1, [old, recent])
+
+    assert len(cache.get("claude_code", p, 1.0, 10, 1).entries) == 2
+    narrowed = cache.get("claude_code", p, 1.0, 10, 1, since="2026-11-01")
+    assert [e.local_day for e in narrowed.entries] == ["2026-11-03"]
+
+    # The row itself still holds everything: the window moves on.
+    assert len(cache.previous("claude_code", p, 1).entries) == 2

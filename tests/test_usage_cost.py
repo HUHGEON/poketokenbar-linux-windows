@@ -106,7 +106,7 @@ def test_no_text_without_usage():
 
 def test_week_and_month_carry_their_coverage():
     provider = ScanningProvider()
-    provider.scan_entries = lambda: [entry(model="unlisted"), entry()]
+    provider.scan_entries = lambda since=None: [entry(model="unlisted"), entry()]
     periods = provider.fetch_periods("2026-09-17")
     assert periods["month"]["coverage"] == CostCoverage(estimated=True, unknown=True)
     payload = state.build({}, config.DEFAULTS, [], periods=periods)
@@ -148,13 +148,13 @@ def test_a_day_of_only_zero_token_records_is_not_activity():
     """A synthetic assistant turn must not surface a provider row reading zero
     tokens and no cost, as though the tool had been used (upstream a910767)."""
     provider = ScanningProvider()
-    provider.scan_entries = lambda: [entry(tokens=0), entry(tokens=0, explicit_cost=0.0)]
+    provider.scan_entries = lambda since=None: [entry(tokens=0), entry(tokens=0, explicit_cost=0.0)]
     assert provider.fetch_daily("2026-09-17") is None
 
 
 def test_one_real_record_beside_a_synthetic_one_still_counts_in_full():
     provider = ScanningProvider()
-    provider.scan_entries = lambda: [entry(tokens=0), entry(tokens=1_000_000)]
+    provider.scan_entries = lambda since=None: [entry(tokens=0), entry(tokens=1_000_000)]
     today = provider.fetch_daily("2026-09-17")
     assert today is not None
     assert today.total_tokens == 1_000_000

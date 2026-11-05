@@ -17,7 +17,7 @@ def entry(local_day, tokens, model="claude-sonnet-4-6"):
 
 def periods(*entries, today="2026-09-17"):
     provider = ScanningProvider()
-    provider.scan_entries = lambda: list(entries)
+    provider.scan_entries = lambda since=None: list(entries)
     return provider.fetch_periods(today)
 
 

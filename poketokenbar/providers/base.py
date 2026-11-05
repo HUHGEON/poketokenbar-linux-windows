@@ -331,8 +331,12 @@ class ScanningProvider:
             out.append(path)
         return out
 
-    def scan_entries(self) -> list[Entry]:
+    def scan_entries(self, since: str | None = None) -> list[Entry]:
         """Every parsed entry across all roots, globally deduplicated.
+
+        `since` is the oldest day worth reading — today, this week and this
+        month are all a poll ever asks about, and a year of older entries were
+        being rebuilt from the cache each time to be looked past.
 
         One poll asks three times — today's totals, the periods, the rolling
         block — and each answer used to rebuild the whole list from the parsed
@@ -341,12 +345,28 @@ class ScanningProvider:
         dropped by `release_scan()` once the poll has published, so the memory
         is a spike rather than a resident cost.
         """
+        if since is not None:
+            # One scan serves the whole poll, so it is built for the widest
+            # window any of the three asks for — today, this week, this month
+            # — and each of them narrows it again itself.
+            since = min(since, self._poll_window())
         signature = self._scan_signature()
         if self._scanned is not None and self._scanned[0] == signature:
-            return self._scanned[1]
-        entries = self._scan_uncached()
-        self._scanned = (signature, entries)
+            held_since, entries = self._scanned[1], self._scanned[2]
+            # What is held covers anything no older than it does.
+            if held_since is None or (since is not None and since >= held_since):
+                return ([e for e in entries if e.local_day >= since]
+                        if since is not None and since != held_since else entries)
+        entries = self._scan_uncached(since)
+        self._scanned = (signature, since, entries)
         return entries
+
+    def _poll_window(self, today: str | None = None) -> str:
+        """The oldest day a poll reads: the 1st of this month, or the Monday
+        of this week when the week started in the month before."""
+        day = _date.fromisoformat(today) if today else _date.today()
+        return min(day.replace(day=1), day - timedelta(days=day.weekday())).strftime(
+            "%Y-%m-%d")
 
     def release_scan(self) -> None:
         """Forget the entries held for this poll. The daemon calls it once the
@@ -389,7 +409,7 @@ class ScanningProvider:
         """
         return entries
 
-    def _scan_uncached(self) -> list[Entry]:
+    def _scan_uncached(self, since: str | None = None) -> list[Entry]:
         all_entries: list[Entry] = []
         live: set[str] = set()
         seen_files: set[str] = set()
@@ -406,18 +426,23 @@ class ScanningProvider:
                     continue
                 mtime, size = signature
                 live.add(key)
-                all_entries.extend(self._entries_for(path, mtime, size))
+                all_entries.extend(self._entries_for(path, mtime, size, since))
         if self._cache is not None:
             self._cache.prune(self.id, live)
         return self.dedup(all_entries)
 
-    def _entries_for(self, path: Path, mtime: float, size: int) -> list[Entry]:
+    def _entries_for(self, path: Path, mtime: float, size: int,
+                     since: str | None = None) -> list[Entry]:
         """One file's entries, from the cache, its tail, or the whole file."""
+        keep = (lambda entries: entries) if since is None else (
+            lambda entries: [e for e in entries if e.local_day >= since])
         if self._cache is None:
-            return self.parse_file(path)
+            return keep(self.parse_file(path))
 
-        cached = self._cache.get(self.id, path, mtime, size, self.PARSER_VERSION)
+        cached = self._cache.get(self.id, path, mtime, size, self.PARSER_VERSION,
+                                 since=since)
         if cached is not None:
+            # Already narrowed while it was read.
             return self.attributed(cached.entries, cached.extra)
 
         # Only a file that strictly grew can be resumed, and only when the
@@ -441,7 +466,8 @@ class ScanningProvider:
         self._cache.put(self.id, path, mtime, size, self.PARSER_VERSION,
                         entries, offset=offset, extra=extra,
                         tail=None if offset is None else _tail_of(path, offset))
-        return self.attributed(entries, extra)
+        # Stored whole — the window moves on — and narrowed on the way out.
+        return keep(self.attributed(entries, extra))
 
     def cost_of(self, entry: Entry) -> tuple[float, CostCoverage]:
         """One entry's cost and where it came from. Ports upstream's Bucket.add.
@@ -478,7 +504,7 @@ class ScanningProvider:
         tokens and no cost, as if the tool had been used.
         """
         day = today or _date.today().strftime("%Y-%m-%d")
-        entries = [e for e in self.scan_entries() if e.local_day == day]
+        entries = [e for e in self.scan_entries(since=day) if e.local_day == day]
         if not any(e.total > 0 for e in entries):
             return None
         return self.aggregate_daily(day, entries)
@@ -510,6 +536,7 @@ class ScanningProvider:
         day = today or _date.today().strftime("%Y-%m-%d")
         anchor = datetime.strptime(day, "%Y-%m-%d").date()
         week_start = anchor - timedelta(days=anchor.weekday())
+        week_from = week_start.strftime("%Y-%m-%d")
         month_prefix = day[:7]
 
         week = {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
@@ -522,7 +549,9 @@ class ScanningProvider:
             f"{month_prefix}-{number:02d}": {"tokens": 0, "cost": 0.0, "coverage": CostCoverage()}
             for number in range(1, anchor.day + 1)
         }
-        for e in self.scan_entries():
+        # The week can start in the month before this one, so the window is
+        # whichever of the two reaches back further.
+        for e in self.scan_entries(since=min(week_from, f"{month_prefix}-01")):
             cost, coverage = self.cost_of(e)
             bucket = month_daily.get(e.local_day)
             if bucket is not None:
@@ -533,11 +562,11 @@ class ScanningProvider:
                 month["tokens"] += e.total
                 month["cost"] += cost
                 month["coverage"].merge(coverage)
-            try:
-                entry_day = datetime.strptime(e.local_day, "%Y-%m-%d").date()
-            except ValueError:
-                continue
-            if week_start <= entry_day <= anchor:
+            # Compared as text: an ISO date sorts chronologically, and parsing
+            # one per entry was a third of the poll's CPU on this history.
+            # A value that is not one simply falls outside the range, which is
+            # what parsing it and failing did.
+            if week_from <= e.local_day <= day:
                 week["tokens"] += e.total
                 week["cost"] += cost
                 week["coverage"].merge(coverage)
@@ -560,7 +589,8 @@ class ScanningProvider:
         # sorting. astimezone() reads a naive value as local, which is the same
         # assumption the daily totals are already built on.
         recent = sorted(
-            (e for e in self.scan_entries() if e.date.astimezone() >= start),
+            (e for e in self.scan_entries(since=start.strftime("%Y-%m-%d"))
+             if e.date.astimezone() >= start),
             key=lambda e: e.date.astimezone(),
         )
         if not recent:

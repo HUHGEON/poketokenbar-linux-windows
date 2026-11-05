@@ -85,7 +85,13 @@ def _encode(entries: list[Entry]) -> str:
     )
 
 
-def _decode(raw: str) -> list[Entry]:
+def _decode(raw: str, since: str | None = None) -> list[Entry]:
+    """The entries in a blob, or only those on or after `since`.
+
+    A day older than the window nothing reads is skipped before an Entry is
+    built for it: a year of history is in these blobs and a poll looks at the
+    last few weeks of it.
+    """
     return [
         Entry(
             id=d["id"],
@@ -102,13 +108,14 @@ def _decode(raw: str) -> list[Entry]:
             cost_unavailable=bool(d.get("cost_unavailable", False)),
         )
         for d in json.loads(raw)
+        if since is None or d["local_day"] >= since
     ]
 
 
-def _row(row) -> Blob:
+def _row(row, since: str | None = None) -> Blob:
     entries, size, offset, extra, tail = row
     return Blob(
-        entries=_decode(entries),
+        entries=_decode(entries, since),
         size=size,
         offset=offset,
         extra=None if extra is None else json.loads(extra),
@@ -130,15 +137,20 @@ class ScanCache:
         self._db.commit()
 
     def get(
-        self, provider: str, path: Path, mtime: float, size: int, parser_version: int
+        self, provider: str, path: Path, mtime: float, size: int, parser_version: int,
+        since: str | None = None,
     ) -> Blob | None:
-        """The row for exactly this file as it is now, or None."""
+        """The row for exactly this file as it is now, or None.
+
+        `since` drops entries older than that day while the row is read, which
+        is the point of reading it: nothing asks this cache about last spring.
+        """
         row = self._db.execute(
             "SELECT entries, size, offset, extra, tail FROM blobs"
             " WHERE provider=? AND path=? AND mtime=? AND size=? AND parser_version=?",
             (provider, str(path), mtime, size, parser_version),
         ).fetchone()
-        return None if row is None else _row(row)
+        return None if row is None else _row(row, since)
 
     def previous(self, provider: str, path: Path, parser_version: int) -> Blob | None:
         """The row for this file from before it changed.

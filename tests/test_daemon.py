@@ -617,3 +617,35 @@ def test_one_poll_reads_the_logs_once(tmp_path):
     provider.release_scan()
     provider.fetch_daily()
     assert len(scans) == 5
+
+
+def test_a_poll_reads_only_the_days_it_reports_on(tmp_path):
+    """Today, this week and this month are all a poll asks about. Entries
+    older than that were rebuilt from the cache on every poll and skipped."""
+    from datetime import date
+
+    from poketokenbar.cache import ScanCache
+    from poketokenbar.providers.base import ScanningProvider
+
+    class Logs(ScanningProvider):
+        id = "logs"
+        display_name = "Logs"
+
+        def curated_roots(self):
+            return [tmp_path / "logs"]
+
+        def parse_file(self, path):
+            return []
+
+    provider = Logs(cache=ScanCache(tmp_path / "scan.db"))
+    today = date.today()
+    window = provider._poll_window()
+    assert window <= today.strftime("%Y-%m-%d")
+    assert window.endswith("-01") or date.fromisoformat(window).weekday() == 0, \
+        "the window starts at the 1st, or at the Monday the week began on"
+
+    # A narrower request is widened to the window the whole poll shares, so
+    # one scan answers all three.
+    provider._scanned = (provider._scan_signature(), window, [])
+    assert provider.scan_entries(since=today.strftime("%Y-%m-%d")) == []
+    assert provider._scanned[1] == window, "the held scan was rebuilt"
