@@ -268,6 +268,16 @@ def named_windows(status: LimitStatus | None, mode: str) -> list[tuple[str, Limi
         out.append(("session", status.session))
     if mode in ("weekly", "both") and status.weekly is not None:
         out.append(("weekly", status.weekly))
+    if not out:
+        # A plan without a 5-hour window answers `five_hour: null` — Ultra
+        # does — and asking for the session window alone then left the panel
+        # with no Claude limit at all rather than the one it does have
+        # (upstream d3bb120).
+        for kind in ("session", "weekly"):
+            window = getattr(status, kind)
+            if window is not None:
+                out.append((kind, window))
+                break
     return out
 
 

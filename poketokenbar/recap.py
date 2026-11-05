@@ -99,6 +99,22 @@ class Recap:
         return (self.total - self.previous_total) / self.previous_total
 
 
+def current_streak(ledger, today: _date) -> int:
+    """Days in a row with usage, counting back from today.
+
+    Read from the ledger rather than from a period, so it survives the 1st of
+    the month: the month's own series would end every run once a month. Today
+    without usage does not end a run — the day is not over — so the count
+    starts at yesterday when today is still empty (upstream 1870acf).
+    """
+    day = today if ledger.tokens(today.isoformat()) > 0 else today - timedelta(days=1)
+    streak = 0
+    while ledger.tokens(day.isoformat()) > 0:
+        streak += 1
+        day -= timedelta(days=1)
+    return streak
+
+
 def make(ledger, period: Period, today: _date) -> Recap:
     """The recap for one period, as the ledger can vouch for it."""
     key = lambda day: day.isoformat()  # noqa: E731

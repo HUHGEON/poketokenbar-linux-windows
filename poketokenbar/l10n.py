@@ -292,6 +292,13 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "recap_active_days": ("Active days", "사용한 날", "使った日数", "Días activos",
         "Jours actifs", "Dias ativos", "Aktive Tage",
     ),
+    # The run still going, beside this week and this month (upstream 1870acf).
+    "streak_days": ("%1-day streak", "%1일 연속", "%1日連続", "Racha de %1 días",
+        "Série de %1 jours", "Sequência de %1 dias", "%1 Tage in Folge",
+    ),
+    "recap_details": ("Details", "상세", "詳細", "Detalle", "Détails", "Detalhes",
+        "Details",
+    ),
     "recap_streak": ("Longest streak", "최장 연속", "最長連続", "Racha más larga",
         "Plus longue série", "Maior sequência", "Längste Serie",
     ),

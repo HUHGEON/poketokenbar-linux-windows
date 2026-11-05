@@ -460,6 +460,7 @@ def build(
     daily_by_provider: dict[str, DailyUsage],
     config_values: dict,
     errors: list[str],
+    streak: int = 0,
     scanning: bool = False,
     limit_status=None,
     limit_accounts=None,
@@ -561,6 +562,9 @@ def build(
         "rarity_counts": rarity_counts or {},
         "catch_counts": catch_counts or {},
         "periods": _period_rows(periods, language),
+        # Days in a row with usage, for the badge beside them. 0 means the run
+        # has ended, or there has not been one.
+        "streak": int(streak or 0),
         "month_trend": _month_trend(periods, language, time.strftime("%Y-%m-%d"),
                                     provider_names or {}),
         "strings": l10n.catalogue(config_values.get("language", "en")),

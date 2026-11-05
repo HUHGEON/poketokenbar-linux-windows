@@ -280,3 +280,43 @@ def test_the_payload_describes_the_period_in_the_users_language(tmp_path):
     assert len(found["buckets"]) in (28, 29, 30, 31)
     assert found["buckets"][0]["label"] == "1"
     assert found["total_text"] and found["total_grouped"]
+
+
+# MARK: the run still going (upstream 1870acf)
+
+
+def test_the_streak_counts_back_from_today():
+    from datetime import date, timedelta
+
+    from poketokenbar.ledger import Ledger
+    from poketokenbar.recap import current_streak
+
+    today = date(2026, 11, 5)
+    days = {(today - timedelta(days=i)).isoformat(): 10 for i in range(4)}
+    assert current_streak(Ledger(days=days), today) == 4
+
+
+def test_today_without_usage_does_not_end_the_run():
+    """The day is not over. Only a whole quiet day ends it."""
+    from datetime import date, timedelta
+
+    from poketokenbar.ledger import Ledger
+    from poketokenbar.recap import current_streak
+
+    today = date(2026, 11, 5)
+    days = {(today - timedelta(days=i)).isoformat(): 10 for i in range(1, 4)}
+    assert current_streak(Ledger(days=days), today) == 3
+
+    days[(today - timedelta(days=1)).isoformat()] = 0
+    assert current_streak(Ledger(days=days), today) == 0
+
+
+def test_the_streak_crosses_the_first_of_the_month():
+    """A month's own series would end every run once a month."""
+    from datetime import date
+
+    from poketokenbar.ledger import Ledger
+    from poketokenbar.recap import current_streak
+
+    days = {"2026-10-30": 5, "2026-10-31": 5, "2026-11-01": 5, "2026-11-02": 5}
+    assert current_streak(Ledger(days=days), date(2026, 11, 2)) == 4

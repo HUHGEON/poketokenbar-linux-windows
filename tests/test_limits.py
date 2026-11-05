@@ -322,3 +322,21 @@ class _FakeAccountLimits:
     @property
     def label(self):
         return self.account.id
+
+
+def test_a_plan_without_a_session_window_still_shows_one(monkeypatch):
+    """Ultra answers `five_hour: null`; asking for the session window alone
+    then left the panel with nothing (upstream d3bb120)."""
+    status = limits.LimitStatus(
+        session=None,
+        weekly=limits.LimitWindow(utilization=42.0, resets_at=None, severity="ok"),
+    )
+    named = limits.named_windows(status, "session")
+    assert [kind for kind, _w in named] == ["weekly"]
+    assert limits.windows(status, "session")[0].utilization == 42.0
+
+    # With both present the asked-for one is what shows.
+    status.session = limits.LimitWindow(utilization=7.0, resets_at=None, severity="ok")
+    assert [k for k, _w in limits.named_windows(status, "session")] == ["session"]
+    assert [k for k, _w in limits.named_windows(status, "weekly")] == ["weekly"]
+    assert [k for k, _w in limits.named_windows(status, "both")] == ["session", "weekly"]

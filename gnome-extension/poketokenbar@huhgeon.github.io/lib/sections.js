@@ -358,49 +358,6 @@ class HomeSection extends Section {
         return line;
     }
 
-    /** Which species is holding the panel, and the button that releases it. */
-    _addPinRow(companion, t) {
-        const pinned = companion?.representative_species_id;
-        if (!pinned)
-            return;
-        const name = companion.panel_name || `#${pinned}`;
-        const unpin = button(t('unpin'), () => markSent(unpin, Commands.represent(null)),
-            'poketokenbar-link');
-        this.add_child(row([
-            caption(`\u{1F4CC} ${t('pinned_to_panel')}: ${name}`, 'secondary'),
-            spacer(),
-            unpin,
-        ], 'poketokenbar-pinrow'));
-    }
-
-    // --- today (upstream PopoverView.header) ---------------------------------
-
-    _addToday(state, t) {
-        const today = state?.today;
-        this.add_child(caption(t('todays_tokens'), 'secondary'));
-        const total = row([
-            label(today?.tokens_compact ?? '0', 'poketokenbar-big'),
-            caption(today?.tokens_grouped ?? '0', 'secondary'),
-            spacer(),
-        ]);
-        total.get_children()[1].y_align = Clutter.ActorAlign.END;
-        if (today?.cost_text)
-            total.add_child(label(today.cost_text, 'poketokenbar-callout poketokenbar-secondary'));
-        this.add_child(total);
-
-        const periods = state?.periods;
-        if (periods?.week || periods?.month) {
-            const line = row([]);
-            if (periods.week)
-                line.add_child(this._period(t('this_week'), periods.week, 'week'));
-            if (periods.month)
-                line.add_child(this._period(t('this_month'), periods.month, 'month'));
-            this.add_child(line);
-        }
-        this._addMonthTrend(state?.month_trend, t);
-        this._addProviders(state, t);
-    }
-
     _period(name, periodRow, scope) {
         const parts = [
             caption(name, 'tertiary'),
@@ -408,6 +365,10 @@ class HomeSection extends Section {
         ];
         if (periodRow.cost_text)
             parts.push(caption(periodRow.cost_text, 'secondary'));
+        // The numbers are the way into the recap; without a mark nothing
+        // says so (upstream c1c92c1).
+        if (scope)
+            parts.push(caption('\u203A', 'tertiary'));
         const box = row(parts);
         box.style = 'padding-right: 12px;';
         if (!scope)
@@ -553,7 +514,18 @@ class HomeSection extends Section {
 
     _addToday(state, t) {
         const today = state?.today;
-        this.add_child(caption(t('todays_tokens'), 'secondary'));
+        const heading = row([caption(t('todays_tokens'), 'secondary'), spacer()]);
+        // How many days in a row have had usage. The recap counts the best
+        // run inside a period; this says whether one is still going (upstream
+        // 1870acf). On this line because the period row below it is already
+        // full of numbers.
+        const streak = Number(state?.streak ?? 0);
+        if (streak > 0) {
+            heading.add_child(pill(
+                `\u{1F525} ${t('streak_days').replace('%1', String(streak))}`,
+                'soft-orange'));
+        }
+        this.add_child(heading);
         const total = row([
             label(today?.tokens_compact ?? '0', 'poketokenbar-big'),
             caption(today?.tokens_grouped ?? '0', 'secondary'),

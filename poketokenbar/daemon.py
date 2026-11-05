@@ -744,6 +744,10 @@ class Daemon:
             transfer=self.transfer_payload(),
             detail=self.companion_store.detail_payload(dex_rows) if self.companion_store else None,
             recap=self.recap_view(),
+            # The run of days with usage, counting back from today. Read from
+            # the ledger so it survives the 1st of the month (upstream
+            # 1870acf).
+            streak=recap.current_streak(self.ledger, _date.today()),
             provider_names={p.id: p.display_name for p in self.providers or []},
         )
         state.write(self.state_path, payload)

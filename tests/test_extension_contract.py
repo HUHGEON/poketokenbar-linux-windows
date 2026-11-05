@@ -892,3 +892,33 @@ def test_the_popup_offers_the_update_the_daemon_can_apply(payload):
         "refuses is worse than a sentence saying why"
     )
     assert set(payload["update"]) >= {"supported", "installed_short", "available_short"}
+
+
+def test_no_class_defines_the_same_method_twice():
+    """The later definition wins, in silence.
+
+    Two copies of `_addToday` lived in HomeSection for weeks: every edit to
+    the first one — the streak badge among them — did nothing at all, and
+    nothing said so. A class body is not a place where a repeat is ever
+    meant.
+    """
+    import re
+
+    for name in ("sections.js", "indicator.js", "widgets.js", "pet.js", "sprite.js"):
+        source = (EXTENSION_DIR / "lib" / name).read_text(encoding="utf-8")
+        current = None
+        seen: dict[tuple[str, str], int] = {}
+        repeats = []
+        for number, line in enumerate(source.splitlines(), 1):
+            klass = re.match(r"^(?:const \w+ = GObject\.registerClass\()?class (\w+)", line)
+            if klass:
+                current = klass.group(1)
+                continue
+            method = re.match(r"^    (?:async )?(_?[A-Za-z][A-Za-z0-9_]*)\(", line)
+            if current and method:
+                key = (current, method.group(1))
+                if key in seen:
+                    repeats.append(f"{name}: {current}.{method.group(1)} "
+                                   f"at lines {seen[key]} and {number}")
+                seen[key] = number
+        assert not repeats, "defined twice — the first copy is dead code: " + "; ".join(repeats)
