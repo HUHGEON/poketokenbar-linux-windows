@@ -37,6 +37,9 @@ DEFAULTS: dict[str, object] = {
     # choice rather than a switch, because "off" does not say which of the two
     # it means.
     "pin_on_graduation": "keep",
+    # Sources to leave alone. A disabled provider is not read at all — no
+    # tab, no totals, and no time spent scanning for it (upstream cb5a1c0).
+    "disabled_providers": [],
     "limit_notifications": True,
     "companion_notifications": True,
     # A desktop notification for every shop purchase and every item used.
@@ -107,6 +110,15 @@ def save(path: Path, values: dict) -> None:
 
 def _coerce(key: str, raw: str):
     default = DEFAULTS[key]
+    if isinstance(default, list):
+        # A comma-separated list of ids, as the popup sends it. Blanks and
+        # repeats are dropped so a stray comma cannot disable nothing twice.
+        seen: list[str] = []
+        for part in raw.split(","):
+            value = part.strip()
+            if value and value not in seen:
+                seen.append(value)
+        return seen
     if isinstance(default, bool):
         lowered = raw.strip().lower()
         if lowered in ("true", "1", "yes", "on"):

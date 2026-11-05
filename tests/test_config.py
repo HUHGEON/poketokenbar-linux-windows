@@ -127,3 +127,14 @@ def test_purchases_and_item_use_can_stop_announcing_themselves(tmp_path):
     assert config.load(path)["item_notifications"] is True
     config.set_value(path, "item_notifications", "false")
     assert config.load(path)["item_notifications"] is False
+
+
+def test_a_list_setting_takes_the_popup_s_comma_separated_form(tmp_path):
+    path = tmp_path / "config.json"
+    assert config.load(path)["disabled_providers"] == []
+
+    config.set_value(path, "disabled_providers", "cursor, kiro ,cursor,")
+    assert config.load(path)["disabled_providers"] == ["cursor", "kiro"]
+
+    config.set_value(path, "disabled_providers", "")
+    assert config.load(path)["disabled_providers"] == []

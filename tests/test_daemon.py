@@ -649,3 +649,42 @@ def test_a_poll_reads_only_the_days_it_reports_on(tmp_path):
     provider._scanned = (provider._scan_signature(), window, [])
     assert provider.scan_entries(since=today.strftime("%Y-%m-%d")) == []
     assert provider._scanned[1] == window, "the held scan was rebuilt"
+
+
+def test_a_source_switched_off_is_not_read_at_all(tmp_path):
+    """No row, no totals, and none of the time its scan takes."""
+    from poketokenbar.providers.base import ScanningProvider
+
+    scanned = []
+
+    def source(identity):
+        class Source(ScanningProvider):
+            id = identity
+            display_name = identity.title()
+
+            def curated_roots(self):
+                return [tmp_path / identity]
+
+            def files(self, root):
+                scanned.append(identity)
+                return []
+
+            def parse_file(self, path):
+                return []
+        return Source()
+
+    d = Daemon(state_path=tmp_path / "state.json", config_path=tmp_path / "config.json",
+               cache=None, providers=[source("kept"), source("dropped")],
+               limits_source=None, companion_store=None)
+    (tmp_path / "kept").mkdir()
+    (tmp_path / "dropped").mkdir()
+
+    d.config_values["disabled_providers"] = ["dropped"]
+    assert [p.id for p in d.tracked_providers] == ["kept"]
+
+    payload = d.poll_once()
+    assert "dropped" not in scanned
+    assert "dropped" not in payload["providers"]
+    # And Settings says which is which.
+    rows = {row["id"]: row["tracked"] for row in payload["settings"]["providers"]}
+    assert rows == {"kept": True, "dropped": False}

@@ -405,7 +405,9 @@ def row_keys(name: str, payload: dict) -> set[str]:
     if name == "provider_status":
         return set(payload["provider_status"]["anthropic"])
     if name == "settings_provider":
-        return set(payload["settings"]["providers"][0])
+        # The daemon adds `tracked` from the config, which the fixture's
+        # settings payload does not go through.
+        return set(payload["settings"]["providers"][0]) | {"tracked"}
     if name == "update":
         return set(payload["update"])
     if name == "dex_region":

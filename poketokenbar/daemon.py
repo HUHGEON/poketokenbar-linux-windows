@@ -167,10 +167,21 @@ class Daemon:
             errors.append(f"update check: {exc}")
         return self.updater.payload()
 
+    @property
+    def tracked_providers(self) -> list:
+        """The providers a poll reads.
+
+        A source switched off in Settings is not read at all: no row, no
+        totals, and none of the time its scan would take (upstream cb5a1c0).
+        """
+        disabled = set(self.config_values.get("disabled_providers") or [])
+        return [p for p in (self.providers or []) if p.id not in disabled]
+
     def settings_payload(self) -> dict:
         """Provider rows for the settings page, with live extra-folder counts."""
         from . import scan_roots
 
+        disabled = set(self.config_values.get("disabled_providers") or [])
         rows = []
         for provider in self.providers or []:
             raw = self.custom_scan_roots(provider.id) or ""
@@ -183,6 +194,7 @@ class Daemon:
                     "matched_folders": scan_roots.surviving_extra_count(curated, raw)
                     if raw.strip()
                     else 0,
+                    "tracked": provider.id not in disabled,
                 }
             )
         return {"providers": rows}
@@ -477,7 +489,7 @@ class Daemon:
         """Read the logs, refresh limits and status, then publish."""
         scan_errors: list[str] = []
         daily_by_provider: dict[str, DailyUsage] = {}
-        for provider in self.providers:
+        for provider in self.tracked_providers:
             try:
                 daily = provider.fetch_daily()
             except Exception as exc:  # per-provider isolation
@@ -492,7 +504,7 @@ class Daemon:
         # dropping its row made the tab disappear on an idle day (upstream
         # a8dd806, 11eebe6).
         by_provider: dict[str, dict] = {}
-        for provider in self.providers:
+        for provider in self.tracked_providers:
             fetch_periods = getattr(provider, "fetch_periods", None)
             if fetch_periods is None:
                 continue
@@ -538,7 +550,7 @@ class Daemon:
         # like the last scan is, so a command answered between polls rebuilds
         # the payload with the same numbers rather than an empty forecast.
         blocks: dict = {}
-        for provider in self.providers:
+        for provider in self.tracked_providers:
             try:
                 enrichment = provider.fetch_enrichment()
             except Exception as exc:
@@ -749,7 +761,7 @@ class Daemon:
             # the ledger so it survives the 1st of the month (upstream
             # 1870acf).
             streak=recap.current_streak(self.ledger, _date.today()),
-            provider_names={p.id: p.display_name for p in self.providers or []},
+            provider_names={p.id: p.display_name for p in self.tracked_providers},
         )
         state.write(self.state_path, payload)
         if getattr(self, "_pending_restart", False):

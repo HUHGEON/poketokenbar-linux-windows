@@ -2407,6 +2407,7 @@ class SettingsSection extends Section {
 
     _addAdvanced(state, t) {
         const providers = state?.settings?.providers ?? [];
+        const config = state?.config ?? {};
         if (providers.length === 0)
             return;
         this.add_child(button(`${this._advancedOpen ? '▾' : '▸'} ${t('section_advanced')}`, () => {
@@ -2417,16 +2418,32 @@ class SettingsSection extends Section {
             return;
 
         const items = [];
+        const disabled = new Set(String(config.disabled_providers ?? '')
+            .split(',').map(id => id.trim()).filter(Boolean));
         for (const providerRow of providers) {
             const open = this._openProvider === providerRow.id;
             const summary = providerRow.custom_scan_roots
                 ? t('setting_scan_roots_matches').replace('%1', String(providerRow.matched_folders))
                 : '';
-            const item = this._item(providerRow.display_name, button(open ? '▾' : '▸', () => {
-                this._openProvider = open ? null : providerRow.id;
-                this.update(this._state);
-            }), summary || null);
-            items.push(item);
+            // A source switched off here is not read at all — no row on Home
+            // and none of the time its scan takes (upstream cb5a1c0).
+            const tracked = providerRow.tracked !== false;
+            const controls = row([
+                switchButton(tracked, value => {
+                    const next = new Set(disabled);
+                    if (value)
+                        next.delete(providerRow.id);
+                    else
+                        next.add(providerRow.id);
+                    Config.set('disabled_providers', [...next].join(','));
+                }),
+                button(open ? '▾' : '▸', () => {
+                    this._openProvider = open ? null : providerRow.id;
+                    this.update(this._state);
+                }),
+            ]);
+            items.push(this._item(providerRow.display_name, controls,
+                tracked ? (summary || null) : t('setting_provider_off')));
             if (open)
                 items.push(this._scanFolderEntry(providerRow));
         }
