@@ -20,6 +20,8 @@ DEFAULTS: dict[str, object] = {
     "show_tokens_in_menu": False,
     "show_cost_in_menu": False,
     "show_limit_in_menu": True,
+    # How far the companion has come, beside the sprite (upstream 137a72e).
+    "show_growth_in_menu": False,
     "limit_display_mode": "both",
     # Whether limit percentages read as used ("15%") or remaining ("85% left"),
     # everywhere they are shown. Upstream's limitDisplayMode; used is its default.

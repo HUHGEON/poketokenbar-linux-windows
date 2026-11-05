@@ -722,7 +722,22 @@ class CompanionStore:
                 "" if species_id is None
                 else self.individual_name(species_id, self.panel_individual()[2])
             ),
+            # How far this one has come, for the panel to show beside the
+            # sprite (upstream 137a72e).
+            "panel_growth_text": self.growth_text(),
         }
+
+    def growth_text(self) -> str:
+        """"Growth 34%", or the egg's own progress before it hatches."""
+        language = self.state.language
+        mon = self.state.active
+        if mon is None:
+            total = self.state.egg_hatch_threshold
+            percent = int(self.state.egg_usage * 100 / total) if total > 0 else 0
+            return l10n.fill("menu_growth_hatch", language, str(min(100, percent)))
+        total = self.state.stage_threshold(mon)
+        percent = int(mon.used_at_stage * 100 / total) if total > 0 else 0
+        return l10n.fill("menu_growth", language, str(min(100, percent)))
 
     def _status_message(self, kind: str) -> str:
         """The catalogue line for one display state.

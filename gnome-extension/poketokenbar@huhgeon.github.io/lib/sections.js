@@ -2050,6 +2050,7 @@ class CollectionSection extends Section {
 // against the daemon's own defaults: config.load drops a key it has no default
 // for, which makes a wrong name here a switch that flips and does nothing.
 const PANEL_TOGGLES = [
+    {key: 'show_growth_in_menu', string: 'setting_show_growth_in_menu'},
     {key: 'show_tokens_in_menu', string: 'setting_tokens_in_panel'},
     {key: 'show_cost_in_menu', string: 'setting_cost_in_panel'},
     {key: 'show_limit_in_menu', string: 'setting_limits_in_panel'},

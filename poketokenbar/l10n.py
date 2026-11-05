@@ -160,6 +160,18 @@ STRINGS: dict[str, tuple[str, ...]] = {
     "weekday_sun": ("Sun", "일", "日", "dom", "dim.", "dom", "So."),
     # This month's day-by-day bars (upstream 0912c68).
     # The activity row's two views (upstream d4ff501).
+    # Beside the sprite in the panel, when that is switched on (137a72e).
+    "menu_growth": ("Growth %1%", "성장 %1%", "成長 %1%", "Crecimiento %1%",
+        "Croissance %1%", "Crescimento %1%", "Wachstum %1%",
+    ),
+    "menu_growth_hatch": ("Hatch %1%", "부화 %1%", "孵化 %1%", "Eclosión %1%",
+        "Éclosion %1%", "Eclosão %1%", "Schlüpfen %1%",
+    ),
+    "setting_show_growth_in_menu": ("Show growth in the panel", "패널에 성장률 표시",
+        "パネルに成長率を表示", "Mostrar crecimiento en el panel",
+        "Afficher la croissance dans le panneau",
+        "Mostrar crescimento no painel", "Wachstum in der Leiste zeigen",
+    ),
     "activity_weeks": ("%1 weeks", "최근 %1주", "%1週間", "%1 semanas", "%1 semaines",
         "%1 semanas", "%1 Wochen",
     ),

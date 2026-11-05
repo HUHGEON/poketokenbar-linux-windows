@@ -622,6 +622,12 @@ def build(
             "limit_text": limits.panel_text(limit_status, limit_mode, percent_mode)
             if config_values.get("show_limit_in_menu")
             else "",
+            # How far the companion has come (upstream 137a72e). Off by
+            # default: the panel is narrow and this is the fourth thing
+            # that wants to be in it.
+            "growth_text": (companion_payload or {}).get("panel_growth_text", "")
+            if config_values.get("show_growth_in_menu")
+            else "",
             # Structured form so the panel can colour each number on its own.
             "limit_windows": [
                 {

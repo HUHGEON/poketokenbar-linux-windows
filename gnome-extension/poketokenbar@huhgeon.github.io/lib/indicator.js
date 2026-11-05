@@ -46,12 +46,16 @@ class Indicator extends PanelMenu.Button {
         this._limitBox = new St.BoxLayout({style_class: 'poketokenbar-panel-limits'});
         this._tokensLabel = label('', 'poketokenbar-panel-text');
         this._costLabel = label('', 'poketokenbar-panel-text');
+        // How far the companion has come, off unless asked for: the panel is
+        // narrow and this is the fourth thing wanting to be in it (137a72e).
+        this._growthLabel = label('', 'poketokenbar-panel-text');
 
         this._panelBox.add_child(this._sprite);
         this._panelBox.add_child(this._eggLabel);
         this._panelBox.add_child(this._limitBox);
         this._panelBox.add_child(this._tokensLabel);
         this._panelBox.add_child(this._costLabel);
+        this._panelBox.add_child(this._growthLabel);
         this.add_child(this._panelBox);
 
         // --- popup ----------------------------------------------------------
@@ -418,11 +422,14 @@ class Indicator extends PanelMenu.Button {
         this._tokensLabel.visible = this._tokensLabel.text !== '';
         this._costLabel.text = panel?.cost_text ?? '';
         this._costLabel.visible = this._costLabel.text !== '';
+        this._growthLabel.text = panel?.growth_text ?? '';
+        this._growthLabel.visible = this._growthLabel.text !== '';
 
         // Before the first successful read there is nothing at all to show, and
         // an empty panel button is invisible and unclickable.
         const empty = !panel?.sprite_path && eggText === '' && windows.length === 0 &&
-            this._tokensLabel.text === '' && this._costLabel.text === '';
+            this._tokensLabel.text === '' && this._costLabel.text === '' &&
+            this._growthLabel.text === '';
         this._eggLabel.visible = this._eggLabel.visible || empty;
         if (empty)
             this._eggLabel.text = '…';

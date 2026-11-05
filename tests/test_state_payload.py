@@ -132,3 +132,33 @@ def test_the_period_rows_are_not_confused_by_the_per_provider_map():
                                                  "month": {"tokens": 10}}}},
     )
     assert set(payload["periods"]) == {"week"}
+
+
+def test_the_panel_shows_growth_only_when_asked(tmp_path):
+    """The panel is narrow; this is the fourth thing wanting to be in it."""
+    from poketokenbar import state
+
+    companion = {"panel_growth_text": "성장 34%"}
+    off = state.build({}, {"show_growth_in_menu": False}, [], companion_payload=companion)
+    assert off["panel"]["growth_text"] == ""
+
+    on = state.build({}, {"show_growth_in_menu": True}, [], companion_payload=companion)
+    assert on["panel"]["growth_text"] == "성장 34%"
+
+
+def test_growth_text_counts_the_stage_and_the_egg(tmp_path):
+    from poketokenbar import balance
+    from poketokenbar.companion import CompanionState, MonState
+    from poketokenbar.companion_store import CompanionStore
+
+    store = CompanionStore(save_path=tmp_path / "companion.json", api=None,
+                           sprite_store=None)
+    store.state = CompanionState(language="en")
+    store.state.egg_usage = store.state.egg_hatch_threshold // 2
+    assert store.growth_text() == "Hatch 50%"
+
+    mon = MonState(base_id=1, path_ids=[1, 2], planned_path_ids=[1, 2], total_forms=2,
+                   rarity=balance.Rarity.COMMON)
+    store.state.active = mon
+    mon.used_at_stage = store.state.stage_threshold(mon) // 4
+    assert store.growth_text() == "Growth 25%"
