@@ -471,6 +471,7 @@ def build(
     dex_payload: list | None = None,
     catch_log: list | None = None,
     rarity_counts: dict | None = None,
+    dex_progress: dict | None = None,
     catch_counts: dict | None = None,
     periods: dict | None = None,
     burn: dict | None = None,
@@ -560,6 +561,8 @@ def build(
         "dex": dex_payload or [],
         "catch_log": catch_log or [],
         "rarity_counts": rarity_counts or {},
+        # How much of each generation is collected (upstream a49237c).
+        "dex_progress": dex_progress or {},
         "catch_counts": catch_counts or {},
         "periods": _period_rows(periods, language),
         # Days in a row with usage, for the badge beside them. 0 means the run

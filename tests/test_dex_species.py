@@ -159,3 +159,66 @@ def test_a_species_caught_only_one_way_says_so(tmp_path):
     ]
     row = next(r for r in s.dex_payload() if r["species_id"] == 42)
     assert row["is_shiny"] and not row["has_normal"]
+
+
+# MARK: how much of each generation is collected (upstream a49237c)
+
+
+def test_a_species_is_placed_by_its_dex_number_alone():
+    from poketokenbar import regions
+
+    assert regions.region_of(1) == "kanto"
+    assert regions.region_of(151) == "kanto"
+    assert regions.region_of(152) == "johto"
+    assert regions.region_of(649) == "unova"
+    # Generation 6 onwards cannot hatch here — no Black/White animation.
+    assert regions.region_of(650) is None
+    assert sum(regions.total_of(name) for name, _f, _l in regions.REGIONS) == 649
+
+
+def test_a_region_counts_each_species_once_and_in_shiny_if_any_was():
+    from poketokenbar import regions
+
+    owned = {1: False, 2: True, 200: False}
+    found = {c.region: c for c in regions.completions(owned)}
+    assert (found["kanto"].owned, found["kanto"].shiny_owned) == (2, 1)
+    assert (found["johto"].owned, found["johto"].shiny_owned) == (1, 0)
+    assert found["kanto"].total == 151 and not found["kanto"].complete
+
+
+def test_finishing_a_region_earns_its_badge_and_the_shiny_one_separately():
+    from poketokenbar import regions
+
+    plain = {i: False for i in range(1, 152)}
+    assert regions.badges(plain, unown_forms=0) == ["region.kanto"]
+
+    shiny = {i: True for i in range(1, 152)}
+    assert regions.badges(shiny, unown_forms=0) == ["region.kanto", "regionShiny.kanto"]
+
+    # All 28 letters is its own badge, and the National Dex is two more.
+    every = {i: True for i in range(1, 650)}
+    assert regions.badges(every, unown_forms=28) == [
+        *(f"{kind}.{name}" for name, _f, _l in regions.REGIONS
+          for kind in ("region", "regionShiny")),
+        "unown", "national", "nationalShiny",
+    ]
+
+
+def test_the_store_reports_progress_from_the_grid_it_shows(tmp_path):
+    from poketokenbar.balance import Rarity
+    from poketokenbar.companion import CompanionState, DexEntry
+    from poketokenbar.companion_store import CompanionStore
+
+    store = CompanionStore(save_path=tmp_path / "companion.json", api=None,
+                           sprite_store=None)
+    store.state = CompanionState(dex=[
+        DexEntry(base_id=1, final_id=3, chain_order=[1, 2, 3], rarity=Rarity.COMMON),
+        DexEntry(base_id=152, final_id=152, chain_order=[152], rarity=Rarity.RARE,
+                 is_shiny=True),
+    ])
+    progress = store.dex_progress()
+    by_region = {row["region"]: row for row in progress["regions"]}
+    assert by_region["kanto"]["text"] == "3/151"
+    assert by_region["johto"]["owned"] == 1 and by_region["johto"]["shiny_owned"] == 1
+    assert progress["national"]["text"] == "4/649"
+    assert progress["badges"] == []

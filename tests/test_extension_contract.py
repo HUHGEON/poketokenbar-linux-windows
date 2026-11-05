@@ -102,6 +102,7 @@ def full_payload() -> dict:
         detail=store.detail_payload(dex_rows),
         catch_log=store.catch_log_payload(),
         rarity_counts=store.rarity_counts(),
+        dex_progress=store.dex_progress(),
         catch_counts=store.catch_rarity_counts(),
         periods={"week": {"tokens": 1, "cost": 0.0}, "month": {"tokens": 2, "cost": 0.0},
                  "month_daily": {time.strftime("%Y-%m-01"): {"tokens": 2, "cost": 0.0}}},
@@ -371,6 +372,7 @@ ROW_ACCESSORS = {
     "periodRow": "period",
     "monthTrend": "month_trend",
     "stackRow": "trend_stack",
+    "regionRow": "dex_region",
     "trendDay": "month_trend_day",
     "todayRow": "month_trend_day",
     "snapshotRow": "snapshot",
@@ -406,6 +408,8 @@ def row_keys(name: str, payload: dict) -> set[str]:
         return set(payload["settings"]["providers"][0])
     if name == "update":
         return set(payload["update"])
+    if name == "dex_region":
+        return set(payload["dex_progress"]["regions"][0])
     if name == "trend_stack":
         # The legend only exists with two providers, which a one-provider
         # fixture cannot show; the keys come from the daemon all the same.

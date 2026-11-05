@@ -761,3 +761,9 @@
   color: #ffd60a;
   border-color: rgba(255, 214, 10, 0.55);
 }
+
+/* Generation progress above the grid (upstream a49237c). */
+.poketokenbar-regions {
+  spacing: 4px;
+  padding: 2px 0;
+}

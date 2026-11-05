@@ -1421,6 +1421,34 @@ class CollectionSection extends Section {
         this.update(this._state);
     }
 
+    /**
+     * How far each generation has come, by the region it is set in.
+     *
+     * Which generation a species belongs to follows from its dex number, so
+     * this costs nothing to know (upstream a49237c). A finished region is
+     * marked; finished in shiny as well is marked differently.
+     */
+    _addRegions(progress, t) {
+        const found = progress?.regions ?? [];
+        if (found.length === 0)
+            return;
+        const line = row([], 'poketokenbar-regions');
+        for (const regionRow of found) {
+            const done = regionRow.shiny_complete ? '\u2728' : (regionRow.complete ? '\u2713' : '');
+            const chip = pill(`${regionRow.name} ${regionRow.text}${done ? ` ${done}` : ''}`,
+                regionRow.complete ? 'soft-orange' : 'gray');
+            line.add_child(chip);
+        }
+        this.add_child(line);
+        const whole = progress?.national;
+        if (whole) {
+            this.add_child(caption(
+                t('dex_national').replace('%1', whole.text)
+                + (whole.complete ? ` \u2713 ${t('dex_region_complete')}` : ''),
+                'tertiary'));
+        }
+    }
+
     /** "Pokédex 28 species" and the rarity chips under it. */
     _header(title, total, counts, filter, onFilter, t) {
         this.add_child(row([
@@ -1472,6 +1500,7 @@ class CollectionSection extends Section {
                 this._page = 0;
                 this.update(this._state);
             }, t);
+        this._addRegions(state?.dex_progress, t);
 
         this._controls(t, DEX_SORTS, this._dexSort, sort => {
             this._dexSort = sort;

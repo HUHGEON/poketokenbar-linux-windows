@@ -14,8 +14,8 @@ import unicodedata
 from datetime import date as _date
 from pathlib import Path
 
-from . import (balance, companion, forms, l10n, pokeapi, profile, save, shop,
-               snapshots, sprites, transfer)
+from . import (balance, companion, forms, l10n, pokeapi, profile, regions, save,
+               shop, snapshots, sprites, transfer)
 from .companion import CompanionState
 from .format import compact as _compact
 
@@ -1352,6 +1352,46 @@ class CompanionStore:
                 "when_text": _time.strftime("%Y-%m-%d", _time.localtime(entry.caught_at)),
             })
         return out
+
+    def dex_progress(self) -> dict:
+        """How much of each generation is collected, and which badges that earns.
+
+        Built from the grid's own rows, so a species counts exactly where the
+        grid shows it. Generation is the dex number's own business — Kanto is
+        1-151 and so on — and needs nothing fetched (upstream a49237c).
+        """
+        owned: dict[int, bool] = {}
+        for row in self.dex_payload():
+            species_id = row["species_id"]
+            owned[species_id] = owned.get(species_id, False) or bool(row["is_shiny"])
+        language = self.state.language
+        found = regions.completions(owned)
+        whole = regions.national(owned)
+        return {
+            "regions": [
+                {
+                    "region": one.region,
+                    "name": l10n.t(f"region_{one.region}", language),
+                    "owned": one.owned,
+                    "total": one.total,
+                    "shiny_owned": one.shiny_owned,
+                    "complete": one.complete,
+                    "shiny_complete": one.shiny_complete,
+                    "text": f"{one.owned}/{one.total}",
+                }
+                for one in found
+            ],
+            "national": {
+                "owned": whole.owned,
+                "total": whole.total,
+                "shiny_owned": whole.shiny_owned,
+                "complete": whole.complete,
+                "shiny_complete": whole.shiny_complete,
+                "text": f"{whole.owned}/{whole.total}",
+            },
+            "badges": regions.badges(
+                owned, len(self.state.collected_forms(forms.UNOWN_SPECIES_ID))),
+        }
 
     def rarity_counts(self) -> dict:
         """Species counts for the Pokedex filters.

@@ -402,6 +402,18 @@ STRINGS: dict[str, tuple[str, ...]] = {
         "Aún no coleccionada", "Pas encore collectionnée", "Ainda não coletada",
         "Noch nicht gesammelt",
     ),
+    # Generations, by the region each one is set in (upstream a49237c).
+    "region_kanto": ("Kanto", "관동", "カントー", "Kanto", "Kanto", "Kanto", "Kanto"),
+    "region_johto": ("Johto", "성도", "ジョウト", "Johto", "Johto", "Johto", "Johto"),
+    "region_hoenn": ("Hoenn", "호연", "ホウエン", "Hoenn", "Hoenn", "Hoenn", "Hoenn"),
+    "region_sinnoh": ("Sinnoh", "신오", "シンオウ", "Sinnoh", "Sinnoh", "Sinnoh", "Sinnoh"),
+    "region_unova": ("Unova", "하나", "イッシュ", "Teselia", "Unys", "Unova", "Einall"),
+    "dex_national": ("National %1", "전국 %1", "全国 %1", "Nacional %1",
+        "National %1", "Nacional %1", "National %1",
+    ),
+    "dex_region_complete": ("Complete", "완성", "コンプリート", "Completa",
+        "Complète", "Completa", "Komplett",
+    ),
     "dex_normal_label": ("Normal", "일반", "通常", "Normal", "Normal", "Normal", "Normal"),
     "dex_appearance": ("Appearance", "모습", "姿", "Aspecto", "Apparence", "Aparência", "Aussehen"),
     "dex_appearance_preview": (
